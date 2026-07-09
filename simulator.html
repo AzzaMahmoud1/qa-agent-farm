@@ -241,6 +241,34 @@ a { color: var(--text-accent); }
 .tc-type-negative { background: #fee2e2; color: #991b1b; }
 .tc-type-edge { background: #fef3c7; color: #92400e; }
 .output-empty { color: var(--text-muted); font-size: .82rem; text-align: center; padding: 1.75rem 1rem; }
+.output-body.report-view-active { max-height: none; min-height: 320px; }
+.report-doc { font-size: .8rem; line-height: 1.5; color: var(--text-primary); }
+.report-doc-title { text-align: center; font-size: 1.1rem; font-weight: 700; letter-spacing: .04em; margin: 0 0 1rem; color: #222a35; }
+.report-doc h4 { margin: 1rem 0 .45rem; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #222a35; }
+.report-doc-table { width: 100%; border-collapse: collapse; font-size: .76rem; margin-bottom: .5rem; }
+.report-doc-table th, .report-doc-table td { border: 1px solid #b0b8c4; padding: .45rem .55rem; text-align: left; vertical-align: top; }
+.report-doc-table th { background: #e8eef4; font-weight: 600; color: #222a35; }
+.report-doc-table .label-col { width: 22%; background: #f8fafc; font-weight: 600; }
+.report-scope-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0; border: 1px solid #b0b8c4; margin-bottom: .5rem; }
+.report-scope-grid .scope-head { background: #e8eef4; font-weight: 600; padding: .4rem .55rem; border-bottom: 1px solid #b0b8c4; font-size: .72rem; }
+.report-scope-grid .scope-head:not(:last-child) { border-right: 1px solid #b0b8c4; }
+.report-scope-grid .scope-cell { padding: .5rem .55rem; min-height: 3rem; border-top: 1px solid #b0b8c4; font-size: .75rem; }
+.report-scope-grid .scope-cell:not(:last-child) { border-right: 1px solid #b0b8c4; }
+.report-scope-grid .scope-cell ul { margin: 0; padding-left: 1.1rem; }
+.report-scope-grid .scope-cell li { margin-bottom: .35rem; }
+.report-platform-row { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; padding: .45rem .55rem; border: 1px solid #b0b8c4; border-bottom: none; font-size: .75rem; background: #fafbfc; }
+.report-stats-row { display: grid; grid-template-columns: repeat(4, 1fr); text-align: center; border: 1px solid #b0b8c4; }
+.report-stats-row .stat-head { background: #e8eef4; font-weight: 600; padding: .35rem; border-bottom: 1px solid #b0b8c4; font-size: .7rem; }
+.report-stats-row .stat-val { padding: .5rem; font-size: 1rem; font-weight: 600; }
+.report-stats-row > div:not(:last-child) { border-right: 1px solid #b0b8c4; }
+.report-ticket-link { color: #2563eb; text-decoration: none; font-weight: 500; }
+.report-ticket-link:hover { text-decoration: underline; }
+.report-header-actions { display: inline-flex; align-items: stretch; vertical-align: middle; }
+.report-header-actions .btn { margin: 0; }
+.report-header-actions .btn-view-report { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none; }
+.report-header-actions .btn-report-dl { border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 .6rem; min-width: 2.35rem; }
+.report-toolbar { display: flex; justify-content: flex-end; margin: 0 0 .75rem; padding-bottom: .65rem; border-bottom: 1px solid var(--border); }
+.report-toolbar .btn { font-size: .75rem; padding: .35rem .65rem; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
   </style>
@@ -261,7 +289,10 @@ a { color: var(--text-accent); }
           <button id="btn-next" class="btn">Next <i class="ti ti-chevron-right"></i></button>
           <button id="btn-reset" class="btn"><i class="ti ti-refresh"></i> Reset</button>
           <button id="btn-download-log" class="btn" title="Download run log (.log + .jsonl)"><i class="ti ti-download"></i> Download log</button>
-          <button id="btn-download-report" class="btn" title="Download test summary report (.json + .md)" disabled><i class="ti ti-report"></i> Download report</button>
+          <div class="report-header-actions" id="report-header-actions">
+            <button id="btn-view-report" class="btn btn-view-report" title="Open test summary report" disabled><i class="ti ti-report"></i> View report</button>
+            <button id="btn-download-report" class="btn btn-report-dl" title="Download test summary report (.docx + .json)" disabled aria-label="Download report"><i class="ti ti-download"></i></button>
+          </div>
           <label class="speed">Speed <input type="range" id="speed" min="200" max="2000" value="800"> <span id="speed-val">0.8s</span></label>
         </div>
       </div>
@@ -298,7 +329,10 @@ a { color: var(--text-accent); }
               <label class="field-label">Requirements description</label>
               <textarea id="req-description" class="input" rows="14" placeholder="Login with email and password&#10;&#10;As a user I want to sign in so I can access my dashboard.&#10;&#10;Acceptance Criteria:&#10;- Valid email and password logs the user in&#10;- Wrong password shows an error&#10;- Empty fields show validation errors"></textarea>
               <p style="font-size:.72rem;color:var(--text-muted);margin:.35rem 0 .65rem;line-height:1.45">Paste the full requirement. Use an <strong>Acceptance Criteria:</strong> section or bullet list for testable conditions — metadata lines (UC05, Priority, Status) are not treated as ACs.</p>
-              <button type="button" class="btn btn-primary btn-fetch" id="btn-load-requirements" style="margin-top:.25rem"><i class="ti ti-player-play"></i> Load &amp; run pipeline</button>
+              <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
+                <button type="button" class="btn btn-primary btn-fetch" id="btn-load-requirements"><i class="ti ti-player-play"></i> Load &amp; run pipeline</button>
+                <button type="button" class="btn btn-fetch" id="btn-load-sample-requirements" title="Load the Login use case sample (UC05, flows, behavioural ACs)"><i class="ti ti-file-text"></i> Load sample</button>
+              </div>
               <span id="requirements-load-status" class="jira-status" style="display:inline-block;margin-top:.5rem"></span>
             </div>
           </div>
@@ -493,7 +527,10 @@ a { color: var(--text-accent); }
     </div>
   </div>
 
+  <script src="requirements-sample.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="prerequisites.js"></script>
+  <script src="report-docx.js"></script>
   <script>
     const FALLBACK_STORIES = {
       "SEHJ-10668": {
@@ -548,14 +585,15 @@ a { color: var(--text-accent); }
     const AGENT_GUIDELINES = {
       analyst: {
         level: "L2",
-        required_deliverables: ["testable_conditions", "coverage_gaps", "affected_components", "related_files", "prerequisites_needed"],
+        required_deliverables: ["scratchpad", "testable_conditions", "coverage_gaps", "affected_components", "related_files", "prerequisites_needed", "analyst_reasoning"],
         rules: [
-          "Reject ticket metadata (UC ids, Priority, Status) — never map as acceptance criteria",
-          "Map every acceptance criterion to a testable condition",
-          "Distinguish blocking vs non-blocking coverage gaps",
-          "List affected components from the JIRA ticket",
-          "Include related source and test file paths",
-          "Map each acceptance criterion to a test action; cite ticket text; list only gaps the human must fill",
+          "Complete scratchpad steps A–E before final JSON (ambiguity, sections, ACs, prerequisites, gaps)",
+          "Reject ticket metadata and wrong sections — never map Basic Flow / Pre-conditions as ACs",
+          "Extract ACs only from Business Rules, Alternative Flow, Exception Flow",
+          "Map every acceptance criterion to a structured testable condition",
+          "Categorize prerequisites as data/environment/dependency/knowledge with blocking/non-blocking",
+          "Distinguish blocking vs non-blocking coverage gaps by category",
+          "Include related source and test file paths with reasons",
         ],
       },
       writer: {
@@ -565,17 +603,20 @@ a { color: var(--text-accent); }
           "Each test case must use Given / When / Then format",
           "At least one happy-path and one negative or edge case",
           "Every acceptance criterion must be covered by a test case",
+          "Skip ACs listed in analyst unimplemented_rules with skip_reason",
+          "Prerequisites must reference Agent 1 blocking list only",
           "Include expected evidence (status code or observable outcome)",
         ],
       },
       test_data_extractor: {
         level: "L3",
-        required_deliverables: ["datasets", "fixtures", "env_variables", "tc_mapping"],
+        required_deliverables: ["datasets", "fixtures", "env_variables", "tc_mapping", "test_oracle"],
         rules: [
           "Extract test data for every writer test case",
           "For API stories: derive datasets from human-provided curl (URL, method, headers, body)",
           "For UI stories: derive datasets from human-provided webpage URL and page context",
           "Provide valid, invalid, and boundary sample inputs per scenario",
+          "Extract test_oracle per row from writer then/expected_evidence and AC text",
           "Map each dataset row to a test case ID and linked acceptance criterion",
           "Datasets must satisfy current requirement testable conditions",
           "Re-validate datasets when requirements change",
@@ -596,11 +637,12 @@ a { color: var(--text-accent); }
       },
       reviewer: {
         level: "L4",
-        required_deliverables: ["score", "impact", "missing_coverage", "fix"],
+        required_deliverables: ["score", "impact", "missing_coverage", "fix", "unimplemented_rules_tested"],
         rules: [
           "Provide a numeric or scored QA assessment",
           "Assess impact and regression risk",
           "List missing coverage and duplicate scenarios",
+          "Flag tests written for unimplemented_rules (out of scope)",
           "Recommend concrete fix or follow-up actions",
         ],
       },
@@ -653,27 +695,61 @@ a { color: var(--text-accent); }
         title: story?.title || "",
         description: story?.description || "",
         acceptance_criteria_list: story?.acceptance_criteria_list || [],
+        acceptance_criteria_entries: story?.acceptance_criteria_entries || [],
         acceptance_criteria_rejected: story?.acceptance_criteria_rejected || [],
         requirements_raw: story?.requirements_raw || "",
         components: story?.components || [],
         labels: story?.labels || [],
+        id: story?.id,
+        blocking_gaps: story?.blocking_gaps,
       };
     }
 
-    function buildAnalystPrerequisitePayload(story) {
-      const fn = typeof analyzeStoryPrerequisites === "function"
+    function buildAnalystOutputPayload(story) {
+      const fn = typeof buildAnalystOutput === "function"
+        ? buildAnalystOutput
+        : null;
+      if (fn) return fn(storyForPrerequisiteDetection(story));
+      const legacyFn = typeof analyzeStoryPrerequisites === "function"
         ? analyzeStoryPrerequisites
         : typeof detectTicketPrerequisites === "function"
           ? detectTicketPrerequisites
           : null;
-      if (!fn) return { needed: false, items: [], already_satisfied: [], not_applicable: [], reasoning: "", summary: "No prerequisites detected" };
-      return fn(storyForPrerequisiteDetection(story));
+      if (!legacyFn) {
+        return {
+          success: true,
+          scratchpad: {},
+          testable_conditions: [],
+          prerequisites_needed: { blocking: [], non_blocking: [] },
+          coverage_gaps: [],
+          needed: false,
+          items: [],
+          summary: "No prerequisites detected",
+        };
+      }
+      return legacyFn(storyForPrerequisiteDetection(story));
+    }
+
+    function buildAnalystPrerequisitePayload(story) {
+      const out = buildAnalystOutputPayload(story);
+      return {
+        needed: out.needed ?? (out.prerequisites_needed?.blocking || []).some((b) => !b.satisfied_by_ticket),
+        items: out.items || [],
+        already_satisfied: out.already_satisfied || [],
+        not_applicable: out.not_applicable || [],
+        blocking: out.prerequisites_needed?.blocking || out.blocking || [],
+        non_blocking: out.prerequisites_needed?.non_blocking || out.non_blocking || [],
+        reasoning: out.reasoning || out.summary || "",
+        reasoning_steps: out.reasoning_steps || [],
+        story_analysis: out.story_analysis || { test_actions: [], rejected_as_non_ac: [] },
+        summary: out.summary || "",
+        scratchpad: out.scratchpad,
+      };
     }
 
     function getPrerequisiteCheck(story) {
-      if (storyOutputs?.analyst?.prerequisites_needed) {
-        return storyOutputs.analyst.prerequisites_needed;
-      }
+      const pn = storyOutputs?.analyst?.prerequisites_needed;
+      if (pn?.items?.length || pn?.story_analysis) return pn;
       if (!story) return { needed: false, items: [], summary: "No prerequisites detected" };
       return buildAnalystPrerequisitePayload(story);
     }
@@ -1404,11 +1480,24 @@ a { color: var(--text-accent); }
     }
 
     function sanitizeStoryAcceptanceCriteria(acList) {
+      let result;
       if (typeof sanitizeAcceptanceCriteria === "function") {
-        return sanitizeAcceptanceCriteria(acList || []);
+        result = sanitizeAcceptanceCriteria(acList || []);
+      } else {
+        const filtered = (acList || []).filter((line) => isLikelyAcceptanceCriterionLine(line));
+        result = { valid: filtered, rejected: [] };
       }
-      const valid = (acList || []).filter((line) => isLikelyAcceptanceCriterionLine(line));
-      return { valid, rejected: [] };
+      const entries = (result.valid || []).map((item) =>
+        typeof item === "string" ? { text: item, source: "Business Rules", section: "business_rules" } : item
+      );
+      const rejected = (result.rejected || []).map((item) =>
+        typeof item === "string" ? { text: item, reason: "not an acceptance criterion" } : item
+      );
+      return {
+        valid: entries.map((e) => String(e.text || "").trim()).filter(Boolean),
+        entries,
+        rejected,
+      };
     }
 
     function parseAcceptanceCriteriaText(text) {
@@ -1483,6 +1572,7 @@ a { color: var(--text-accent); }
         description,
         requirements_raw,
         acceptance_criteria_list: acList,
+        acceptance_criteria_entries: acEntries,
         acceptance_criteria_rejected: rejectedAcs,
         requirements_metadata: meta,
       } = parsed;
@@ -1501,6 +1591,7 @@ a { color: var(--text-accent); }
         requirements_raw,
         requirements_metadata: meta || {},
         acceptance_criteria_list: acList,
+        acceptance_criteria_entries: acEntries || acList.map((text) => ({ text, source: "Business Rules", section: "inferred_business_rules" })),
         acceptance_criteria_rejected: rejectedAcs || [],
         priority: meta?.priority || "Medium",
         status: meta?.status || "Draft",
@@ -1549,9 +1640,26 @@ a { color: var(--text-accent); }
 
     function loadRequirementsFromForm(runOptions) {
       const story = buildStoryFromRequirementsForm();
+      try {
+        const raw = el("req-description")?.value || "";
+        if (raw.trim()) sessionStorage.setItem("qa-last-requirements", raw);
+      } catch { /* ignore */ }
       setRequirementsLoadStatus("ok", "loaded " + story.id);
       loadStory(story, runOptions);
       el("event-message").textContent = "Requirements loaded — press Play to start the QA pipeline.";
+      return story;
+    }
+
+    function loadSampleRequirements(runOptions, autoRun) {
+      const sample = typeof LOGIN_USE_CASE_SAMPLE === "string" ? LOGIN_USE_CASE_SAMPLE : "";
+      if (!sample || !el("req-description")) return null;
+      setInputSource("requirements");
+      el("req-description").value = sample;
+      setRequirementsLoadStatus("ok", "sample loaded");
+      const story = loadRequirementsFromForm(runOptions);
+      if (autoRun) {
+        el("event-message").textContent = "Login use case sample loaded — press Play to run the pipeline.";
+      }
       return story;
     }
 
@@ -1688,7 +1796,7 @@ a { color: var(--text-accent); }
     }
 
     function triggerFileDownload(filename, content, mime) {
-      const blob = new Blob([content], { type: mime });
+      const blob = content instanceof Blob ? content : new Blob([content], { type: mime });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = filename;
@@ -1711,6 +1819,73 @@ a { color: var(--text-accent); }
       triggerFileDownload(`qa-run-${id}-${ts}.json`, JSON.stringify(snapshot, null, 2), "application/json;charset=utf-8");
     }
 
+    function updateReportHeaderButtons() {
+      const ready = agentStatuses.reporter === "done" && !!getReportData();
+      const viewBtn = el("btn-view-report");
+      const dlBtn = el("btn-download-report");
+      if (viewBtn) viewBtn.disabled = !ready;
+      if (dlBtn) dlBtn.disabled = !ready;
+    }
+
+    function viewReport() {
+      if (!getReportData()) {
+        alert("Report is not ready yet. Run the pipeline until the Reporter step completes.");
+        return;
+      }
+      activeOutputTab = "reporter";
+      renderOutputTabs();
+      renderActiveOutputTab();
+      el("output-body")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    async function downloadReport(triggerBtn) {
+      const report = getReportData();
+      if (!report) {
+        alert("Report is not ready yet. Run the pipeline until the Reporter step completes.");
+        return;
+      }
+      if (typeof buildReportDocxBlob !== "function") {
+        alert("Report export module not loaded.");
+        return;
+      }
+      const btn = triggerBtn || el("btn-download-report");
+      const defaultHtml = btn?.classList?.contains("btn-report-download-inline")
+        ? '<i class="ti ti-download"></i> Download report'
+        : '<i class="ti ti-download"></i>';
+      try {
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = btn.classList.contains("btn-report-download-inline")
+            ? '<i class="ti ti-loader spin"></i> Exporting…'
+            : '<i class="ti ti-loader spin"></i>';
+        }
+        const blob = await buildReportDocxBlob(report);
+        const id = sanitizeLogFilename(currentStory?.id || report.ticket_key || "report");
+        const ts = logTimestamp();
+        triggerFileDownload(
+          `test-summary-${id}-${ts}.docx`,
+          blob,
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        );
+        triggerFileDownload(
+          `test-summary-${id}-${ts}.json`,
+          JSON.stringify(report, null, 2),
+          "application/json;charset=utf-8",
+        );
+      } catch (err) {
+        alert("Could not export report: " + err.message);
+      } finally {
+        if (btn) btn.innerHTML = defaultHtml;
+        updateReportHeaderButtons();
+        document.querySelectorAll(".btn-report-download-inline").forEach((b) => { b.disabled = false; });
+      }
+    }
+
+    function focusReportTabIfReady() {
+      if (agentStatuses.reporter !== "done") return;
+      activeOutputTab = "reporter";
+    }
+
     function getReportData() {
       if (!currentStory || !storyOutputs?.reporter) return null;
       const report = JSON.parse(JSON.stringify(storyOutputs.reporter));
@@ -1729,7 +1904,25 @@ a { color: var(--text-accent); }
       if (reviewer?.impact) report.qa_impact = reviewer.impact;
       report.generated_at = new Date().toISOString();
       report.story_source = currentStory.from_jira ? "jira" : currentStory.from_requirements ? "requirements" : "mock";
+      report.story_title = currentStory.title || report.ticket_title;
+      report.ticket_url = currentStory.jira
+        || (currentStory.from_jira && currentStory.id ? browseUrlForKey(currentStory.id) : null);
       report.acceptance_criteria = currentStory.acceptance_criteria_list || [];
+      report.version_info = [
+        currentStory.id,
+        ...(currentStory.components || []),
+      ].filter(Boolean).join(" | ") || "—";
+      report.release_no = currentStory.title || report.ticket_title;
+      report.out_of_scope = storyOutputs?.reviewer?.missing_coverage || [];
+      report.items_not_tested = (storyOutputs?.analyst?.coverage_gaps || []).map((g) =>
+        typeof g === "string" ? g : `[${g.severity || "non-blocking"}] ${g.gap}`
+      );
+      const sum = report.summary || {};
+      report.regression_status = (sum.executed ?? 0) > 0 && (sum.failed ?? 0) === 0
+        ? "Completed"
+        : (sum.executed ?? 0) > 0
+          ? "In Progress"
+          : "Planned";
       report.pipeline_progress = {
         current_step: idx + 1,
         total_steps: EVENTS.length,
@@ -1738,87 +1931,95 @@ a { color: var(--text-accent); }
       return report;
     }
 
-    function buildReportMarkdown(report) {
-      const s = report.summary || {};
-      const lines = [
-        "# Test Summary Report",
-        "",
-        "## General Information",
-        "",
-        "| Field | Value |",
-        "| --- | --- |",
-        `| Project | ${report.project_name || "—"} |`,
-        `| Ticket | ${report.ticket_key || "—"} |`,
-        `| Title | ${report.ticket_title || "—"} |`,
-        `| Report Date | ${report.report_date || "—"} |`,
-        `| Environment | ${report.environment || "—"} |`,
-        `| Source | ${report.story_source || "—"} |`,
-        report.qa_score ? `| QA Score | ${report.qa_score} |` : "",
-        "",
-        "## Test Summary",
-        "",
-        `- Planned: ${s.planned ?? 0}`,
-        `- Executed: ${s.executed ?? 0}`,
-        `- Passed: ${s.passed ?? 0}`,
-        `- Failed: ${s.failed ?? 0}`,
-        `- Blocked: ${s.blocked ?? 0}`,
-        "",
-      ].filter(Boolean);
-
-      if (report.acceptance_criteria?.length) {
-        lines.push("## Acceptance Criteria", "");
-        report.acceptance_criteria.forEach((ac, i) => lines.push(`${i + 1}. ${ac}`));
-        lines.push("");
-      }
-
-      lines.push("## Regression Testing", "", "| ID | Case | Type | Status |", "| --- | --- | --- | --- |");
-      for (const row of report.regression_rows || []) {
-        lines.push(`| ${row.id} | ${row.title} | ${row.type} | ${row.status} |`);
-      }
-      lines.push("");
-
-      const d = report.defects || {};
-      lines.push(
-        "## Defects",
-        "",
-        "| Reported | Fixed | Opened | Low | Medium | High |",
-        "| --- | --- | --- | --- | --- | --- |",
-        `| ${d.reported ?? 0} | ${d.fixed ?? 0} | ${d.opened ?? 0} | ${d.low ?? 0} | ${d.medium ?? 0} | ${d.high ?? 0} |`,
-        "",
-      );
-
-      if (report.comments) {
-        lines.push("## Comments", "", report.comments, "");
-      }
-      lines.push(`**Reported by:** ${report.reported_by || "QA Agent Farm"}`, "");
-      if (report.generated_at) lines.push(`_Generated: ${report.generated_at}_`);
-      return lines.join("\n");
-    }
-
-    function updateDownloadReportButton() {
-      const btn = el("btn-download-report");
-      if (!btn) return;
-      const ready = !!getReportData() && agentStatuses.reporter === "done";
-      btn.disabled = !ready;
-      btn.title = ready
-        ? "Download test summary report (.json + .md)"
-        : "Run the pipeline until the Report step completes";
-    }
-
-    function downloadReport() {
-      const report = getReportData();
+    function renderReportView(report) {
       if (!report) {
-        alert("Load a story first, then run the pipeline to generate a report.");
-        return;
+        return `<div class="output-empty">Test Summary Report will appear here when the Reporter step completes.</div>`;
       }
-      if (agentStatuses.reporter !== "done") {
-        alert("Report not ready yet — advance the pipeline until the Reporter step completes.");
-        return;
-      }
-      const id = sanitizeLogFilename(currentStory.id);
-      const ts = logTimestamp();
-      triggerFileDownload(`qa-report-${id}-${ts}.json`, JSON.stringify(report, null, 2), "application/json;charset=utf-8");
-      triggerFileDownload(`qa-report-${id}-${ts}.md`, buildReportMarkdown(report), "text/markdown;charset=utf-8");
+
+      const s = report.summary || {};
+      const d = report.defects || {};
+      const scopeItems = typeof inScopeItems === "function" ? inScopeItems(report) : [];
+      const inScopeHtml = scopeItems.length
+        ? `<ul>${scopeItems.map((item) => {
+            const link = item.linkUrl
+              ? `<a class="report-ticket-link" href="${escapeHtml(item.linkUrl)}" target="_blank" rel="noopener">${escapeHtml(item.linkLabel)}</a>`
+              : escapeHtml(item.linkLabel || "");
+            return `<li>${escapeHtml(item.title)} ${link}</li>`;
+          }).join("")}</ul>`
+        : `<span class="muted">—</span>`;
+
+      const outScope = (report.out_of_scope || []).filter(Boolean);
+      const notTested = (report.items_not_tested || []).filter(Boolean);
+
+      return `
+        <div class="report-doc">
+          <h3 class="report-doc-title">TEST SUMMARY REPORT</h3>
+
+          <h4>General Information</h4>
+          <table class="report-doc-table">
+            <tbody>
+              <tr><th class="label-col">Project Name</th><td colspan="3">${escapeHtml(report.project_name || "SEHA")}</td></tr>
+              <tr>
+                <th class="label-col">Version No.</th>
+                <th>Release No.</th>
+                <th>Report Date</th>
+                <th>Environment</th>
+              </tr>
+              <tr>
+                <td>${escapeHtml(report.version_info || "—")}</td>
+                <td>${escapeHtml(report.release_no || report.ticket_title || "—")}</td>
+                <td>${escapeHtml(formatReportDate ? formatReportDate(report.report_date) : (report.report_date || "—"))}</td>
+                <td>${escapeHtml(report.environment || "QA")}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h4>Release Overview</h4>
+          <div class="report-platform-row">
+            <span>☒ Backend</span>
+            <span>☐ Mobile Responsive</span>
+            <span>☒ Web</span>
+            <span>☐ Android &nbsp; ☐ iOS</span>
+          </div>
+          <div class="report-scope-grid">
+            <div class="scope-head">In Scope</div>
+            <div class="scope-head">Out of Scope</div>
+            <div class="scope-head">Items not tested</div>
+            <div class="scope-head">Regression Testing</div>
+            <div class="scope-cell">${inScopeHtml}</div>
+            <div class="scope-cell">${outScope.length ? `<ul>${outScope.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : "—"}</div>
+            <div class="scope-cell">${notTested.length ? `<ul>${notTested.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : "—"}</div>
+            <div class="scope-cell"><strong>${escapeHtml(report.regression_status || "Planned")}</strong></div>
+          </div>
+
+          <h4>Number of Test Cases Planned vs Executed</h4>
+          <div class="report-stats-row">
+            <div><div class="stat-head">TCs Planned</div><div class="stat-val">${s.planned ?? 0}</div></div>
+            <div><div class="stat-head">TCs Executed</div><div class="stat-val">${s.executed ?? 0}</div></div>
+            <div><div class="stat-head">TCs Passed</div><div class="stat-val" style="color:var(--pass)">${s.passed ?? 0}</div></div>
+            <div><div class="stat-head">TCs Failed</div><div class="stat-val" style="color:var(--warn)">${s.failed ?? 0}</div></div>
+          </div>
+
+          <h4>Defects Report</h4>
+          <table class="report-doc-table">
+            <thead><tr><th>Reported Defects</th><th>Fixed Defects</th><th>Opened Defects</th><th></th></tr></thead>
+            <tbody>
+              <tr>
+                <td>${d.reported ?? 0}</td>
+                <td>${d.fixed ?? 0}</td>
+                <td>${d.opened ?? 0}</td>
+                <td></td>
+              </tr>
+              <tr><td></td><td></td><td>Low</td><td>${d.low ?? 0}</td></tr>
+              <tr><td></td><td></td><td>Medium</td><td>${d.medium ?? 0}</td></tr>
+              <tr><td></td><td></td><td>High</td><td>${d.high ?? 0}</td></tr>
+            </tbody>
+          </table>
+
+          <h4>Comments</h4>
+          <p style="margin:0;font-size:.78rem;color:var(--text-secondary)">${escapeHtml(report.comments || "NA")}</p>
+          <p style="margin:.75rem 0 0;font-size:.78rem"><strong>Reported by:</strong> ${escapeHtml(report.reported_by || "QA Agent Farm")}</p>
+        </div>`;
     }
 
     function getJiraInput() {
@@ -1840,26 +2041,65 @@ a { color: var(--text-accent); }
       return { key, url };
     }
 
+    function parseStoryContent(title, description, fallbackAcList) {
+      const issueTitle = String(title || "").trim();
+      const desc = String(description || "").trim();
+      const raw = issueTitle && desc ? `${issueTitle}\n${desc}` : (desc || issueTitle);
+
+      if (typeof parseFullRequirements === "function" && raw.trim()) {
+        const parsed = parseFullRequirements(raw);
+        if (!parsed.error) {
+          return {
+            title: issueTitle || parsed.title,
+            description: parsed.description || desc,
+            acceptance_criteria_list: parsed.acceptance_criteria_list,
+            acceptance_criteria_entries: parsed.acceptance_criteria_entries,
+            acceptance_criteria_rejected: parsed.acceptance_criteria_rejected,
+            requirements_raw: parsed.requirements_raw,
+            requirements_metadata: parsed.requirements_metadata || {},
+            sections_seen: parsed.sections_seen || [],
+          };
+        }
+      }
+
+      const fallback = Array.isArray(fallbackAcList) ? fallbackAcList : [];
+      const { valid, entries, rejected } = sanitizeStoryAcceptanceCriteria(fallback);
+      return {
+        title: issueTitle || "Requirements",
+        description: desc,
+        acceptance_criteria_list: valid,
+        acceptance_criteria_entries: entries,
+        acceptance_criteria_rejected: rejected,
+        requirements_raw: raw,
+        requirements_metadata: {},
+        sections_seen: [],
+      };
+    }
+
     function issueToStory(issue) {
-      const rawAcList = issue.acceptance_criteria || [];
-      const { valid: acList, rejected: rejectedAcs } = sanitizeStoryAcceptanceCriteria(rawAcList);
+      const content = parseStoryContent(issue.title, issue.description, issue.acceptance_criteria);
+      const acList = content.acceptance_criteria_list;
       const acCount = acList.length || issue.acceptance_criteria_count || 1;
       const tcCount = Math.max(acList.length || acCount, 1);
       const test_cases = Array.from({ length: tcCount }, (_, i) =>
         `TC-${issue.key}-${String(i + 1).padStart(2, "0")}`
       );
+      const meta = content.requirements_metadata || {};
       return {
         id: issue.key,
-        title: issue.title,
+        title: content.title || issue.title,
         jira: issue.jira_url,
-        description: issue.description || "",
+        description: content.description || issue.description || "",
+        requirements_raw: content.requirements_raw,
+        requirements_metadata: meta,
         acceptance_criteria_list: acList,
-        acceptance_criteria_rejected: rejectedAcs,
-        priority: issue.priority || "Medium",
-        status: issue.status || "Unknown",
-        issueType: issue.issueType || "Task",
-        components: issue.components || [],
-        labels: issue.labels || [],
+        acceptance_criteria_entries: content.acceptance_criteria_entries,
+        acceptance_criteria_rejected: content.acceptance_criteria_rejected,
+        priority: issue.priority || meta.priority || "Medium",
+        status: issue.status || meta.status || "Unknown",
+        issueType: issue.issueType || meta.issueType || meta.type || "Task",
+        components: issue.components?.length ? issue.components : (meta.components || []),
+        labels: issue.labels?.length ? issue.labels : (meta.labels || []),
         acceptance_criteria: acList.length,
         gaps: Math.max(1, acCount + 1),
         blocking_gaps: 0,
@@ -2064,6 +2304,9 @@ a { color: var(--text-accent); }
 
       if (Array.isArray(analyst.testable_conditions)) {
         testable_conditions = analyst.testable_conditions.map((t, i) => {
+          if (t && typeof t === "object" && t.ac_text) {
+            return { id: t.id || `AC-${i + 1}`, index: i + 1, text: t.ac_text };
+          }
           const m = String(t).match(/^AC-(\d+):\s*(.*)/);
           return m
             ? { id: `AC-${m[1]}`, index: parseInt(m[1], 10), text: m[2] }
@@ -2118,8 +2361,79 @@ a { color: var(--text-accent); }
       };
     }
 
+    function scenarioRoleForType(tcType) {
+      if (tcType === "happy_path") return "valid_input";
+      if (tcType === "edge_case") return "boundary_input";
+      if (tcType === "negative") return "invalid_input";
+      return "valid_input";
+    }
+
+    function extractTestOracle(writerTc, acText, scenarioRole, api, webpage) {
+      const ac = String(acText || "");
+      const combined = [ac, writerTc?.title, writerTc?.when, writerTc?.then, writerTc?.expected_evidence].join(" ");
+      const signals = inferRequirementSignals(combined);
+      const expected_behavior = writerTc?.then
+        || (signals.needsNegative
+          ? "System rejects invalid input per AC"
+          : "System satisfies acceptance criterion");
+      let pass_criteria = writerTc?.expected_evidence || "";
+      let fail_criteria = "";
+
+      if (scenarioRole === "invalid_input" || writerTc?.type === "negative") {
+        if (/\breject|invalid|fail|error|denied|wrong\b/i.test(combined)) {
+          pass_criteria = pass_criteria || (api?.ok
+            ? "HTTP 4xx with actionable error; no session/side-effect"
+            : webpage?.ok
+              ? "Error message visible; user not advanced to success state"
+              : "Observable rejection — error shown, success state not reached");
+          fail_criteria = api?.ok
+            ? "HTTP 2xx or success body when rejection expected"
+            : "Success UI/state when rejection expected";
+        }
+      } else if (scenarioRole === "boundary_input" || writerTc?.type === "edge_case") {
+        pass_criteria = pass_criteria || (signals.needsBoundary
+          ? "Boundary value handled per AC (accepted or rejected consistently)"
+          : "Edge input handled without crash; behaviour matches AC");
+        fail_criteria = "Silent failure, crash, or inconsistent boundary handling";
+      } else {
+        if (/\blog\s*in|session|token|authenticated\b/i.test(combined)) {
+          pass_criteria = pass_criteria || (api?.ok ? "HTTP 200 with access_token/session" : "User reaches authenticated state");
+          fail_criteria = api?.ok ? "HTTP 4xx or missing token" : "Login/session not established";
+        } else if (signals.needsNegative) {
+          pass_criteria = pass_criteria || (api?.ok ? "HTTP 2xx for valid input" : "Expected success observable");
+          fail_criteria = "Unexpected error for valid input";
+        } else {
+          pass_criteria = pass_criteria || (api?.ok ? "HTTP 2xx success response" : "Observable success per AC");
+          fail_criteria = api?.ok ? "HTTP 4xx or missing expected field" : "Success criteria not met";
+        }
+      }
+
+      if (!pass_criteria) {
+        pass_criteria = scenarioRole === "invalid_input"
+          ? "Failure path observable per AC"
+          : "Success path observable per AC";
+      }
+      if (!fail_criteria) {
+        fail_criteria = scenarioRole === "invalid_input"
+          ? "Incorrect pass when failure expected"
+          : "Incorrect fail when success expected";
+      }
+
+      return {
+        expected_behavior,
+        pass_criteria,
+        fail_criteria,
+        expected_evidence: writerTc?.expected_evidence || pass_criteria,
+        scenario_role: scenarioRole,
+        primary_input: scenarioRole,
+        derived_from: writerTc?.expected_evidence ? "writer.expected_evidence" : "ac_text_and_scenario",
+        ac_text: ac.slice(0, 120),
+      };
+    }
+
     function buildTestDataRow(id, i, ac, fields, fieldKeys, api, writerTc, requirements, webpage) {
       const tcType = writerTc?.type || "happy_path";
+      const scenarioRole = scenarioRoleForType(tcType);
       const reqId = `AC-${i + 1}`;
       const reqEntry = requirements?.testable_conditions?.[i];
       const valid_input = fieldKeys.length
@@ -2154,7 +2468,8 @@ a { color: var(--text-accent); }
         testable_condition: writerTc?.when || `AC #${i + 1}: ${ac.slice(0, 60)}`,
         curl_template: api?.ok ? `${api.method} ${api.endpoint}` : null,
         webpage_template: webpage?.ok ? webpage.url : null,
-        scenario_role: tcType === "happy_path" ? "valid_input" : tcType === "edge_case" ? "boundary_input" : "invalid_input",
+        scenario_role: scenarioRole,
+        test_oracle: extractTestOracle(writerTc, ac, scenarioRole, api, webpage),
       };
     }
 
@@ -2238,20 +2553,7 @@ a { color: var(--text-accent); }
         datasets: tcIds.map((id, i) => {
           const ac = acList[i] || acList[0] || story.title;
           const writerTc = cases.find((tc) => tc.id === id) || cases[i];
-          const reqId = `AC-${i + 1}`;
-          return {
-            test_case_id: id,
-            test_case_title: writerTc?.title || ac.slice(0, 80),
-            test_case_type: writerTc?.type || tcType(i, tcIds.length),
-            valid_input: { ticket_id: s, scenario: `valid-${i + 1}`, ac_ref: reqId },
-            invalid_input: { ticket_id: s, scenario: `invalid-${i + 1}`, ac_ref: "" },
-            boundary_input: { ticket_id: s, scenario: `edge-${i + 1}`, max_length: 255 },
-            mapped_ac: ac.slice(0, 80),
-            ac_index: i + 1,
-            requirement_id: reqId,
-            requirement_text: ac.slice(0, 120),
-            testable_condition: writerTc?.when || `AC #${i + 1}`,
-          };
+          return buildTestDataRow(id, i, ac, {}, [], null, writerTc, requirements, null);
         }),
         fixtures: tcIds.map((id) => `fixtures/${s.toLowerCase()}/${id}.json`),
         environment_variables: ["BASE_URL", "TENANT_ID"],
@@ -2344,6 +2646,23 @@ a { color: var(--text-accent); }
       });
 
 
+      const analystOutput = (() => {
+        const full = buildAnalystOutputPayload(story);
+        const prereqLegacy = buildAnalystPrerequisitePayload(story);
+        return {
+          success: full.success,
+          scratchpad: full.scratchpad,
+          analyst_reasoning: full.analyst_reasoning,
+          testable_conditions: full.testable_conditions,
+          prerequisites_needed: { ...prereqLegacy, blocking: full.prerequisites_needed?.blocking || [], non_blocking: full.prerequisites_needed?.non_blocking || [] },
+          coverage_gaps: full.coverage_gaps,
+          affected_components: full.affected_components,
+          related_files: full.related_files,
+          ready_for_test_design: full.ready_for_test_design,
+          summary: full.summary,
+        };
+      })();
+
       return {
         orchestrator: {
           role: "orchestrator",
@@ -2363,30 +2682,13 @@ a { color: var(--text-accent); }
           priority: story.priority,
           jira_status: story.status,
         },
-        analyst: {
-          testable_conditions: (() => {
-            const prereq = buildAnalystPrerequisitePayload(story);
-            const validAcs = prereq.story_analysis?.acceptance_criteria || acList;
-            return validAcs.length ? validAcs.map((ac, i) => `AC-${i + 1}: ${ac}`) : [`${story.acceptance_criteria} criteria from ticket`];
-          })(),
-          coverage_gaps: [
-            "Unicode / locale edge cases not specified in ticket",
-            "Rate limiting and error recovery not defined",
-            story.blocking_gaps ? `${story.blocking_gaps} blocking gap(s) flagged` : "No blocking gaps",
-          ],
-          affected_components: story.components?.length ? story.components : ["API", "Backend service"],
-          related_files: [`${s.toLowerCase()}.controller.ts`, `${s.toLowerCase()}.service.ts`, `tests/${s.toLowerCase()}.spec.ts`],
-          prerequisites_needed: buildAnalystPrerequisitePayload(story),
-        },
+        analyst: analystOutput,
         writer: { test_cases },
         test_data_extractor: buildTestDataExtractorOutput(
           story,
           humanApiInput.ok ? humanApiInput : null,
           test_cases,
-          {
-            testable_conditions: acList.length ? acList.map((ac, i) => `AC-${i + 1}: ${ac}`) : [`${story.acceptance_criteria} criteria from ticket`],
-            affected_components: story.components?.length ? story.components : ["API", "Backend service"],
-          },
+          analystOutput,
           humanWebpageInput.ok ? humanWebpageInput : null,
         ),
         test_executor: buildTestExecutorOutput(
@@ -2479,6 +2781,7 @@ a { color: var(--text-accent); }
       "For API stories: derive datasets from human-provided curl (URL, method, headers, body)",
       "Never use unrelated mock data (e.g. login emails) from other stories",
       "Map each dataset row to a writer test case ID and acceptance criterion",
+      "Extract test_oracle per row from writer then/expected_evidence and AC text",
       "Datasets must satisfy current analyst testable conditions",
       "Fail if requirements changed since extraction — data must be re-synced",
       "Valid lat/lon within geographic range; invalid/boundary rows use correct edge values",
@@ -2701,6 +3004,16 @@ a { color: var(--text-accent); }
         validateGeoFieldsInBlob(row.test_case_id, "invalid", row.invalid_input, "invalid", failures, failedRules);
         validateGeoFieldsInBlob(row.test_case_id, "boundary", row.boundary_input, "boundary", failures, failedRules);
         validateRequirementAlignment(story, requirements, row, writerTc, api, failures, failedRules);
+
+        if (!row.test_oracle?.pass_criteria) {
+          failures.push(`${row.test_case_id}: missing test_oracle.pass_criteria — derive from writer expected_evidence and AC`);
+          failedRules.add("Extract test_oracle per row from writer then/expected_evidence and AC text");
+        } else if (writerTc?.expected_evidence && row.test_oracle.expected_evidence
+          && row.test_oracle.expected_evidence !== writerTc.expected_evidence
+          && !row.test_oracle.pass_criteria.includes(writerTc.expected_evidence.slice(0, 20))) {
+          failures.push(`${row.test_case_id}: test_oracle not aligned with writer expected_evidence`);
+          failedRules.add("Extract test_oracle per row from writer then/expected_evidence and AC text");
+        }
       }
 
       if (storyRequiresApi(story)) {
@@ -3504,6 +3817,7 @@ a { color: var(--text-accent); }
             <div><strong>Valid</strong> ${escapeHtml(JSON.stringify(d.valid_input))}</div>
             <div><strong>Invalid</strong> ${escapeHtml(JSON.stringify(d.invalid_input))}</div>
             <div><strong>Boundary</strong> ${escapeHtml(JSON.stringify(d.boundary_input))}</div>
+            ${d.test_oracle ? `<div style="margin-top:.35rem;padding:.4rem .5rem;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px"><strong>Test oracle</strong> (${escapeHtml(d.test_oracle.scenario_role || d.scenario_role || "")})<div style="font-size:.7rem;margin-top:.25rem;line-height:1.45"><div><strong>Then</strong> ${escapeHtml(d.test_oracle.expected_behavior || "")}</div><div><strong>Pass</strong> ${escapeHtml(d.test_oracle.pass_criteria || "")}</div><div><strong>Fail</strong> ${escapeHtml(d.test_oracle.fail_criteria || "")}</div></div></div>` : ""}
             ${d.scenario_role ? `<div><strong>Primary scenario</strong> ${escapeHtml(d.scenario_role)}</div>` : ""}
           </div>
         </div>`
@@ -3537,19 +3851,6 @@ a { color: var(--text-accent); }
         `<div class="tc-row"><div class="tc-row-head"><span class="tc-type tc-type-happy">${escapeHtml(r.method)}</span><strong style="font-size:.8rem">${escapeHtml(r.name)}</strong></div><div style="font-size:.75rem;color:var(--muted);font-family:monospace">${escapeHtml(r.path)}</div><div style="font-size:.72rem;color:var(--muted);margin-top:.25rem">${(r.assertions || []).map(a => "✓ " + escapeHtml(a)).join(" · ")}</div></div>`
       ).join("");
       return `<div class="output-kv">${renderKv("collection_name", data.collection_name)}${renderKv("schema", data.schema)}${renderKv("base_url", data.base_url)}</div><h4 style="font-size:.75rem;color:var(--muted);margin:.75rem 0 .5rem;text-transform:uppercase">Requests</h4>${reqs}`;
-    }
-
-    function renderReportTable(data) {
-      const rows = (data.regression_rows || []).map((r) =>
-        `<tr><td><code>${escapeHtml(r.id)}</code></td><td>${escapeHtml(r.title)}</td><td>${escapeHtml(r.type)}</td><td>${escapeHtml(r.status)}</td></tr>`
-      ).join("");
-      const s = data.summary || {};
-      return `
-        <div class="output-kv">${renderKv("ticket", data.ticket_key + " — " + data.ticket_title)}${renderKv("environment", data.environment)}${renderKv("summary", `Planned ${s.planned} · Executed ${s.executed} · Passed ${s.passed} · Failed ${s.failed}`)}</div>
-        <table style="width:100%;border-collapse:collapse;font-size:.78rem;margin-top:.75rem">
-          <thead><tr style="color:var(--muted);text-align:left"><th style="padding:.4rem;border-bottom:1px solid var(--line)">ID</th><th style="padding:.4rem;border-bottom:1px solid var(--line)">Case</th><th style="padding:.4rem;border-bottom:1px solid var(--line)">Type</th><th style="padding:.4rem;border-bottom:1px solid var(--line)">Status</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>`;
     }
 
     function renderOrchestratorOutput(data) {
@@ -3635,27 +3936,116 @@ a { color: var(--text-accent); }
         ${rows || '<div class="muted" style="font-size:.78rem">No validations yet</div>'}`;
     }
 
-    function renderAnalystPrerequisitesBlock(prereq) {
-      if (!prereq) return "";
-      const story = prereq.story_analysis;
+    function renderStructuredAnalystOutput(data) {
+      if (!data) return "";
+      const parts = [];
+
+      if (data.summary) {
+        parts.push(`<div class="output-kv-item"><div class="output-kv-key">Summary</div><div class="output-kv-val">${escapeHtml(data.summary)}</div></div>`);
+      }
+
+      parts.push(renderAnalystScratchpad(data.scratchpad));
+
+      const conditions = data.testable_conditions || [];
+      if (conditions.length) {
+        const rows = conditions.map((c) => `
+          <div class="prereq-ac-row" style="margin-bottom:.55rem;padding-bottom:.55rem;border-bottom:1px solid var(--border)">
+            <strong>${escapeHtml(c.id)}</strong> <span class="muted" style="font-size:.72rem">[${escapeHtml(c.source || "—")}]</span><br>
+            "${escapeHtml(c.ac_text)}"<br>
+            <span class="muted">Roles:</span> ${escapeHtml((c.roles || []).join(", ") || "—")}<br>
+            <span class="muted">Testable:</span> ${escapeHtml(c.testable_statement || "—")}<br>
+            <span style="color:var(--success)">Pass:</span> ${escapeHtml(c.pass_evidence || "—")}<br>
+            <span style="color:#dc2626">Fail:</span> ${escapeHtml(c.fail_evidence || "—")}
+            ${c.ambiguous ? `<br><span class="muted">Assumption:</span> ${escapeHtml(c.assumption || "—")}` : ""}
+          </div>`).join("");
+        parts.push(`<div class="output-kv-item validator"><div class="output-kv-key">Testable conditions (${conditions.length})</div><div class="output-kv-val prereq-ac-map">${rows}</div></div>`);
+      }
+
+      const reasoning = data.analyst_reasoning;
+      if (reasoning) {
+        const rejected = (reasoning.rejected_as_non_ac || []).map((r) => `<li class="muted" style="font-size:.74rem">${escapeHtml(r)}</li>`).join("");
+        const ambiguous = (reasoning.ambiguous_acs || []).map((a) =>
+          `<li style="font-size:.74rem"><strong>${escapeHtml(a.ac_id)}</strong> — ${escapeHtml(a.issue)}<br><span class="muted">Assumption:</span> ${escapeHtml(a.assumption)}</li>`
+        ).join("");
+        parts.push(`<div class="output-kv-item validator"><div class="output-kv-key">Analyst reasoning</div><div class="output-kv-val" style="font-size:.78rem">
+          ${reasoning.ticket_read ? `<p style="margin:0 0 .45rem">${escapeHtml(reasoning.ticket_read)}</p>` : ""}
+          ${(reasoning.unimplemented_rules || []).length ? `<p style="margin:0 0 .35rem"><strong>Out of scope:</strong> ${escapeHtml(reasoning.unimplemented_rules.join("; "))}</p>` : ""}
+          ${rejected ? `<p style="margin:.35rem 0 .2rem;font-size:.72rem;color:var(--muted)">Rejected as non-AC (${reasoning.rejected_as_non_ac.length})</p><ul style="margin:0;padding-left:1.1rem">${rejected}</ul>` : ""}
+          ${ambiguous ? `<p style="margin:.35rem 0 .2rem;font-size:.72rem;color:var(--muted)">Ambiguous ACs</p><ul style="margin:0;padding-left:1.1rem">${ambiguous}</ul>` : ""}
+        </div></div>`);
+      }
+
+      const pn = data.prerequisites_needed || {};
+      const blocking = pn.blocking || [];
+      const nonBlocking = pn.non_blocking || [];
+      if (blocking.length || nonBlocking.length) {
+        const fmt = (items, label) => items.length
+          ? `<p style="margin:.35rem 0 .2rem;font-size:.72rem;color:var(--muted)">${label}</p><ul style="margin:0 0 .45rem;padding-left:1.1rem;font-size:.74rem">${items.map((p) =>
+            `<li><strong>${escapeHtml(p.item)}</strong> [${escapeHtml(p.category)}] — ${p.satisfied_by_ticket ? "satisfied" : "missing"}${p.if_not_satisfied ? `<br><span class="muted">${escapeHtml(p.if_not_satisfied)}</span>` : ""}</li>`
+          ).join("")}</ul>`
+          : "";
+        parts.push(`<div class="output-kv-item validator"><div class="output-kv-key">Prerequisites</div><div class="output-kv-val">${fmt(blocking, "Blocking")}${fmt(nonBlocking, "Non-blocking")}</div></div>`);
+      }
+
+      const gaps = data.coverage_gaps || [];
+      if (gaps.length) {
+        parts.push(`<div class="output-kv-item validator"><div class="output-kv-key">Coverage gaps (${gaps.length})</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem;font-size:.74rem">${gaps.map((g) =>
+          `<li><strong>${escapeHtml(g.category)}</strong> [${escapeHtml(g.severity)}] — ${escapeHtml(g.gap)}<br><span class="muted">Suggested:</span> ${escapeHtml(g.suggested_test || "—")}</li>`
+        ).join("")}</ul></div></div>`);
+      }
+
+      const files = data.related_files || [];
+      if (files.length) {
+        parts.push(`<div class="output-kv-item"><div class="output-kv-key">Related files</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem;font-size:.74rem">${files.map((f) =>
+          `<li><code>${escapeHtml(f.path || f)}</code>${f.reason ? ` — ${escapeHtml(f.reason)}` : ""}</li>`
+        ).join("")}</ul></div></div>`);
+      }
+
+      const legacyPrereq = pn.items ? pn : buildAnalystPrerequisitePayload(currentStory);
+      const gapsNeedInput = (legacyPrereq.items || []).filter((i) => i.status !== "already_in_ticket");
+      if (gapsNeedInput.length) {
+        parts.push(`<div class="output-kv-item validator"><div class="output-kv-key">Needs your input (${gapsNeedInput.length})</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem;font-size:.74rem">${gapsNeedInput.map((i) =>
+          `<li><strong>${escapeHtml(i.label)}</strong> — ${escapeHtml(i.analyst_note || i.reason)}</li>`
+        ).join("")}</ul></div></div>`);
+      }
+
+      return parts.join("");
+    }
+
+    function renderAnalystScratchpad(scratchpad) {
+      if (!scratchpad?.rendered) return "";
+      return `<div class="output-kv-item validator" style="margin-bottom:.65rem">
+        <div class="output-kv-key">Scratchpad (steps A–E)</div>
+        <div class="output-kv-val"><pre class="output-json" style="white-space:pre-wrap;font-size:.74rem;line-height:1.5;margin:0">${escapeHtml(scratchpad.rendered)}</pre></div>
+      </div>`;
+    }
+
+    function renderAnalystPrerequisitesBlock(prereq, scratchpad) {
+      if (!prereq && !scratchpad) return "";
+      const story = prereq?.story_analysis;
       const mapHtml = (story?.test_actions || []).map((t) =>
         `<div class="prereq-ac-row"><strong>${escapeHtml(t.ac)}</strong> "${escapeHtml(t.ac_text)}"<br><span class="prereq-for-ac">→ ${escapeHtml(t.action)}</span></div>`
       ).join("");
-      const reasoningHtml = (prereq.reasoning_steps || []).map((s) =>
+      const reasoningHtml = (prereq?.reasoning_steps || []).map((s) =>
         `<li>${escapeHtml(s.text)}${s.cite ? `<cite>${escapeHtml(String(s.cite).slice(0, 120))}</cite>` : ""}</li>`
       ).join("");
-      const gapsHtml = (prereq.items || []).map((i) =>
+      const blockingHtml = (prereq?.blocking || []).map((b) =>
+        `<li><strong>${escapeHtml(b.item)}</strong> [${escapeHtml(b.category)}] — ${b.satisfied_by_ticket ? "satisfied" : "missing"}</li>`
+      ).join("");
+      const gapsHtml = (prereq?.items || []).map((i) =>
         `<li><strong>${escapeHtml(i.label)}</strong>${i.required_for?.length ? ` (${escapeHtml(i.required_for.join(", "))})` : ""} — ${escapeHtml(i.analyst_note || i.reason)}</li>`
       ).join("");
-      const satisfiedHtml = (prereq.already_satisfied || []).map((s) =>
+      const satisfiedHtml = (prereq?.already_satisfied || []).map((s) =>
         `<li><strong>${escapeHtml(s.label)}</strong> — ${escapeHtml(s.analyst_note || s.reason)}</li>`
       ).join("");
       return `
+        ${renderAnalystScratchpad(scratchpad || prereq?.scratchpad)}
         <div class="output-kv-item validator" style="margin-bottom:.65rem">
           <div class="output-kv-key">Story → test actions</div>
           <div class="output-kv-val prereq-ac-map">${mapHtml || "—"}</div>
         </div>
         ${reasoningHtml ? `<div class="output-kv-item validator" style="margin-bottom:.65rem"><div class="output-kv-key">Reasoning</div><div class="output-kv-val"><ol style="margin:0;padding-left:1.1rem;font-size:.78rem;line-height:1.55">${reasoningHtml}</ol></div></div>` : ""}
+        ${blockingHtml ? `<div class="output-kv-item validator" style="margin-bottom:.65rem"><div class="output-kv-key">Blocking prerequisites</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem;font-size:.78rem;line-height:1.55">${blockingHtml}</ul></div></div>` : ""}
         ${gapsHtml ? `<div class="output-kv-item validator" style="margin-bottom:.65rem"><div class="output-kv-key">Gaps — need your input (${prereq.items.length})</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem;font-size:.78rem;line-height:1.55">${gapsHtml}</ul></div></div>` : ""}
         ${satisfiedHtml ? `<div class="output-kv-item" style="margin-bottom:.65rem"><div class="output-kv-key">Already in ticket</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem;font-size:.78rem;line-height:1.55">${satisfiedHtml}</ul></div></div>` : ""}`;
     }
@@ -3681,6 +4071,28 @@ a { color: var(--text-accent); }
 
     function renderActiveOutputTab() {
       const body = el("output-body");
+      if (!body) return;
+      body.classList.toggle("report-view-active", activeOutputTab === "reporter");
+
+      if (activeOutputTab === "reporter") {
+        const meta = AGENT_META.reporter;
+        const status = agentStatuses.reporter || "pending";
+        const report = status === "done" ? getReportData() : null;
+        body.innerHTML = `
+          <div class="output-header">
+            <h3>${meta.icon} ${meta.label} <span style="color:var(--muted);font-weight:400;font-size:.75rem">${meta.level}</span></h3>
+            <span class="output-status ${status}">${status === "done" ? "ready" : status}</span>
+          </div>
+          ${report ? `
+            <div class="report-toolbar">
+              <button type="button" class="btn btn-report-download-inline" title="Download .docx + .json">
+                <i class="ti ti-download"></i> Download report
+              </button>
+            </div>
+            ${renderReportView(report)}` : `<div class="output-empty">Reporter is generating the Test Summary Report…</div>`}`;
+        return;
+      }
+
       const meta = AGENT_META[activeOutputTab];
       const status = agentStatuses[activeOutputTab] || "pending";
       const data = agentOutputs[activeOutputTab];
@@ -3734,15 +4146,8 @@ a { color: var(--text-accent); }
         content = renderTestDataOutput(data);
       } else if (activeOutputTab === "test_executor" && data) {
         content = renderTestExecutorOutput(data);
-      } else if (activeOutputTab === "reporter" && data) {
-        content = renderReportTable(data)
-          + (status === "done"
-            ? `<div style="margin-top:.75rem"><button type="button" class="btn btn-primary" id="btn-download-report-inline"><i class="ti ti-download"></i> Download report (.json + .md)</button></div>`
-            : "");
       } else if (activeOutputTab === "analyst" && data) {
-        const { prerequisites_needed, ...rest } = data;
-        content = renderAnalystPrerequisitesBlock(prerequisites_needed)
-          + `<div class="output-kv">${Object.entries(rest).map(([k, v]) => renderKv(k, v)).join("")}</div>`;
+        content = renderStructuredAnalystOutput(data);
       } else if (data) {
         content = `<div class="output-kv">${Object.entries(data).map(([k, v]) => renderKv(k, v)).join("")}</div>`;
       } else {
@@ -3756,9 +4161,7 @@ a { color: var(--text-accent); }
         </div>
         ${renderAgentChangesBlock(activeOutputTab)}
         ${content}
-        ${status === "done" ? `<details style="margin-top:.75rem"><summary style="cursor:pointer;font-size:.72rem;color:var(--muted)">Raw JSON</summary><pre class="output-json" style="margin-top:.5rem">${escapeHtml(JSON.stringify(data, null, 2))}</pre></details>` : ""}`;
-      el("btn-download-report-inline")?.addEventListener("click", downloadReport);
-      updateDownloadReportButton();
+        ${status === "done" && activeOutputTab !== "reporter" ? `<details style="margin-top:.75rem"><summary style="cursor:pointer;font-size:.72rem;color:var(--muted)">Raw JSON</summary><pre class="output-json" style="margin-top:.5rem">${escapeHtml(JSON.stringify(data, null, 2))}</pre></details>` : ""}`;
     }
 
     function unlockAgentOutput(role, outputs) {
@@ -3951,6 +4354,9 @@ a { color: var(--text-accent); }
           }
           agentOutputs[ev.role] = storyOutputs[ev.role];
           setAgentOutputStatus(ev.role, "done");
+          if (ev.role === "reporter") {
+            activeOutputTab = "reporter";
+          }
         }
       }
       if (requirementsTouched) {
@@ -3958,7 +4364,7 @@ a { color: var(--text-accent); }
       }
       renderOutputTabs();
       renderActiveOutputTab();
-      updateDownloadReportButton();
+      updateReportHeaderButtons();
     }
 
     function abortRunEvents(targetAgent, phase, story, validation) {
@@ -4129,13 +4535,22 @@ a { color: var(--text-accent); }
       const component = (story.components || [])[0] || "general";
 
       const analystInstructions = {
-        target_agent: "Requirement Analyst (L2)",
-        task: "Analyze JIRA ticket and extract testable conditions + coverage gaps",
+        target_agent: "Requirement Analyst (L2 — Forced Scratchpad Mode)",
+        task: "Analyze JIRA ticket — scratchpad A–E then structured JSON",
         ticket: s + " · " + story.title,
+        scratchpad_steps: [
+          "A — Ambiguity scan",
+          "B — Section classification",
+          "C — ACs from Business Rules / Alt / Exception Flow only",
+          "D — Prerequisites (DATA/ENVIRONMENT/DEPENDENCY/KNOWLEDGE)",
+          "E — Coverage gaps by category",
+        ],
         deliverables: [
-          "List of testable conditions mapped to acceptance criteria",
-          "Coverage gaps (blocking and non-blocking)",
-          "Affected components and related files",
+          "Visible scratchpad before JSON",
+          "Structured testable_conditions",
+          "prerequisites_needed.blocking and .non_blocking",
+          "Structured coverage_gaps",
+          "related_files with reasons",
         ],
         acceptance_criteria: acList.length ? acList : [acPreview],
         constraints: "Only use ticket context — do not assume unlisted behavior",
@@ -4516,59 +4931,65 @@ a { color: var(--text-accent); }
       const component = (story.components || [])[0] || "general";
 
       const analystInstructions = {
-        target_agent: "Requirement Analyst (L2)",
-        task: "Analyze JIRA ticket — extract testable conditions, coverage gaps, and prerequisites",
+        target_agent: "Requirement Analyst (L2 — Forced Scratchpad Mode)",
+        task: "Analyze ticket — produce scratchpad steps A–E, then final JSON",
         ticket: s + " · " + story.title,
+        scratchpad_steps: [
+          "A — Ambiguity scan (UNIMPLEMENTED, VAGUE, MISSING ACTOR/STATE, CONFLICT, CLEAN)",
+          "B — Section classification (Pre-conditions→prerequisites, Basic Flow→test steps not ACs, Business Rules→ACs)",
+          "C — Extract ACs ONLY from Business Rules, Alternative Flow, Exception Flow",
+          "D — Prerequisites in DATA/ENVIRONMENT/DEPENDENCY/KNOWLEDGE with BLOCKING/NON-BLOCKING",
+          "E — Coverage gaps per category (boundary, negative, security, concurrency, integration, regression, performance, ui)",
+        ],
         deliverables: [
-          "List of testable conditions mapped to acceptance criteria",
-          "Coverage gaps (blocking and non-blocking)",
-          "Affected components and related files",
-          "prerequisites_needed — read the user story, map each AC to a test action, cite ticket text, ask only for gaps",
+          "Visible scratchpad (steps A–E) before JSON",
+          "Structured testable_conditions with source, roles, pass/fail evidence",
+          "prerequisites_needed.blocking and .non_blocking arrays",
+          "Structured coverage_gaps with category and severity",
+          "related_files with path and reason",
         ],
         acceptance_criteria: acList.length ? acList : [acPreview],
-        constraints: "Only use ticket context — do not assume unlisted behavior",
+        constraints: "Never extract ACs from Pre-conditions, Basic Flow, Post-conditions, or metadata",
         priority: story.priority,
       };
 
+      const analystFull = buildAnalystOutputPayload(story);
       const analystPrereqPayload = buildAnalystPrerequisitePayload(story);
-      const validAcs = analystPrereqPayload.story_analysis?.acceptance_criteria || acList;
 
       const analystFeedback = {
         success: true,
-        testable_conditions: validAcs.length ? validAcs.map((ac, i) => `AC-${i + 1}: ${ac}`) : [`${story.acceptance_criteria} criteria from ticket`],
-        coverage_gaps: gapSummary,
-        affected_components: (story.components || []).join(", ") || "API, Backend",
-        related_files: [
-          `${s.toLowerCase()}.controller.ts`,
-          `${s.toLowerCase()}.service.ts`,
-          `tests/${s.toLowerCase()}.spec.ts`,
-        ],
-        prerequisites_needed: analystPrereqPayload,
-        ready_for_test_design: true,
-        summary: "Found " + story.gaps + " gap(s); " + story.blocking_gaps + " blocking. "
-          + analystPrereqPayload.summary,
+        scratchpad: analystFull.scratchpad,
+        analyst_reasoning: analystFull.analyst_reasoning,
+        testable_conditions: analystFull.testable_conditions,
+        coverage_gaps: analystFull.coverage_gaps,
+        affected_components: analystFull.affected_components,
+        related_files: analystFull.related_files,
+        prerequisites_needed: { ...analystPrereqPayload, blocking: analystFull.prerequisites_needed?.blocking || [], non_blocking: analystFull.prerequisites_needed?.non_blocking || [] },
+        ready_for_test_design: analystFull.ready_for_test_design,
+        summary: analystFull.summary,
       };
 
       const analystFeedbackIncomplete = {
         success: true,
         testable_conditions: story.acceptance_criteria + " condition(s) extracted from JIRA",
-        coverage_gaps: gapSummary,
+        coverage_gaps: [],
         affected_components: (story.components || []).join(", ") || "API, Backend",
         related_files: null,
         prerequisites_needed: null,
         ready_for_test_design: false,
-        summary: "Gap analysis returned but missing prerequisites_needed (with reasoning) and related_files — incomplete for L2 guidelines",
+        summary: "Gap analysis returned but missing scratchpad, structured prerequisites, and related_files — incomplete for L2 guidelines",
       };
 
       const analystRetryInstructions = {
         target_agent: "Requirement Analyst (L2)",
-        task: "RETRY — address validator feedback",
-        validator_feedback: "Missing prerequisites_needed and related_files",
+        task: "RETRY — re-run ALL scratchpad steps A–E, then resubmit full JSON",
+        validator_feedback: "Missing scratchpad and structured L2 deliverables",
         deliverables: analystInstructions.deliverables,
         corrections: [
-          "Add prerequisites_needed with story_analysis, reasoning_steps, items (gaps only), and already_satisfied",
-          "Add related_files array with controller, service, and spec paths",
-          "Re-map each AC to an explicit testable condition ID",
+          "Output scratchpad steps A–E before final JSON",
+          "Add prerequisites_needed.blocking and .non_blocking with category",
+          "Add related_files as { path, reason } objects",
+          "Map each AC to structured testable_conditions entry",
         ],
         acceptance_criteria: acList.length ? acList : [acPreview],
         priority: story.priority,
@@ -4578,10 +4999,10 @@ a { color: var(--text-accent); }
       const analystGateOpts = {
         failAttempts: [1],
         failures: [
-          "Map each acceptance criterion to a test action; cite ticket text; list only gaps the human must fill",
-          "Include related source and test file paths",
+          "Complete all scratchpad steps A–E before final JSON",
+          "Include related source and test file paths with reasons",
         ],
-        failRecommendation: "Add prerequisites_needed with story_analysis + reasoning_steps + items/already_satisfied, and related_files",
+        failRecommendation: "Add scratchpad A–E, prerequisites_needed.blocking/non_blocking, and related_files",
         retryInstructions: analystRetryInstructions,
         retryOutput: analystFeedback,
         gateMessage: analystPrereqPayload.needed
@@ -4604,17 +5025,18 @@ a { color: var(--text-accent); }
           {
             kind: "agent_return",
             phase: "gap_analysis",
-            message: analystFeedback.summary + " (retry — prerequisites + related_files added)",
+            message: analystFeedback.summary + " (retry — scratchpad + structured deliverables added)",
             role: "analyst",
             is_retry: true,
             before_output: analystFeedbackIncomplete,
             changes_made: [
-              "Added prerequisites_needed — mapped " + (analystPrereqPayload.story_analysis?.test_actions?.length || 0) + " AC(s) to test actions; "
-                + (analystPrereqPayload.items.length || 0) + " gap(s) for you, "
-                + (analystPrereqPayload.already_satisfied?.length || 0) + " already in ticket",
-              "Added related_files: controller, service, and spec paths",
-              "Re-mapped each AC to an explicit testable condition ID",
-              "Set ready_for_test_design: true (was false)",
+              "Added scratchpad steps A–E",
+              "Added prerequisites_needed.blocking/non_blocking — "
+                + (analystPrereqPayload.items.length || 0) + " human gap(s), "
+                + (analystPrereqPayload.already_satisfied?.length || 0) + " satisfied in ticket",
+              "Added related_files with path and reason",
+              "Mapped " + (analystFull.testable_conditions?.length || 0) + " structured testable condition(s)",
+              "Set ready_for_test_design: " + analystFull.ready_for_test_design,
             ],
             orchestrator_memory: mem(story, { phase: "gap_analysis", analyst_status: "returned_retry" }),
             agent_context: {},
@@ -4642,7 +5064,7 @@ a { color: var(--text-accent); }
 
         { kind: "agent_assign", phase: "gap_analysis", message: "Analyst receives orchestrator instructions", role: "analyst", orchestrator_memory: mem(story, { phase: "gap_analysis", awaiting: "analyst" }), agent_context: analystInstructions, agent_returns: {}, decision: null },
 
-        { kind: "agent_return", phase: "gap_analysis", message: analystFeedbackIncomplete.summary, role: "analyst", orchestrator_memory: mem(story, { phase: "gap_analysis", analyst_status: "returned" }), agent_context: {}, agent_returns: analystFeedbackIncomplete, decision: null, output_note: "Missing prerequisites_needed + related_files — will fail L2 validation (attempt 1/" + VALIDATOR_MAX_ATTEMPTS + ")" },
+        { kind: "agent_return", phase: "gap_analysis", message: analystFeedbackIncomplete.summary, role: "analyst", orchestrator_memory: mem(story, { phase: "gap_analysis", analyst_status: "returned" }), agent_context: {}, agent_returns: analystFeedbackIncomplete, decision: null, output_note: "Missing scratchpad + structured deliverables — will fail L2 validation (attempt 1/" + VALIDATOR_MAX_ATTEMPTS + ")" },
 
         ...analystGate,
       ];
@@ -4986,6 +5408,11 @@ a { color: var(--text-accent); }
 
       syncOrchestratorOutput(i);
       syncOutputsToIndex(i);
+      if (e.kind === "run_end" || (e.kind === "orchestrator_gate" && e.target_agent === "reporter")) {
+        focusReportTabIfReady();
+        renderOutputTabs();
+        renderActiveOutputTab();
+      }
       renderEventFeedbackClarification(e, i);
 
       const activeRole = (e.kind === "validator_assign" || e.kind === "validator_return") ? "validator"
@@ -5016,7 +5443,12 @@ a { color: var(--text-accent); }
         return;
       }
       if (idx < EVENTS.length - 1) showEvent(idx + 1);
-      else stopPlay();
+      else {
+        stopPlay();
+        focusReportTabIfReady();
+        renderOutputTabs();
+        renderActiveOutputTab();
+      }
     }
 
     function prev() {
@@ -5055,7 +5487,7 @@ a { color: var(--text-accent); }
       renderPipelineBar(null, new Set());
       el("stats-row").hidden = true;
       activeOutputTab = "orchestrator";
-      updateDownloadReportButton();
+      updateReportHeaderButtons();
     }
 
     function stopPlay() {
@@ -5143,7 +5575,6 @@ a { color: var(--text-accent); }
       renderPipelineBar(null, new Set());
       document.title = "QA Agent Farm · " + story.id;
       if (jiraConfigured) setJiraStatus("ok", "JIRA connected");
-      updateDownloadReportButton();
     }
 
     function showEmptyTicketState() {
@@ -5197,7 +5628,12 @@ a { color: var(--text-accent); }
     el("btn-prev").onclick = () => { stopPlay(); prev(); };
     el("btn-reset").onclick = reset;
     el("btn-download-log")?.addEventListener("click", downloadRunLog);
-    el("btn-download-report")?.addEventListener("click", downloadReport);
+    el("btn-view-report")?.addEventListener("click", viewReport);
+    el("btn-download-report")?.addEventListener("click", () => downloadReport(el("btn-download-report")));
+    el("output-body")?.addEventListener("click", (e) => {
+      const dl = e.target.closest(".btn-report-download-inline");
+      if (dl) downloadReport(dl);
+    });
     el("btn-play").onclick = () => { playing ? stopPlay() : startPlay(); };
     el("speed").oninput = () => {
       el("speed-val").textContent = (el("speed").value / 1000).toFixed(1) + "s";
@@ -5217,6 +5653,14 @@ a { color: var(--text-accent); }
     el("btn-load-requirements")?.addEventListener("click", () => {
       try {
         loadRequirementsFromForm(currentRunOptions);
+      } catch (err) {
+        setRequirementsLoadStatus("err", err.message);
+        alert(err.message);
+      }
+    });
+    el("btn-load-sample-requirements")?.addEventListener("click", () => {
+      try {
+        loadSampleRequirements(currentRunOptions, false);
       } catch (err) {
         setRequirementsLoadStatus("err", err.message);
         alert(err.message);
@@ -5346,6 +5790,12 @@ a { color: var(--text-accent); }
       const source = params.get("source");
       if (source === "requirements") {
         setInputSource("requirements");
+        try {
+          const saved = sessionStorage.getItem("qa-last-requirements");
+          if (saved && el("req-description") && !el("req-description").value.trim()) {
+            el("req-description").value = saved;
+          }
+        } catch { /* ignore */ }
         showEmptyTicketState();
         el("event-message").textContent = "Paste your requirements description on the left, then click Load & run pipeline.";
         return;

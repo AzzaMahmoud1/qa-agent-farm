@@ -11,6 +11,7 @@ const types = {
   ".js": "text/javascript",
   ".css": "text/css",
   ".json": "application/json",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 };
 
 function sendJson(res, status, body) {
@@ -82,6 +83,11 @@ http
 
     const filePath = pathname === "/" ? "simulator.html" : pathname.replace(/^\//, "");
     const file = path.join(root, filePath);
+    if (!file.startsWith(root)) {
+      res.writeHead(403);
+      res.end("Forbidden");
+      return;
+    }
     fs.readFile(file, (err, data) => {
       if (err) {
         res.writeHead(404);
