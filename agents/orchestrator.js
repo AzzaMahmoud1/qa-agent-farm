@@ -8,6 +8,7 @@ import { AGENT_META, AGENT_ROLES, AGENT_GUIDELINES, VALIDATOR_MAX_ATTEMPTS, ORCH
 import { buildAnalystOutputPayload, buildAnalystPrerequisitePayload } from "./analyst.js";
 import { tcType } from "./writer.js";
 import { inferHumanInputNeeds } from "../lib/human-input.js";
+import { getLiveRequirements } from "../lib/requirements.js";
 import { buildValidationResult, validateAnalystOutputLive, DATA_EXTRACTOR_API_CHECKS } from "./validator.js";
 
 export function mem(story, extra) {

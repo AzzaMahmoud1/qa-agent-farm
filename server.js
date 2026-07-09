@@ -13,6 +13,7 @@ const types = {
   ".json": "application/json",
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 };
+// ES module paths: js/simulator-app.js imports from agents/ and lib/ (served as static .js)
 
 function sendJson(res, status, body) {
   res.writeHead(status, {

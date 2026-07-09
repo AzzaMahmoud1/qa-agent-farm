@@ -3,9 +3,26 @@ import {
   FALLBACK_STORIES, AGENT_ROLES, PIPELINE_STEPS, AGENT_META, AGENT_GUIDELINES,
   VALIDATOR_MAX_ATTEMPTS, ORCHESTRATOR_INACTIVITY_TIMEOUT_MS, VALIDATOR_GUIDELINES, OUTPUT_ROLES,
 } from "../agents/registry.js";
-import * as prerequisites from "../lib/prerequisites.js";
-import { parseCurl, parseWebpageInput, formatCurlPreview } from "../lib/human-input.js";
+
+/** Prerequisites loaded via classic script (lib/prerequisites.js → window.*) */
+const prerequisites = {
+  analyzeStoryPrerequisites: window.analyzeStoryPrerequisites,
+  buildAnalystOutput: window.buildAnalystOutput,
+  detectTicketPrerequisites: window.detectTicketPrerequisites,
+  sanitizeAcceptanceCriteria: window.sanitizeAcceptanceCriteria,
+  isLikelyAcceptanceCriterion: window.isLikelyAcceptanceCriterion,
+  isStrongAcceptanceCriterion: window.isStrongAcceptanceCriterion,
+  isFlowOrScenarioLine: window.isFlowOrScenarioLine,
+  isUseCaseSectionHeader: window.isUseCaseSectionHeader,
+  isMetadataLine: window.isMetadataLine,
+  validateAnalystOutput: window.validateAnalystOutput,
+  parseFullRequirements: window.parseFullRequirements,
+  mergeRejectedLines: window.mergeRejectedLines,
+  buildScratchpad: window.buildScratchpad,
+};
+import { parseCurl, parseWebpageInput, formatCurlPreview, inferHumanInputNeeds } from "../lib/human-input.js";
 import { parseRequirementsDescription, issueToStory } from "../lib/story.js";
+import { buildRequirementsFromStory, getLiveRequirements } from "../lib/requirements.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -86,8 +103,7 @@ const farm = createAgentFarm(ctx);
 const {
   buildAgentOutputs, buildEvents, resolvePipelineEvents, mem,
   buildAnalystOutputPayload, buildAnalystPrerequisitePayload,
-  buildRequirementsFromStory, getLiveRequirements,
-  inferHumanInputNeeds, validateAnalystOutputLive, validateTestDataExtractorOutput,
+  validateAnalystOutputLive, validateTestDataExtractorOutput,
   resolveLiveValidatorReturn, validationGateEvents, buildOrchestratorInactivityFailureEvents,
   buildValidatorLiveState, buildFeedbackLoops, buildOrchestratorLiveState, enrichEventForDisplay,
   buildPrerequisiteInputEvents, buildHumanInputEvents,

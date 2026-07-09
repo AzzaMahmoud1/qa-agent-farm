@@ -1,4 +1,6 @@
-import { farmCtx } from "./ctx-bridge.js";/** @see skills/analyst/SKILL.md */
+import { farmCtx } from "./ctx-bridge.js";
+
+/** @see skills/analyst/SKILL.md */
 export const AGENT_ID = "analyst";
 export const SKILL_PATH = "skills/analyst/SKILL.md";
 export const SKILL_FOLDER = "skills/analyst";
