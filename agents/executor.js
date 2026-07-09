@@ -4,6 +4,7 @@ export const SKILL_PATH = "skills/executor/SKILL.md";
 export const SKILL_FOLDER = "skills/executor";
 
 import { farmCtx } from "./ctx-bridge.js";
+import { redactParsedCurl } from "../lib/redaction.js";
 
 export function blockedExecutorOutput(story, reason) {
   const tcIds = story?.test_cases || [];
@@ -14,7 +15,7 @@ export function blockedExecutorOutput(story, reason) {
     execution_mode: "blocked — awaiting human input",
     requires_human_api: farmCtx.storyRequiresApi(story),
     requires_human_webpage: farmCtx.storyRequiresWebpage(story),
-    human_api: farmCtx.humanApiInput.ok ? farmCtx.humanApiInput : null,
+    human_api: farmCtx.humanApiInput.ok ? redactParsedCurl(farmCtx.humanApiInput) : null,
     human_webpage: farmCtx.humanWebpageInput.ok ? farmCtx.humanWebpageInput : null,
     execution_plan: tcIds.map((id) => ({
       test_case_id: id,
@@ -23,11 +24,40 @@ export function blockedExecutorOutput(story, reason) {
       status: "blocked",
     })),
     results: [],
-    summary: { planned: tcIds.length, executed: 0, passed: 0, failed: 0, blocked: tcIds.length },
+    summary: { planned: tcIds.length, executed: 0, passed: 0, failed: 0, blocked: tcIds.length, measured: false },
   };
 }
 
-export function buildTestExecutorOutput(story, api, webpage) {
+function buildApiResult(tcId, api, executionResult) {
+  if (!executionResult?.executed) {
+    return {
+      test_case_id: tcId,
+      status: "not_executed",
+      evidence: "API execution pending — submit curl and run against allowlisted target",
+    };
+  }
+  const passed = executionResult.passed === true;
+  return {
+    test_case_id: tcId,
+    status: passed ? "passed" : "failed",
+    evidence: executionResult.evidence,
+    http_status: executionResult.status,
+    response_snippet: executionResult.response?.body_snippet,
+    request: executionResult.request,
+    response: executionResult.response,
+  };
+}
+
+function buildWebResult(tcId, web) {
+  return {
+    test_case_id: tcId,
+    status: "executed",
+    evidence: `UI check recorded for ${web.url} (title: ${web.title || web.path}) — manual/browser verification required`,
+    webpage: { url: web.url, title: web.title, path: web.path },
+  };
+}
+
+export function buildTestExecutorOutput(story, api, webpage, executionResult) {
   const s = story.id;
   const tcIds = story.test_cases;
   const humanNeed = farmCtx.getLiveHumanInputNeed(story);
@@ -35,6 +65,7 @@ export function buildTestExecutorOutput(story, api, webpage) {
   const requiresWeb = humanNeed.types.includes("webpage");
   const web = webpage || (farmCtx.humanWebpageInput.ok ? farmCtx.humanWebpageInput : null);
   const prereq = farmCtx.getPrerequisiteCheck(story);
+  const liveExecution = executionResult || farmCtx.executionResult || null;
 
   if (prereq.needed && !farmCtx.isPrerequisitesSatisfied()) {
     return blockedExecutorOutput(story, "Confirm prerequisites before running tests.");
@@ -55,13 +86,30 @@ export function buildTestExecutorOutput(story, api, webpage) {
   else if (requiresWeb) execution_mode = "ui (human-provided webpage)";
   else execution_mode = "not run — no execution inputs required";
 
-  const canExecute = (requiresApi && api?.ok) || (requiresWeb && web?.ok);
+  const safeApi = api?.ok ? redactParsedCurl(api) : null;
+  const results = [];
+  for (const id of tcIds) {
+    if (requiresApi && api?.ok) results.push(buildApiResult(id, api, liveExecution));
+    else if (requiresWeb && web?.ok) results.push(buildWebResult(id, web));
+    else {
+      results.push({
+        test_case_id: id,
+        status: "not_run",
+        evidence: "No execution inputs required from human",
+      });
+    }
+  }
+
+  const executed = results.filter((r) => ["passed", "failed", "executed"].includes(r.status)).length;
+  const passed = results.filter((r) => r.status === "passed" || r.status === "executed").length;
+  const failed = results.filter((r) => r.status === "failed").length;
+
   return {
     ticket: s,
     execution_mode,
     requires_human_api: requiresApi,
     requires_human_webpage: requiresWeb,
-    human_api: requiresApi && api?.ok ? api : null,
+    human_api: safeApi,
     human_webpage: requiresWeb && web?.ok ? web : null,
     execution_plan: tcIds.map((id) => ({
       test_case_id: id,
@@ -71,21 +119,16 @@ export function buildTestExecutorOutput(story, api, webpage) {
           ? `dataset/${id} → navigate ${web.url}`
           : `fixtures/${s.toLowerCase()}/${id}.json`,
       method: api?.ok ? api.method : web?.ok ? "browser" : "none",
-      status: canExecute ? "planned" : "not run",
+      status: executed > 0 ? "executed" : "planned",
     })),
-    results: canExecute
-      ? tcIds.map((id) => ({
-          test_case_id: id,
-          status: "planned",
-          evidence: api?.ok
-            ? `Run ${api.method} ${api.url} with dataset/${id}`
-            : `Open ${web.url} with dataset/${id}`,
-        }))
-      : tcIds.map((id) => ({
-          test_case_id: id,
-          status: "not run",
-          evidence: "No execution inputs required from human",
-        })),
-    summary: { planned: tcIds.length, executed: 0, passed: 0, failed: 0, blocked: 0 },
+    results,
+    summary: {
+      planned: tcIds.length,
+      executed,
+      passed,
+      failed,
+      blocked: 0,
+      measured: executed > 0,
+    },
   };
 }

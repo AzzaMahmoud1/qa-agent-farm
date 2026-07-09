@@ -21,6 +21,7 @@ const prerequisites = {
   buildScratchpad: window.buildScratchpad,
 };
 import { parseCurl, parseWebpageInput, formatCurlPreview, inferHumanInputNeeds } from "../lib/human-input.js";
+import { redactParsedCurl, redactString } from "../lib/redaction.js";
 import { parseRequirementsDescription, issueToStory } from "../lib/story.js";
 import { buildRequirementsFromStory, getLiveRequirements } from "../lib/requirements.js";
 
@@ -48,6 +49,9 @@ let idx = -1;
 let EVENTS = [];
 let playing = false;
 let timer = null;
+let storyOutputs = {};
+let currentInputSource = "jira";
+let executionResult = null;
 
 // --- bootstrap agent farm ---
 const ctx = {
@@ -97,6 +101,8 @@ Object.assign(ctx, {
   set orchestratorInactivityCountdownInterval(v) { orchestratorInactivityCountdownInterval = v; },
   get orchestratorInactivityDeadline() { return orchestratorInactivityDeadline; },
   set orchestratorInactivityDeadline(v) { orchestratorInactivityDeadline = v; },
+  get executionResult() { return executionResult; },
+  set executionResult(v) { executionResult = v; },
 });
 
 const farm = createAgentFarm(ctx);
@@ -107,6 +113,7 @@ const {
   resolveLiveValidatorReturn, validationGateEvents, buildOrchestratorInactivityFailureEvents,
   buildValidatorLiveState, buildFeedbackLoops, buildOrchestratorLiveState, enrichEventForDisplay,
   buildPrerequisiteInputEvents, buildHumanInputEvents,
+  buildTestExecutorOutput, buildReviewerOutput, buildReporterOutput, buildTestDataExtractorOutput,
 } = farm;
 
 // ctx helpers wired after function declarations (hoisted)
@@ -123,7 +130,6 @@ Object.assign(ctx, {
 
 const buildHumanApiEvents = buildHumanInputEvents;
 
-let currentInputSource = "jira";
 async function apiFetch(path) {
   const res = await fetch(path);
   const data = await res.json().catch(() => ({}));
@@ -171,7 +177,8 @@ function buildRunLogExport() {
   const humanNeed = story ? getLiveHumanInputNeed(story) : null;
   if (humanApiInput.ok) {
     lines.push("--- HUMAN: API CURL PROVIDED ---");
-    lines.push(`  ${humanApiInput.method} ${humanApiInput.url}`);
+    const safe = redactParsedCurl(humanApiInput);
+    lines.push(`  ${safe.method} ${safe.url}`);
     lines.push("");
   }
   if (humanWebpageInput.ok) {
@@ -732,6 +739,7 @@ function loadStory(story, runOptions) {
   updateDemoBanner(opts);
   humanApiInput = { ok: false, curl: "", base_url: "", endpoint: "", method: "GET", url: "", headers: {}, auth: "", body: null };
   humanWebpageInput = { ok: false, url: "", path: "", origin: "", title: "" };
+  executionResult = null;
   userPrerequisites = {};
   cachedPrerequisiteCheck = null;
   cachedHumanInputNeed = null;
@@ -924,8 +932,6 @@ function parseIssueKey(input) {
   const m = s.match(/([A-Z][A-Z0-9]+-\d+)/i);
   return m ? m[1].toUpperCase() : null;
 }
-
-let currentInputSource = "jira";
 
 
 function prev() {
@@ -1788,7 +1794,10 @@ function renderTestExecutorOutput(data) {
     `<div class="tc-row"><div class="tc-row-head"><span class="tc-row-id">${escapeHtml(r.test_case_id)}</span><span class="tc-type ${r.status === "passed" ? "tc-type-happy" : "tc-type-edge"}">${escapeHtml(r.status)}</span></div><div style="font-size:.72rem;color:var(--muted)">${escapeHtml(r.evidence)}</div></div>`
   ).join("");
   const apiBlock = data.requires_human_api && data.human_api?.ok
-    ? `<div class="output-kv-item validator" style="margin-bottom:.65rem"><div class="output-kv-key">Human-provided curl</div><div class="output-kv-val"><div style="font-size:.78rem;line-height:1.5"><strong>${escapeHtml(data.human_api.method)}</strong> ${escapeHtml(data.human_api.url || data.human_api.base_url + data.human_api.endpoint)}<br>${data.human_api.auth ? `<span style="color:var(--muted)">Auth:</span> ${escapeHtml(data.human_api.auth)}<br>` : ""}${Object.keys(data.human_api.headers || {}).length ? `<span style="color:var(--muted)">Headers:</span> ${escapeHtml(Object.keys(data.human_api.headers).join(", "))}` : ""}${data.human_api.body ? `<br><span style="color:var(--muted)">Body:</span> <code style="font-size:.7rem">${escapeHtml(data.human_api.body)}</code>` : ""}</div></div></div>`
+    ? (() => {
+        const api = data.human_api;
+        return `<div class="output-kv-item validator" style="margin-bottom:.65rem"><div class="output-kv-key">Human-provided curl</div><div class="output-kv-val"><div style="font-size:.78rem;line-height:1.5"><strong>${escapeHtml(api.method)}</strong> ${escapeHtml(api.url || api.base_url + api.endpoint)}<br>${api.auth ? `<span style="color:var(--muted)">Auth:</span> [REDACTED]<br>` : ""}${Object.keys(api.headers || {}).length ? `<span style="color:var(--muted)">Headers:</span> ${escapeHtml(Object.keys(api.headers).join(", "))}` : ""}${api.body ? `<br><span style="color:var(--muted)">Body:</span> <code style="font-size:.7rem">${escapeHtml(redactString(api.body))}</code>` : ""}</div></div></div>`;
+      })()
     : "";
   const s = data.summary || {};
   return `${apiBlock}<div class="output-kv">${renderKv("execution_mode", data.execution_mode)}${renderKv("summary", `Planned ${s.planned} · Executed ${s.executed} · Passed ${s.passed}`)}</div><h4 style="font-size:.75rem;color:var(--muted);margin:.75rem 0 .5rem;text-transform:uppercase">Execution plan</h4>${plan}<h4 style="font-size:.75rem;color:var(--muted);margin:.75rem 0 .5rem;text-transform:uppercase">Results</h4>${results}`;
@@ -2234,32 +2243,39 @@ el("demo-exit-link")?.addEventListener("click", (e) => {
 });
 
 (async function init() {
-  renderPipelineBar(null, new Set());
-  setInputSource("jira");
-  await checkJiraHealth();
-  const params = new URLSearchParams(location.search);
-  const demo = params.get("demo") === "requirements" || params.get("abort_demo") === "1"
-    ? "requirements"
-    : null;
-  currentRunOptions = demo ? { demo } : {};
-  const source = params.get("source");
-  if (source === "requirements") {
-    setInputSource("requirements");
-    try {
-      const saved = sessionStorage.getItem("qa-last-requirements");
-      if (saved && el("req-description") && !el("req-description").value.trim()) {
-        el("req-description").value = saved;
-      }
-    } catch { /* ignore */ }
-    showEmptyTicketState();
-    el("event-message").textContent = "Paste your requirements description on the left, then click Load & run pipeline.";
-    return;
-  }
-  const initial = params.get("ticket") || params.get("url") || params.get("key") || getJiraInput();
-  if (initial && resolveTicketInput(initial)) {
-    await loadStoryByKey(initial, !demo, currentRunOptions);
-  } else {
-    showEmptyTicketState();
+  try {
+    renderPipelineBar(null, new Set());
+    setInputSource("jira");
+    await checkJiraHealth();
+    const params = new URLSearchParams(location.search);
+    const demo = params.get("demo") === "requirements" || params.get("abort_demo") === "1"
+      ? "requirements"
+      : null;
+    currentRunOptions = demo ? { demo } : {};
+    const source = params.get("source");
+    if (source === "requirements") {
+      setInputSource("requirements");
+      try {
+        const saved = sessionStorage.getItem("qa-last-requirements");
+        if (saved && el("req-description") && !el("req-description").value.trim()) {
+          el("req-description").value = saved;
+        }
+      } catch { /* ignore */ }
+      showEmptyTicketState();
+      el("event-message").textContent = "Paste your requirements description on the left, then click Load & run pipeline.";
+      return;
+    }
+    const initial = params.get("ticket") || params.get("url") || params.get("key") || getJiraInput();
+    if (initial && resolveTicketInput(initial)) {
+      await loadStoryByKey(initial, !demo, currentRunOptions);
+    } else {
+      showEmptyTicketState();
+    }
+  } catch (err) {
+    console.error("Simulator init failed:", err);
+    setJiraStatus("err", "init failed");
+    el("server-banner").hidden = false;
+    el("event-message").textContent = "Simulator failed to start: " + (err.message || String(err));
   }
 })();
 
@@ -2379,12 +2395,64 @@ function storyRequiresWebpage(story) {
 }
 
 
+function refreshExecutionOutputs() {
+  if (!currentStory) return;
+  const api = humanApiInput.ok ? humanApiInput : null;
+  const web = humanWebpageInput.ok ? humanWebpageInput : null;
+  const executor = buildTestExecutorOutput(currentStory, api, web, executionResult);
+  storyOutputs.test_executor = executor;
+  storyOutputs.reviewer = buildReviewerOutput(currentStory, currentStory.test_cases, executor);
+  storyOutputs.reporter = buildReporterOutput(currentStory, storyOutputs.writer?.test_cases || [], executor);
+  if (agentOutputs.test_executor) agentOutputs.test_executor = executor;
+  if (agentOutputs.reviewer) agentOutputs.reviewer = storyOutputs.reviewer;
+  if (agentOutputs.reporter) agentOutputs.reporter = storyOutputs.reporter;
+}
+
+
+async function runApiExecution(curlText) {
+  try {
+    const res = await fetch("/api/execute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ curl: curlText }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      executionResult = { executed: false, error: data.error || `HTTP ${res.status}` };
+      return executionResult;
+    }
+    executionResult = data;
+    return data;
+  } catch (err) {
+    executionResult = { executed: false, error: err.message };
+    return executionResult;
+  }
+}
+
+
 function submitHumanInput(advanceStep) {
   const need = getLiveHumanInputNeed(currentStory);
   if (!need.needsHumanInput) {
     setHumanInputStatus("err", "No human input required for current requirements");
     return false;
   }
+
+  const finish = () => {
+    clearOrchestratorInactivityTimer();
+    syncHumanInputToOutputs();
+    const parts = [];
+    if (need.types.includes("api") && humanApiInput.ok) parts.push(`${humanApiInput.method} ${humanApiInput.endpoint}`);
+    if (need.types.includes("webpage") && humanWebpageInput.ok) parts.push(humanWebpageInput.url);
+    if (executionResult?.executed) parts.push(`HTTP ${executionResult.status ?? "error"}`);
+    setHumanInputStatus("ok", parts.join(" · "));
+    if (advanceStep && EVENTS[idx]?.kind === "human_input_request" && idx < EVENTS.length - 1) {
+      stopPlay();
+      next();
+      resumeOrchestratorAfterHumanInput();
+    }
+    renderActiveOutputTab();
+    return true;
+  };
 
   if (need.types.includes("api")) {
     const parsed = parseCurl(el("human-api-curl")?.value?.trim() || "");
@@ -2395,6 +2463,9 @@ function submitHumanInput(advanceStep) {
     }
     humanApiInput = parsed;
     renderCurlPreview(parsed);
+    setHumanInputStatus("loading", "executing API request…");
+    runApiExecution(parsed.curl).then(() => finish());
+    return true;
   }
 
   if (need.types.includes("webpage")) {
@@ -2408,21 +2479,7 @@ function submitHumanInput(advanceStep) {
     renderWebPreview(web);
   }
 
-  clearOrchestratorInactivityTimer();
-  syncHumanInputToOutputs();
-
-  const parts = [];
-  if (need.types.includes("api") && humanApiInput.ok) parts.push(`${humanApiInput.method} ${humanApiInput.endpoint}`);
-  if (need.types.includes("webpage") && humanWebpageInput.ok) parts.push(humanWebpageInput.url);
-  setHumanInputStatus("ok", parts.join(" · "));
-
-  if (advanceStep && EVENTS[idx]?.kind === "human_input_request" && idx < EVENTS.length - 1) {
-    stopPlay();
-    next();
-    resumeOrchestratorAfterHumanInput();
-  }
-  renderActiveOutputTab();
-  return true;
+  return finish();
 }
 
 const submitHumanApi = submitHumanInput;
@@ -2448,6 +2505,7 @@ function syncHumanInputToOutputs() {
   const need = getLiveHumanInputNeed(currentStory);
   if (!isHumanInputSatisfied(need)) return;
   syncRequirementsToTestData();
+  refreshExecutionOutputs();
 }
 
 const syncHumanApiToOutputs = syncHumanInputToOutputs;
@@ -2503,11 +2561,7 @@ function syncOutputsToIndex(i) {
         );
       }
       if (ev.role === "test_executor" && currentStory) {
-        storyOutputs.test_executor = buildTestExecutorOutput(
-          currentStory,
-          humanApiInput.ok ? humanApiInput : null,
-          humanWebpageInput.ok ? humanWebpageInput : null,
-        );
+        refreshExecutionOutputs();
       }
       agentOutputs[ev.role] = storyOutputs[ev.role];
       setAgentOutputStatus(ev.role, "done");
@@ -2541,12 +2595,7 @@ function syncRequirementsToTestData() {
   }
   const need = getLiveHumanInputNeed(currentStory);
   if (isHumanInputSatisfied(need)) {
-    storyOutputs.test_executor = buildTestExecutorOutput(
-      currentStory,
-      humanApiInput.ok ? humanApiInput : null,
-      humanWebpageInput.ok ? humanWebpageInput : null,
-    );
-    if (agentOutputs.test_executor) agentOutputs.test_executor = storyOutputs.test_executor;
+    refreshExecutionOutputs();
   }
   rebuildDataExtractorValidationGate();
   updateHumanInputPanel(currentStory);
@@ -2810,188 +2859,3 @@ function viewReport() {
   renderActiveOutputTab();
   el("output-body")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
-
-
-el("btn-next").onclick = () => { stopPlay(); next(); };
-el("btn-prev").onclick = () => { stopPlay(); prev(); };
-el("btn-reset").onclick = reset;
-el("btn-download-log")?.addEventListener("click", downloadRunLog);
-el("btn-view-report")?.addEventListener("click", viewReport);
-el("btn-download-report")?.addEventListener("click", () => downloadReport(el("btn-download-report")));
-el("output-body")?.addEventListener("click", (e) => {
-  const dl = e.target.closest(".btn-report-download-inline");
-  if (dl) downloadReport(dl);
-});
-el("btn-play").onclick = () => { playing ? stopPlay() : startPlay(); };
-el("speed").oninput = () => {
-  el("speed-val").textContent = (el("speed").value / 1000).toFixed(1) + "s";
-  if (playing) { stopPlay(); startPlay(); }
-};
-el("btn-fetch-jira").onclick = async () => {
-  try {
-    const story = await fetchJiraTicket();
-    setInputSource("jira");
-    loadStory(story, currentRunOptions);
-    setJiraStatus("ok", "loaded " + story.id);
-  } catch (err) {
-    setJiraStatus("err", err.message.slice(0, 48));
-    alert(err.message);
-  }
-};
-el("btn-load-requirements")?.addEventListener("click", () => {
-  try {
-    loadRequirementsFromForm(currentRunOptions);
-  } catch (err) {
-    setRequirementsLoadStatus("err", err.message);
-    alert(err.message);
-  }
-});
-el("btn-load-sample-requirements")?.addEventListener("click", () => {
-  try {
-    loadSampleRequirements(currentRunOptions, false);
-  } catch (err) {
-    setRequirementsLoadStatus("err", err.message);
-    alert(err.message);
-  }
-});
-el("tab-source-jira")?.addEventListener("click", () => setInputSource("jira"));
-el("tab-source-requirements")?.addEventListener("click", () => setInputSource("requirements"));
-el("jira-url").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") el("btn-fetch-jira").click();
-});
-
-document.querySelectorAll(".output-tab").forEach((tab) => {
-  tab.addEventListener("click", () => {
-    activeOutputTab = tab.dataset.agent;
-    renderOutputTabs();
-    renderActiveOutputTab();
-  });
-});
-
-el("btn-submit-human-input")?.addEventListener("click", () => submitHumanInput(true));
-el("btn-submit-prerequisites")?.addEventListener("click", submitPrerequisites);
-el("human-api-curl")?.addEventListener("input", () => {
-  const need = getLiveHumanInputNeed(currentStory);
-  if (!need.types.includes("api")) return;
-  const parsed = parseCurl(el("human-api-curl").value);
-  renderCurlPreview(parsed.ok ? parsed : null);
-  if (parsed.ok) setHumanInputStatus("loading", "curl parsed — click Provide input to confirm");
-});
-el("human-web-url")?.addEventListener("input", () => {
-  const need = getLiveHumanInputNeed(currentStory);
-  if (!need.types.includes("webpage")) return;
-  const parsed = parseWebpageInput(el("human-web-url").value, el("human-web-title")?.value);
-  renderWebPreview(parsed.ok ? parsed : null);
-  if (parsed.ok) setHumanInputStatus("loading", "webpage parsed — click Provide input to confirm");
-});
-el("human-web-title")?.addEventListener("input", () => {
-  const need = getLiveHumanInputNeed(currentStory);
-  if (!need.types.includes("webpage")) return;
-  const parsed = parseWebpageInput(el("human-web-url")?.value, el("human-web-title").value);
-  renderWebPreview(parsed.ok ? parsed : null);
-});
-
-function startPipelineFromActiveSource(runOptions) {
-  if (currentInputSource === "requirements") {
-    try {
-      loadRequirementsFromForm(runOptions);
-    } catch (err) {
-      setRequirementsLoadStatus("err", err.message);
-      alert(err.message);
-    }
-    return;
-  }
-  const resolved = resolveTicketInput(currentStory?.jira || getJiraInput());
-  if (!resolved) {
-    alert("Paste a JIRA URL first, or switch to Requirements and paste your description.");
-    return;
-  }
-  const url = new URL(location.href);
-  url.searchParams.delete("demo");
-  url.searchParams.delete("abort_demo");
-  url.searchParams.set("ticket", resolved.url);
-  history.replaceState(null, "", url);
-  if (currentStory && !currentStory.from_requirements) {
-    loadStory(currentStory, runOptions);
-  } else {
-    loadStoryByKey(resolved.url, location.protocol !== "file:" && !runOptions?.demo, runOptions);
-  }
-}
-
-function startRequirementsDemo() {
-  currentRunOptions = { demo: "requirements" };
-  const url = new URL(location.href);
-  url.searchParams.set("demo", "requirements");
-  url.searchParams.delete("abort_demo");
-  if (currentInputSource === "requirements") {
-    url.searchParams.delete("ticket");
-    history.replaceState(null, "", url);
-    try {
-      loadRequirementsFromForm(currentRunOptions);
-    } catch (err) {
-      setRequirementsLoadStatus("err", err.message);
-    }
-    return;
-  }
-  const resolved = resolveTicketInput(currentStory?.jira || getJiraInput());
-  if (!resolved) {
-    alert("Paste a JIRA URL or switch to Requirements tab.");
-    return;
-  }
-  url.searchParams.set("ticket", resolved.url);
-  history.replaceState(null, "", url);
-  if (currentStory && !currentStory.from_requirements) {
-    loadStory(currentStory, currentRunOptions);
-  } else {
-    loadStoryByKey(resolved.url, false, currentRunOptions);
-  }
-}
-
-function startDefaultPipeline() {
-  currentRunOptions = {};
-  const url = new URL(location.href);
-  url.searchParams.delete("demo");
-  url.searchParams.delete("abort_demo");
-  if (currentInputSource === "requirements") {
-    url.searchParams.delete("ticket");
-    history.replaceState(null, "", url);
-  }
-  startPipelineFromActiveSource({});
-}
-
-el("btn-demo-requirements")?.addEventListener("click", startRequirementsDemo);
-el("btn-demo-default")?.addEventListener("click", startDefaultPipeline);
-el("demo-exit-link")?.addEventListener("click", (e) => {
-  e.preventDefault();
-  startDefaultPipeline();
-});
-
-(async function init() {
-  renderPipelineBar(null, new Set());
-  setInputSource("jira");
-  await checkJiraHealth();
-  const params = new URLSearchParams(location.search);
-  const demo = params.get("demo") === "requirements" || params.get("abort_demo") === "1"
-    ? "requirements"
-    : null;
-  currentRunOptions = demo ? { demo } : {};
-  const source = params.get("source");
-  if (source === "requirements") {
-    setInputSource("requirements");
-    try {
-      const saved = sessionStorage.getItem("qa-last-requirements");
-      if (saved && el("req-description") && !el("req-description").value.trim()) {
-        el("req-description").value = saved;
-      }
-    } catch { /* ignore */ }
-    showEmptyTicketState();
-    el("event-message").textContent = "Paste your requirements description on the left, then click Load & run pipeline.";
-    return;
-  }
-  const initial = params.get("ticket") || params.get("url") || params.get("key") || getJiraInput();
-  if (initial && resolveTicketInput(initial)) {
-    await loadStoryByKey(initial, !demo, currentRunOptions);
-  } else {
-    showEmptyTicketState();
-  }
-})();

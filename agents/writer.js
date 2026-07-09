@@ -3,10 +3,19 @@ export const AGENT_ID = "writer";
 export const SKILL_PATH = "skills/writer/SKILL.md";
 export const SKILL_FOLDER = "skills/writer";
 
-export function tcType(i, total) {
-  if (i === 0) return "happy_path";
-  if (i === total - 1 && total > 2) return "edge_case";
-  return "negative";
+export function inferTcType(acText, index, total) {
+  const t = String(acText || "").toLowerCase();
+  if (/\b(invalid|reject|deny|error|fail|unauthorized|forbidden|must not|shall not|wrong|empty)\b/.test(t)) {
+    return "negative";
+  }
+  if (/\b(edge|boundary|limit|maximum|minimum|expires?|timeout|concurrent|duplicate|overflow)\b/.test(t)) {
+    return "edge_case";
+  }
+  if (/\b(security|cross-tenant|escalat|only their own|may not)\b/.test(t)) {
+    return "security";
+  }
+  if (index === 0 && total > 1) return "happy_path";
+  return "happy_path";
 }
 
 export function buildWriterTestCases(story) {
@@ -15,7 +24,7 @@ export function buildWriterTestCases(story) {
   const tcIds = story.test_cases;
   return tcIds.map((id, i) => {
     const ac = acList[i] || acList[0] || story.title;
-    const type = tcType(i, tcIds.length);
+    const type = inferTcType(ac, i, tcIds.length);
     return {
       id,
       title: ac.length > 80 ? ac.slice(0, 77) + "…" : ac,

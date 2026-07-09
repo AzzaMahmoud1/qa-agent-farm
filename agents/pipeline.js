@@ -60,9 +60,9 @@ export function buildAgentOutputs(story) {
     analyst: analystOutput,
     writer: { test_cases },
     test_data_extractor: buildTestDataExtractorOutput(story, api, test_cases, analystOutput, web),
-    test_executor: buildTestExecutorOutput(story, api, web),
-    reviewer: buildReviewerOutput(story, tcIds),
-    reporter: buildReporterOutput(story, test_cases),
+    test_executor: buildTestExecutorOutput(story, api, web, farmCtx.executionResult),
+    reviewer: buildReviewerOutput(story, tcIds, buildTestExecutorOutput(story, api, web, farmCtx.executionResult)),
+    reporter: buildReporterOutput(story, test_cases, buildTestExecutorOutput(story, api, web, farmCtx.executionResult)),
     validator: {
       role: "Output Validator",
       level: "L2",

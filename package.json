@@ -1,0 +1,19 @@
+{
+  "name": "qa-agent-farm",
+  "version": "0.2.0",
+  "description": "QA planning simulator with multi-agent pipeline, JIRA integration, and evidence-based execution",
+  "private": true,
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test-requirements.js && node test/eval-fixes.js",
+    "test:requirements": "node test-requirements.js",
+    "test:eval": "node test/eval-fixes.js",
+    "doctor": "node scripts/doctor.js",
+    "check:modules": "node scripts/check-modules.js"
+  },
+  "keywords": ["qa", "simulator", "jira", "testing"],
+  "license": "UNLICENSED"
+}

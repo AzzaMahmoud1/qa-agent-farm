@@ -61,21 +61,10 @@ export function validateAnalystOutputLive(story, analystOutput) {
   };
 }
 
-const DATA_EXTRACTOR_API_CHECKS = [
-  "For API stories: derive datasets from human-provided curl (URL, method, headers, body)",
-  "Never use unrelated mock data (e.g. login emails) from other stories",
-  "Map each dataset row to a writer test case ID and acceptance criterion",
-  "Extract test_oracle per row from writer then/expected_evidence and AC text",
-  "Datasets must satisfy current analyst testable conditions",
-  "Fail if requirements changed since extraction — data must be re-synced",
-  "Valid lat/lon within geographic range; invalid/boundary rows use correct edge values",
-  "Extract test data for every writer test case",
-];
-
 export function validateRequirementAlignment(story, requirements, row, writerTc, api, failures, failedRules) {
-  const farmCtx.idx = (row.ac_index || 1) - 1;
-  const acText = requirements.acceptance_criteria[farmCtx.idx] || requirements.testable_conditions[farmCtx.idx]?.text || "";
-  const testableText = requirements.testable_conditions[farmCtx.idx]?.text || acText;
+  const acIdx = (row.ac_index || 1) - 1;
+  const acText = requirements.acceptance_criteria[acIdx] || requirements.testable_conditions[acIdx]?.text || "";
+  const testableText = requirements.testable_conditions[acIdx]?.text || acText;
   const combined = [testableText, writerTc?.title, writerTc?.when, writerTc?.then, writerTc?.given].join(" ");
   const signals = inferRequirementSignals(combined);
 
@@ -83,21 +72,21 @@ export function validateRequirementAlignment(story, requirements, row, writerTc,
     const hasLat = Object.keys(row.valid_input || {}).some(isLatitudeKey);
     const hasLon = Object.keys(row.valid_input || {}).some(isLongitudeKey);
     if (!hasLat || !hasLon) {
-      failures.push(`${row.test_case_id}: requirement ${row.requirement_id || `AC-${farmCtx.idx + 1}`} needs coordinates — dataset missing lat/lon`);
+      failures.push(`${row.test_case_id}: requirement ${row.requirement_id || `AC-${acIdx + 1}`} needs coordinates — dataset missing lat/lon`);
       failedRules.add("Datasets must satisfy current requirement testable conditions");
     }
   }
 
   if (signals.needsWebpage && farmCtx.storyRequiresWebpage(story)) {
     if (!row.webpage_template && !row.valid_input?.page_url) {
-      failures.push(`${row.test_case_id}: requirement ${row.requirement_id || `AC-${farmCtx.idx + 1}`} needs webpage URL in dataset`);
+      failures.push(`${row.test_case_id}: requirement ${row.requirement_id || `AC-${acIdx + 1}`} needs webpage URL in dataset`);
       failedRules.add("Datasets must satisfy current requirement testable conditions");
     }
   }
 
   if (signals.needsApi && farmCtx.storyRequiresApi(story)) {
     if (!row.curl_template && !api?.ok && !outputHasApiFields(row)) {
-      failures.push(`${row.test_case_id}: requirement ${row.requirement_id || `AC-${farmCtx.idx + 1}`} needs API data linkage`);
+      failures.push(`${row.test_case_id}: requirement ${row.requirement_id || `AC-${acIdx + 1}`} needs API data linkage`);
       failedRules.add("Datasets must satisfy current requirement testable conditions");
     }
   }
@@ -240,8 +229,8 @@ export function validateTestDataExtractorOutput(story, output, writerOutput, ana
 
   const seenIds = new Set();
   for (const row of output?.datasets || []) {
-    const farmCtx.idx = storyTcIds.indexOf(row.test_case_id);
-    if (farmCtx.idx < 0) {
+    const tcIdx = storyTcIds.indexOf(row.test_case_id);
+    if (tcIdx < 0) {
       failures.push(`${row.test_case_id}: dataset not linked to any writer test case ID`);
       failedRules.add("Map each dataset row to a test case ID and linked acceptance criterion");
     } else if (seenIds.has(row.test_case_id)) {
@@ -251,7 +240,7 @@ export function validateTestDataExtractorOutput(story, output, writerOutput, ana
       seenIds.add(row.test_case_id);
     }
 
-    const writerTc = writerCases.find((tc) => tc.id === row.test_case_id) || writerCases[farmCtx.idx];
+    const writerTc = writerCases.find((tc) => tc.id === row.test_case_id) || writerCases[tcIdx];
     if (!writerTc) {
       failures.push(`${row.test_case_id}: no matching writer test case object`);
       failedRules.add("Map each dataset row to a test case ID and linked acceptance criterion");
@@ -267,15 +256,15 @@ export function validateTestDataExtractorOutput(story, output, writerOutput, ana
       }
     }
 
-    const expectedAc = (acList[farmCtx.idx] || acList[0] || story.title || "").slice(0, 80);
+    const expectedAc = (acList[tcIdx] || acList[0] || story.title || "").slice(0, 80);
     if (expectedAc && row.mapped_ac && expectedAc.slice(0, 40) !== row.mapped_ac.slice(0, 40)
       && !expectedAc.includes(row.mapped_ac.slice(0, 30)) && !row.mapped_ac.includes(expectedAc.slice(0, 30))) {
-      failures.push(`${row.test_case_id}: mapped_ac does not match acceptance criterion AC-${farmCtx.idx + 1}`);
+      failures.push(`${row.test_case_id}: mapped_ac does not match acceptance criterion AC-${tcIdx + 1}`);
       failedRules.add("Map each dataset row to a test case ID and linked acceptance criterion");
     }
 
-    if (row.ac_index !== undefined && row.ac_index !== farmCtx.idx + 1) {
-      failures.push(`${row.test_case_id}: ac_index ${row.ac_index} should be ${farmCtx.idx + 1}`);
+    if (row.ac_index !== undefined && row.ac_index !== tcIdx + 1) {
+      failures.push(`${row.test_case_id}: ac_index ${row.ac_index} should be ${tcIdx + 1}`);
       failedRules.add("Map each dataset row to a test case ID and linked acceptance criterion");
     }
 

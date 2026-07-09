@@ -6,7 +6,7 @@ export const SKILL_FOLDER = "skills/orchestrator";
 import { farmCtx } from "./ctx-bridge.js";
 import { AGENT_META, AGENT_ROLES, AGENT_GUIDELINES, VALIDATOR_MAX_ATTEMPTS, ORCHESTRATOR_INACTIVITY_TIMEOUT_MS, VALIDATOR_GUIDELINES } from "./registry.js";
 import { buildAnalystOutputPayload, buildAnalystPrerequisitePayload } from "./analyst.js";
-import { tcType } from "./writer.js";
+import { inferTcType } from "./writer.js";
 import { inferHumanInputNeeds } from "../lib/human-input.js";
 import { getLiveRequirements } from "../lib/requirements.js";
 import { buildValidationResult, validateAnalystOutputLive, DATA_EXTRACTOR_API_CHECKS } from "./validator.js";
@@ -77,6 +77,106 @@ export function validationGateEvents(targetAgent, phase, story, agentReturns, op
   );
   const failAttempts = new Set(opts.failAttempts || (opts.failFirst ? [1] : []));
   const events = [];
+
+  function assignEv(attemptNum, outputSnapshot) {
+    return {
+      kind: "validator_assign",
+      phase,
+      role: "validator",
+      target_agent: targetAgent,
+      attempt: attemptNum,
+      message: `Validator check ${attemptNum}/${VALIDATOR_MAX_ATTEMPTS} — ${meta.label} output vs ${g.level} guidelines`,
+      orchestrator_memory: mem(story, { phase, validation: "in_progress", target: targetAgent, attempt: attemptNum }),
+      agent_context: {
+        target_agent: targetAgent,
+        attempt: attemptNum,
+        max_attempts: VALIDATOR_MAX_ATTEMPTS,
+        validator_guidelines: VALIDATOR_GUIDELINES.rules,
+        worker_guidelines: g.rules,
+        required_deliverables: g.required_deliverables,
+        agent_output: outputSnapshot || agentReturns,
+      },
+      agent_returns: {},
+      decision: null,
+    };
+  }
+
+  function returnEv(passed, validation, attemptNum, brake) {
+    return {
+      kind: "validator_return",
+      phase,
+      role: "validator",
+      target_agent: targetAgent,
+      passed,
+      validation,
+      attempt: attemptNum,
+      brake_applied: !!brake,
+      message: passed
+        ? `Validation PASSED for ${meta.label} on attempt ${attemptNum}/${VALIDATOR_MAX_ATTEMPTS} (${validation.score})`
+        : brake
+          ? `Validation FAILED for ${meta.label} on attempt ${attemptNum}/${VALIDATOR_MAX_ATTEMPTS} — brake applied, run aborts`
+          : `Validation FAILED for ${meta.label} on attempt ${attemptNum}/${VALIDATOR_MAX_ATTEMPTS}: ${validation.failures.join("; ")}`,
+      orchestrator_memory: mem(story, {
+        phase,
+        validation: passed ? "passed" : brake ? "brake" : "failed",
+        target: targetAgent,
+        attempt: attemptNum,
+      }),
+      agent_context: { validation, attempt: attemptNum, attempts_remaining: passed ? 0 : VALIDATOR_MAX_ATTEMPTS - attemptNum },
+      agent_returns: validation,
+      decision: passed
+        ? "approve — orchestrator may proceed"
+        : brake
+          ? "abort — 2nd failure, no retry"
+          : `reject — 1 retry allowed (${VALIDATOR_MAX_ATTEMPTS - attemptNum} left)`,
+    };
+  }
+
+  function gateEv(validation, attemptNum) {
+    return {
+      kind: "orchestrator_gate",
+      phase: "orchestrator",
+      target_agent: targetAgent,
+      message: opts.gateMessage || `Orchestrator approved ${meta.label} output (passed on attempt ${attemptNum}) — advancing pipeline`,
+      validation_feedback: validation,
+      orchestrator_memory: mem(story, { phase: "orchestrator", gate: targetAgent, validation: "passed", attempt: attemptNum }),
+      agent_context: {},
+      agent_returns: validation,
+      decision: opts.gateDecision,
+    };
+  }
+
+  events.push(assignEv(1));
+  if (failAttempts.has(1)) {
+    events.push(returnEv(false, failValidation, 1, false));
+    events.push({
+      kind: "orchestrator_reinstruct",
+      phase: "orchestrator",
+      target_agent: targetAgent,
+      message: `Orchestrator re-instructs ${meta.label} (1 retry remaining before run abort)`,
+      instructions: opts.retryInstructions,
+      validation_feedback: failValidation,
+      orchestrator_memory: mem(story, { phase: "orchestrator", action: "reinstruct_" + targetAgent, retries_left: 1 }),
+      agent_context: opts.retryInstructions,
+      agent_returns: failValidation,
+      decision: `retry ${targetAgent} — last chance: ${failValidation.failures[0]}`,
+    });
+    if (opts.retryEvents) events.push(...opts.retryEvents);
+
+    events.push(assignEv(2, opts.retryOutput || agentReturns));
+    if (failAttempts.has(2)) {
+      events.push(returnEv(false, failValidation2, 2, true));
+      events.push(...abortRunEvents(targetAgent, phase, story, failValidation2));
+      return events;
+    }
+    events.push(returnEv(true, passValidation, 2, false));
+    events.push(gateEv(passValidation, 2));
+  } else {
+    events.push(returnEv(true, passValidation, 1, false));
+    events.push(gateEv(passValidation, 1));
+  }
+  return events;
+}
 
 export function buildRequirementsFailureDemo(story) {
   const s = story.id;
@@ -629,7 +729,7 @@ export function buildEvents(story) {
     return {
       id,
       title: ac.length > 80 ? ac.slice(0, 77) + "…" : ac,
-      type: tcType(i, story.test_cases.length),
+      type: inferTcType(ac, i, story.test_cases.length),
       when: `Scenario exercises AC #${i + 1}: ${ac.slice(0, 60)}`,
       then: "Expected behavior per AC",
     };
@@ -721,14 +821,6 @@ export function buildEvents(story) {
     { kind: "run_end", phase: "complete", message: "Final goal achieved · " + story.title, role: null, orchestrator_memory: mem(story, { phase: "complete" }), agent_context: {}, agent_returns: {}, decision: "goal achieved" },
   ];
 }
-
-let farmCtx.EVENTS = [];
-let farmCtx.storyOutputs = {};
-let farmCtx.idx = -1;
-let farmCtx.playing = false;
-let timer = null;
-
-const farmCtx.el = (id) => document.getElementById(id);
 
 export function buildOrchestratorInactivityFailureEvents(story) {
   const timeoutSec = ORCHESTRATOR_INACTIVITY_TIMEOUT_MS / 1000;
@@ -942,7 +1034,7 @@ export function buildOrchestratorLiveState(eventIndex) {
   }
 
   const run_aborted = (farmCtx.EVENTS[eventIndex]?.kind === "run_failed")
-    || EVENTS.slice(0, eventIndex + 1).some((ev) => ev.kind === "run_failed");
+    || farmCtx.EVENTS.slice(0, eventIndex + 1).some((ev) => ev.kind === "run_failed");
 
   return {
     ...base,
@@ -962,6 +1054,6 @@ export function buildOrchestratorLiveState(eventIndex) {
     reinstructions,
     feedback_loops: buildFeedbackLoops(eventIndex),
     events_processed: eventIndex + 1,
-    events_total: EVENTS.length,
+    events_total: farmCtx.EVENTS.length,
   };
 }

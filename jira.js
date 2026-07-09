@@ -54,7 +54,7 @@ function extractAcceptanceCriteria(text) {
       if (line.startsWith("-") || line.startsWith("•")) ac.push(line.replace(/^[-•]\s*/, "").trim());
     }
   }
-  return ac.slice(0, 12);
+  return ac;
 }
 
 function parseIssueKey(input) {
@@ -80,7 +80,7 @@ function parseIssueKey(input) {
   return m ? m[1].toUpperCase() : null;
 }
 
-function jiraRequest(path) {
+function jiraRequest(path, options = {}) {
   const base = (process.env.JIRA_URL || "").replace(/\/$/, "");
   const user = process.env.JIRA_USERNAME;
   const token = process.env.JIRA_API_TOKEN;
@@ -90,6 +90,8 @@ function jiraRequest(path) {
 
   const auth = Buffer.from(`${user}:${token}`).toString("base64");
   const url = new URL(path, base);
+  const timeoutMs = options.timeoutMs || 15000;
+  const maxBytes = options.maxBytes || 1024 * 1024;
 
   return new Promise((resolve, reject) => {
     const req = https.request(
@@ -103,7 +105,16 @@ function jiraRequest(path) {
       },
       (res) => {
         let data = "";
-        res.on("data", (chunk) => (data += chunk));
+        let size = 0;
+        res.on("data", (chunk) => {
+          size += chunk.length;
+          if (size > maxBytes) {
+            reject(new Error(`JIRA response exceeds ${maxBytes} bytes`));
+            req.destroy();
+            return;
+          }
+          data += chunk;
+        });
         res.on("end", () => {
           if (res.statusCode >= 400) {
             reject(new Error(`JIRA ${res.statusCode}: ${data.slice(0, 300)}`));
@@ -117,12 +128,15 @@ function jiraRequest(path) {
         });
       }
     );
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`JIRA request timed out after ${timeoutMs}ms`));
+    });
     req.on("error", reject);
     req.end();
   });
 }
 
-async function fetchIssue(issueKey) {
+async function fetchIssue(issueKey, options = {}) {
   const key = parseIssueKey(issueKey);
   if (!key) throw new Error("Invalid JIRA issue key");
 

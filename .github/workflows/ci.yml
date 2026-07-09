@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Doctor
+        run: node scripts/doctor.js
+      - name: Module parse check
+        run: node scripts/check-modules.js
+      - name: Requirements tests
+        run: node test-requirements.js
+      - name: Evaluation fix tests
+        run: node test/eval-fixes.js
