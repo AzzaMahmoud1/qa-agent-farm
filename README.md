@@ -2,10 +2,20 @@
 
 Browser-based QA planning simulator with a multi-agent pipeline (Analyst → Writer → Data Extractor → Executor → Reviewer → Reporter), JIRA live fetch, and requirements paste mode.
 
+## Model routing
+
+| Role | Model ID |
+|------|----------|
+| Orchestrator | `claude-fable-5` (Claude Fable 5) |
+| Validator + all worker agents | `claude-4.6-sonnet` (Claude Sonnet) |
+
+Configured in `agents/registry.js` (`AGENT_MODEL_ROUTING`) and `.cursor/agents/*.md`.
+
 ## Requirements
 
 - **Node.js 18+** (for built-in `fetch` in the execution worker)
 - Optional: JIRA credentials in `.env` for live ticket fetch
+- For Cursor agent runs: enable **Claude Fable 5** and **Claude Sonnet** in Cursor Models settings
 
 ## Quick start
 

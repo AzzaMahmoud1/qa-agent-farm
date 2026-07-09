@@ -2,6 +2,7 @@ import { createAgentFarm } from "../agents/index.js";
 import {
   FALLBACK_STORIES, AGENT_ROLES, PIPELINE_STEPS, AGENT_META, AGENT_GUIDELINES,
   VALIDATOR_MAX_ATTEMPTS, ORCHESTRATOR_INACTIVITY_TIMEOUT_MS, VALIDATOR_GUIDELINES, OUTPUT_ROLES,
+  MODEL_ORCHESTRATOR, MODEL_WORKER, getModelForAgent,
 } from "../agents/registry.js";
 
 /** Prerequisites loaded via classic script (lib/prerequisites.js → window.*) */
@@ -1510,6 +1511,8 @@ function renderOrchestratorOutput(data) {
   const feedbackLoops = renderFeedbackLoopsHtml(data.feedback_loops || [], data.events_processed || 0);
   return `
     <div class="output-kv">
+      ${renderKv("model", data.model || MODEL_ORCHESTRATOR)}
+      ${data.model_routing ? renderKv("worker_model", data.model_routing.workers) : ""}
       ${renderKv("ticket", data.ticket)}
       ${renderKv("source", data.source)}
       ${renderKv("current_phase", data.current_phase)}
@@ -1520,6 +1523,7 @@ function renderOrchestratorOutput(data) {
       ${renderKv("validator_max_attempts", data.validator_max_attempts)}
       ${data.validator_guidelines ? renderKv("validator_guidelines", data.validator_guidelines) : ""}
       ${renderKv("pipeline_plan", data.pipeline_plan)}
+      ${Array.isArray(data.agents_in_pipeline) ? renderKv("agents_in_pipeline", data.agents_in_pipeline.map((a) => typeof a === "string" ? a : `${a.role} → ${a.model}`)) : ""}
     </div>
     <h4 style="font-size:.72rem;color:var(--muted);margin:.75rem 0 .4rem;text-transform:uppercase">Current memory</h4>
     <div class="output-kv">${memEntries.map(([k, v]) => renderKv(k, v)).join("")}</div>
@@ -1554,7 +1558,9 @@ function renderPipelineBar(activeRole, doneRoles) {
     const connector = i < PIPELINE_STEPS.length - 1
       ? `<div class="pipeline-connector ${isDone ? "done" : ""}"></div>` : "";
     const inner = isDone ? '<i class="ti ti-check" style="font-size:14px"></i>' : step.icon;
-    return `${i > 0 ? "" : ""}<div class="${cls}"><div class="pipeline-dot">${inner}</div><span class="pipeline-label">${step.label}</span></div>${connector}`;
+    const model = getModelForAgent(step.id);
+    const modelShort = model.includes("fable") ? "Fable 5" : "Sonnet";
+    return `${i > 0 ? "" : ""}<div class="${cls}" title="${escapeHtml(model)}"><div class="pipeline-dot">${inner}</div><span class="pipeline-label">${step.label}</span><span class="pipeline-model" style="font-size:.58rem;color:var(--text-muted);margin-top:.15rem">${modelShort}</span></div>${connector}`;
   }).join("");
 }
 

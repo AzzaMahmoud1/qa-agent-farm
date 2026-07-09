@@ -7,6 +7,8 @@ description: >-
 
 # QA Reviewer (L4)
 
+**Model:** `claude-4.6-sonnet` (Claude Sonnet) — required for this agent.
+
 ## Input
 
 All prior agent outputs: analyst, writer, data, executor.

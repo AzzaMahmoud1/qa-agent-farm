@@ -31,6 +31,30 @@ const FALLBACK_STORIES = {
 
 const AGENT_ROLES = ["analyst", "writer", "test_data_extractor", "test_executor", "reviewer", "reporter"];
 
+/** Cursor / Anthropic model IDs for pipeline routing */
+const MODEL_ORCHESTRATOR = "claude-fable-5";
+const MODEL_WORKER = "claude-4.6-sonnet";
+
+/**
+ * Model routing policy:
+ * - Orchestrator (L1) → Claude Fable 5 (long-horizon coordination)
+ * - All worker agents + validator → Claude Sonnet (execution / analysis)
+ */
+const AGENT_MODEL_ROUTING = {
+  orchestrator: MODEL_ORCHESTRATOR,
+  validator: MODEL_WORKER,
+  analyst: MODEL_WORKER,
+  writer: MODEL_WORKER,
+  test_data_extractor: MODEL_WORKER,
+  test_executor: MODEL_WORKER,
+  reviewer: MODEL_WORKER,
+  reporter: MODEL_WORKER,
+};
+
+function getModelForAgent(role) {
+  return AGENT_MODEL_ROUTING[role] || MODEL_WORKER;
+}
+
 const PIPELINE_STEPS = [
       { id: "orchestrator", label: "Orchestrator", icon: "🎯" },
       { id: "validator", label: "Validator", icon: "✅" },
@@ -43,14 +67,14 @@ const PIPELINE_STEPS = [
     ];
 
 const AGENT_META = {
-      orchestrator: { label: "Orchestrator", icon: "🎯", level: "L1", skillPath: "skills/orchestrator/SKILL.md", skillFolder: "skills/orchestrator" },
-      validator: { label: "Output Validator", icon: "✅", level: "L2", skillPath: "skills/validator/SKILL.md", skillFolder: "skills/validator" },
-      analyst: { label: "Requirement Analyst", icon: "🔍", level: "L2", skillPath: "skills/analyst/SKILL.md", skillFolder: "skills/analyst" },
-      writer: { label: "Test Case Writer", icon: "📝", level: "L3", skillPath: "skills/writer/SKILL.md", skillFolder: "skills/writer" },
-      test_data_extractor: { label: "Test Data Extractor", icon: "🧪", level: "L3", skillPath: "skills/data-extractor/SKILL.md", skillFolder: "skills/data-extractor" },
-      test_executor: { label: "Test Executor", icon: "▶️", level: "L3", skillPath: "skills/executor/SKILL.md", skillFolder: "skills/executor" },
-      reviewer: { label: "QA Reviewer", icon: "🛡️", level: "L4", skillPath: "skills/reviewer/SKILL.md", skillFolder: "skills/reviewer" },
-      reporter: { label: "Report Generator", icon: "📊", level: "L5", skillPath: "skills/reporter/SKILL.md", skillFolder: "skills/reporter" },
+      orchestrator: { label: "Orchestrator", icon: "🎯", level: "L1", model: MODEL_ORCHESTRATOR, skillPath: "skills/orchestrator/SKILL.md", skillFolder: "skills/orchestrator" },
+      validator: { label: "Output Validator", icon: "✅", level: "L2", model: MODEL_WORKER, skillPath: "skills/validator/SKILL.md", skillFolder: "skills/validator" },
+      analyst: { label: "Requirement Analyst", icon: "🔍", level: "L2", model: MODEL_WORKER, skillPath: "skills/analyst/SKILL.md", skillFolder: "skills/analyst" },
+      writer: { label: "Test Case Writer", icon: "📝", level: "L3", model: MODEL_WORKER, skillPath: "skills/writer/SKILL.md", skillFolder: "skills/writer" },
+      test_data_extractor: { label: "Test Data Extractor", icon: "🧪", level: "L3", model: MODEL_WORKER, skillPath: "skills/data-extractor/SKILL.md", skillFolder: "skills/data-extractor" },
+      test_executor: { label: "Test Executor", icon: "▶️", level: "L3", model: MODEL_WORKER, skillPath: "skills/executor/SKILL.md", skillFolder: "skills/executor" },
+      reviewer: { label: "QA Reviewer", icon: "🛡️", level: "L4", model: MODEL_WORKER, skillPath: "skills/reviewer/SKILL.md", skillFolder: "skills/reviewer" },
+      reporter: { label: "Report Generator", icon: "📊", level: "L5", model: MODEL_WORKER, skillPath: "skills/reporter/SKILL.md", skillFolder: "skills/reporter" },
     };
 
 const AGENT_GUIDELINES = {
@@ -158,4 +182,8 @@ export {
   ORCHESTRATOR_INACTIVITY_TIMEOUT_MS,
   VALIDATOR_GUIDELINES,
   OUTPUT_ROLES,
+  MODEL_ORCHESTRATOR,
+  MODEL_WORKER,
+  AGENT_MODEL_ROUTING,
+  getModelForAgent,
 };

@@ -307,6 +307,9 @@ Each request must:
 
 ## Pipeline rules
 
+- **Model routing (required):**
+  - Orchestrator → **Claude Fable 5** (`claude-fable-5`)
+  - All worker agents (Analyst, Writer, Data Extractor, Executor, Reviewer, Reporter) + Validator → **Claude Sonnet** (`claude-4.6-sonnet`)
 - Run agents in order: Analyst → Writer → API Engineer → Reviewer
 - Each agent uses ALL previous outputs as input
 - Always run @codebase before Agent 1

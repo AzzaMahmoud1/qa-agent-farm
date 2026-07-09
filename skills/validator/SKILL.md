@@ -8,6 +8,8 @@ description: >-
 
 # Output Validator (L2)
 
+**Model:** `claude-4.6-sonnet` (Claude Sonnet) — required for this agent.
+
 ## Role
 
 Check worker output against **that agent's skill rules only**. Never rewrite agent output.

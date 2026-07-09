@@ -1,6 +1,7 @@
 import { farmCtx } from "./ctx-bridge.js";
 import {
   AGENT_ROLES, AGENT_GUIDELINES, VALIDATOR_GUIDELINES, VALIDATOR_MAX_ATTEMPTS,
+  MODEL_ORCHESTRATOR, MODEL_WORKER, AGENT_MODEL_ROUTING, getModelForAgent,
 } from "./registry.js";
 import { buildAnalystOutputPayload, buildAnalystPrerequisitePayload } from "./analyst.js";
 import { buildWriterTestCases } from "./writer.js";
@@ -41,18 +42,24 @@ export function buildAgentOutputs(story) {
   return {
     orchestrator: {
       role: "orchestrator",
+      model: MODEL_ORCHESTRATOR,
       ticket: `${s} — ${story.title}`,
       source: story.from_jira ? "JIRA live" : story.from_requirements ? "Requirements (pasted)" : "mock",
       stage: "1 — Orchestrator leads the pipeline",
+      model_routing: {
+        orchestrator: MODEL_ORCHESTRATOR,
+        workers: MODEL_WORKER,
+        by_role: { ...AGENT_MODEL_ROUTING },
+      },
       pipeline_plan: [
-        "① Orchestrator assigns ticket → Requirement Analyst",
-        "② Analyst extracts conditions + prerequisites → Validator checks (max 2 attempts)",
+        "① Orchestrator (Fable 5) assigns ticket → Requirement Analyst (Sonnet)",
+        "② Analyst extracts conditions + prerequisites → Validator checks (max 2 attempts, Sonnet)",
         "③ If prerequisites need human values → orchestrator pauses for your input",
         "④ Writer → Human input if story requires it → no simulated data before you provide it",
-        "⑤ Data → Executor → Reviewer → Reporter (only after required input received)",
+        "⑤ Data → Executor → Reviewer → Reporter (Sonnet workers; only after required input received)",
         "⑥ 1st validator fail → one retry · 2nd fail → run aborts",
       ],
-      agents_in_pipeline: AGENT_ROLES,
+      agents_in_pipeline: AGENT_ROLES.map((r) => ({ role: r, model: getModelForAgent(r) })),
       acceptance_criteria_count: story.acceptance_criteria,
       priority: story.priority,
       jira_status: story.status,
@@ -65,6 +72,7 @@ export function buildAgentOutputs(story) {
     reporter: buildReporterOutput(story, test_cases, buildTestExecutorOutput(story, api, web, farmCtx.executionResult)),
     validator: {
       role: "Output Validator",
+      model: MODEL_WORKER,
       level: "L2",
       purpose: "Check worker outputs against role guidelines — never infinite retry",
       own_guidelines: VALIDATOR_GUIDELINES.rules,

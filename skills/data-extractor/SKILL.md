@@ -8,6 +8,8 @@ description: >-
 
 # Test Data Extractor (L3)
 
+**Model:** `claude-4.6-sonnet` (Claude Sonnet) — required for this agent.
+
 ## Input
 
 Analyst + Writer outputs, human-provided curl and/or webpage URL when required.

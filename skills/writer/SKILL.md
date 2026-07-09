@@ -7,6 +7,8 @@ description: >-
 
 # Test Case Writer (L3)
 
+**Model:** `claude-4.6-sonnet` (Claude Sonnet) — required for this agent.
+
 ## Input
 
 Agent 1 (Analyst) JSON: `testable_conditions`, `prerequisites_needed.blocking`, `coverage_gaps`, `unimplemented_rules`.

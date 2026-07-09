@@ -7,6 +7,8 @@ description: >-
 
 # Test Executor (L3)
 
+**Model:** `claude-4.6-sonnet` (Claude Sonnet) — required for this agent.
+
 ## Input
 
 Writer test cases, Data Extractor datasets, human curl and/or webpage when required.

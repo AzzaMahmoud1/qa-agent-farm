@@ -106,6 +106,16 @@ function test(name, fn) {
     assert.ok(acs.some((a) => /expires after 15 minutes/i.test(a)));
   });
 
+  await test("model routing: orchestrator Fable 5, workers Sonnet", async () => {
+    const registry = await import(pathToFileURL(path.join(__dirname, "../agents/registry.js")).href);
+    assert.strictEqual(registry.MODEL_ORCHESTRATOR, "claude-fable-5");
+    assert.strictEqual(registry.MODEL_WORKER, "claude-4.6-sonnet");
+    assert.strictEqual(registry.getModelForAgent("orchestrator"), "claude-fable-5");
+    for (const role of ["validator", "analyst", "writer", "test_data_extractor", "test_executor", "reviewer", "reporter"]) {
+      assert.strictEqual(registry.getModelForAgent(role), "claude-4.6-sonnet", role);
+    }
+  });
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

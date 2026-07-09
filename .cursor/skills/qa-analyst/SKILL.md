@@ -8,6 +8,8 @@ description: >-
 
 # Requirement Analyst (L2 — Forced Scratchpad Mode)
 
+**Model:** `claude-4.6-sonnet` (Claude Sonnet) — required for this agent.
+
 Produce **visible scratchpad A–E before final JSON**. Skipping scratchpad = invalid output.
 
 ## SCRATCHPAD STEP A — Ambiguity scan

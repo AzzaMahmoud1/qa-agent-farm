@@ -8,9 +8,15 @@ description: >-
 
 # Orchestrator (L1)
 
+**Model:** `claude-fable-5` (Claude Fable 5) — required for all orchestrator turns.
+
 ## Role
 
 Lead the QA pipeline. Assign work to worker agents, pause for human prerequisites/input, and advance only after validator approval.
+
+## Model routing
+
+When spawning or instructing worker agents, require them to run on **Claude Sonnet** (`claude-4.6-sonnet`). Do not run worker analysis on Fable 5.
 
 ## Pipeline order
 

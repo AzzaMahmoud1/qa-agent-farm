@@ -7,6 +7,8 @@ description: >-
 
 # Report Generator (L5)
 
+**Model:** `claude-4.6-sonnet` (Claude Sonnet) — required for this agent.
+
 ## Input
 
 Story metadata, writer test cases, executor results, reviewer score.
