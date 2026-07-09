@@ -8,7 +8,7 @@ const {
   analyzeStoryPrerequisites,
   buildAnalystOutput,
   validateAnalystOutput,
-} = require("./prerequisites.js");
+} = require("./lib/prerequisites.js");
 const { LOGIN_USE_CASE_SAMPLE } = require("./requirements-sample.js");
 
 const SAMPLE = LOGIN_USE_CASE_SAMPLE;
