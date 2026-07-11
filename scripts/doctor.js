@@ -42,6 +42,19 @@ for (const rel of required) {
   if (!exists) ok = false;
 }
 
+// prerequisites.cjs is generated from prerequisites.js by `npm run sync:cjs`.
+// If they differ, the .cjs is stale (or was hand-edited) — fail so it gets re-synced.
+const prereqJs = path.join(root, "lib/prerequisites.js");
+const prereqCjs = path.join(root, "lib/prerequisites.cjs");
+if (fs.existsSync(prereqJs) && fs.existsSync(prereqCjs)) {
+  if (fs.readFileSync(prereqJs, "utf8") === fs.readFileSync(prereqCjs, "utf8")) {
+    console.log("✓ lib/prerequisites.cjs in sync with prerequisites.js");
+  } else {
+    console.log("✗ lib/prerequisites.cjs is OUT OF SYNC — run: npm run sync:cjs");
+    ok = false;
+  }
+}
+
 const envExample = path.join(root, ".env.example");
 const envFile = path.join(root, ".env");
 if (fs.existsSync(envFile)) {
