@@ -518,13 +518,28 @@ function getPrerequisiteCheck(story) {
 
 
 function getProvidedPrerequisites() {
-  const check = cachedPrerequisiteCheck || getPrerequisiteCheck(currentStory);
-  return check.items
-    .map((item) => ({
-      id: item.id,
-      label: item.label,
-      value: (userPrerequisites[item.id]?.value || "").trim(),
-      reason: item.reason,
+  // Use the already-computed check when available. Never call getPrerequisiteCheck()
+  // here: it rebuilds the analyst prerequisite payload, which (via
+  // buildAccessPrerequisiteItems → inferHumanInputNeeds → buildRequirementsFromStory)
+  // calls back into getProvidedPrerequisites and recurses infinitely.
+  const items = cachedPrerequisiteCheck?.items;
+  if (items?.length) {
+    return items
+      .map((item) => ({
+        id: item.id,
+        label: item.label,
+        value: (userPrerequisites[item.id]?.value || "").trim(),
+        reason: item.reason,
+      }))
+      .filter((p) => p.value);
+  }
+  // Fallback (no check computed yet): read straight from stored user inputs.
+  return Object.entries(userPrerequisites)
+    .map(([id, entry]) => ({
+      id,
+      label: entry?.label || id,
+      value: (entry?.value || "").trim(),
+      reason: entry?.reason,
     }))
     .filter((p) => p.value);
 }
