@@ -1358,37 +1358,6 @@ function renderAgentChangesBlock(role) {
 }
 
 
-function renderAnalystPrerequisitesBlock(prereq, scratchpad) {
-  if (!prereq && !scratchpad) return "";
-  const story = prereq?.story_analysis;
-  const mapHtml = (story?.test_actions || []).map((t) =>
-    `<div class="prereq-ac-row"><strong>${escapeHtml(t.ac)}</strong> "${escapeHtml(t.ac_text)}"<br><span class="prereq-for-ac">→ ${escapeHtml(t.action)}</span></div>`
-  ).join("");
-  const reasoningHtml = (prereq?.reasoning_steps || []).map((s) =>
-    `<li>${escapeHtml(s.text)}${s.cite ? `<cite>${escapeHtml(String(s.cite).slice(0, 120))}</cite>` : ""}</li>`
-  ).join("");
-  const blockingHtml = (prereq?.blocking || []).map((b) =>
-    `<li><strong>${escapeHtml(b.item)}</strong> [${escapeHtml(b.category)}] — ${b.satisfied_by_ticket ? "satisfied" : "missing"}</li>`
-  ).join("");
-  const gapsHtml = (prereq?.items || []).map((i) =>
-    `<li><strong>${escapeHtml(i.label)}</strong>${i.required_for?.length ? ` (${escapeHtml(i.required_for.join(", "))})` : ""} — ${escapeHtml(i.analyst_note || i.reason)}</li>`
-  ).join("");
-  const satisfiedHtml = (prereq?.already_satisfied || []).map((s) =>
-    `<li><strong>${escapeHtml(s.label)}</strong> — ${escapeHtml(s.analyst_note || s.reason)}</li>`
-  ).join("");
-  return `
-    ${renderAnalystScratchpad(scratchpad || prereq?.scratchpad)}
-    <div class="output-kv-item validator" style="margin-bottom:.65rem">
-      <div class="output-kv-key">Story → test actions</div>
-      <div class="output-kv-val prereq-ac-map">${mapHtml || "—"}</div>
-    </div>
-    ${reasoningHtml ? `<div class="output-kv-item validator" style="margin-bottom:.65rem"><div class="output-kv-key">Reasoning</div><div class="output-kv-val"><ol style="margin:0;padding-left:1.1rem;font-size:.78rem;line-height:1.55">${reasoningHtml}</ol></div></div>` : ""}
-    ${blockingHtml ? `<div class="output-kv-item validator" style="margin-bottom:.65rem"><div class="output-kv-key">Blocking prerequisites</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem;font-size:.78rem;line-height:1.55">${blockingHtml}</ul></div></div>` : ""}
-    ${gapsHtml ? `<div class="output-kv-item validator" style="margin-bottom:.65rem"><div class="output-kv-key">Gaps — need your input (${prereq.items.length})</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem;font-size:.78rem;line-height:1.55">${gapsHtml}</ul></div></div>` : ""}
-    ${satisfiedHtml ? `<div class="output-kv-item" style="margin-bottom:.65rem"><div class="output-kv-key">Already in ticket</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem;font-size:.78rem;line-height:1.55">${satisfiedHtml}</ul></div></div>` : ""}`;
-}
-
-
 function renderAnalystScratchpad(scratchpad) {
   const text = typeof scratchpad === "string"
     ? scratchpad
@@ -1432,14 +1401,6 @@ function renderBlockingPrerequisitesSection(blocking) {
     </div>`;
   }).join("");
   return `<div class="output-kv-item validator"><div class="output-kv-key">Blocking prerequisites</div><div class="output-kv-val">${rows}</div></div>`;
-}
-
-
-function renderApiOutput(data) {
-  const reqs = (data.requests || []).map((r) =>
-    `<div class="tc-row"><div class="tc-row-head"><span class="tc-type tc-type-happy">${escapeHtml(r.method)}</span><strong style="font-size:.8rem">${escapeHtml(r.name)}</strong></div><div style="font-size:.75rem;color:var(--muted);font-family:monospace">${escapeHtml(r.path)}</div><div style="font-size:.72rem;color:var(--muted);margin-top:.25rem">${(r.assertions || []).map(a => "✓ " + escapeHtml(a)).join(" · ")}</div></div>`
-  ).join("");
-  return `<div class="output-kv">${renderKv("collection_name", data.collection_name)}${renderKv("schema", data.schema)}${renderKv("base_url", data.base_url)}</div><h4 style="font-size:.75rem;color:var(--muted);margin:.75rem 0 .5rem;text-transform:uppercase">Requests</h4>${reqs}`;
 }
 
 
@@ -2869,18 +2830,6 @@ function triggerFileDownload(filename, content, mime) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 500);
-}
-
-
-function unlockAgentOutput(role, outputs) {
-  if (!outputs[role]) return;
-  agentOutputs[role] = outputs[role];
-  setAgentOutputStatus(role, "done");
-  if (activeOutputTab === role || agentStatuses[activeOutputTab] !== "done") {
-    activeOutputTab = role;
-  }
-  renderOutputTabs();
-  renderActiveOutputTab();
 }
 
 
