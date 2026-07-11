@@ -10,9 +10,7 @@ const root = path.join(__dirname, "..");
 const modules = [];
 let failed = 0;
 
-const SKIP = new Set([
-  "prerequisites.js", // classic browser script (CJS dual) — use .cjs for Node
-]);
+const SKIP = new Set([]);
 
 function walk(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

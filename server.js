@@ -35,7 +35,6 @@ const PUBLIC_FILES = new Set([
   "index.html",
   "requirements-sample.js",
   "report-docx.js",
-  "prerequisites.js",
 ]);
 
 const executeBuckets = new Map();
