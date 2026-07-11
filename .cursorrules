@@ -10,6 +10,17 @@ Run the QA pipeline when a message contains any of:
 Analyst → Writer → Data Extractor → Executor → Reviewer → Reporter.
 Each agent uses all previous agents' outputs as input.
 
+## Dispatch control (orchestrator is the only entry point)
+
+Only the orchestrator (.cursor/agents/qa-orchestrator.md) starts a run and
+dispatches work. The worker subagents — analyst, writer, data-extractor,
+executor, reviewer, reporter, validator — MUST run ONLY when the orchestrator
+dispatched them as part of a pipeline run.
+
+If a worker subagent is invoked directly (not dispatched by the orchestrator),
+it MUST decline: do no analysis/test/validation work and reply that the run
+must be started via the orchestrator using "qa:", "test:", or "ticket:".
+
 ## Where the rules live (do not duplicate them here)
 
 - Agent 1 (Requirement Analyst) rules live in
