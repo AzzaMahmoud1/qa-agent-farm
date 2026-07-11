@@ -4,3 +4,4 @@ node_modules/
 *.log
 scripts/_*
 .data/
+.claude/
