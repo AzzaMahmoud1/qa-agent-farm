@@ -1,15 +1,6 @@
 # QA Agent Farm
 
-Browser-based QA planning simulator with a multi-agent pipeline (Analyst → Writer → Data Extractor → Executor → Reviewer → Reporter), JIRA live fetch, and requirements paste mode.
-
-## Versions
-
-| Version | Path | Port | What it is |
-|---------|------|------|------------|
-| **v0** (current) | repo root | `5173` | Simulator — kept and maintained |
-| **v1** (alpha) | [`v1/`](./v1/) | `5180` | Rebuild — durable control plane, evidence-based API assertions, NCA gates |
-
-v1 does **not** replace v0. Run either (or both) side by side. See [`v1/README.md`](./v1/README.md).
+Browser-based QA planning simulator with a multi-agent pipeline (Analyst → Writer → Data Extractor → Executor → Reviewer → Reporter), JIRA live fetch, and requirements paste mode. Agent 1 (Requirement Analyst) runs live via the Cursor Agent CLI.
 
 ## Model routing
 
