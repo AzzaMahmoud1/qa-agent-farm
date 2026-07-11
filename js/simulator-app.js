@@ -49,6 +49,9 @@ let cachedPrerequisiteCheck = null;
 let pipelineState = "RUNNING";
 /** @type {Array<{action?:string,target?:string,detail?:string,blocking?:boolean,resolved?:boolean}>} */
 let blockingOrchestratorActions = [];
+// Whether the prerequisites panel is currently surfacing the API curl / webpage input fields.
+let prereqShowsApi = false;
+let prereqShowsWeb = false;
 
 let idx = -1;
 let EVENTS = [];
@@ -633,13 +636,19 @@ function isHumanInputSatisfied(need) {
 function isPrerequisitesSatisfied() {
   const actionsOk = !blockingOrchestratorActions.length
     || blockingOrchestratorActions.every((a) => a.resolved);
+  // When the panel surfaces the curl/webpage fields, the human must fill them here.
+  const apiOk = !prereqShowsApi || humanApiInput.ok;
+  const webOk = !prereqShowsWeb || humanWebpageInput.ok;
   const check = cachedPrerequisiteCheck;
-  if (!check?.items?.length) return actionsOk;
+  if (!check?.items?.length) return actionsOk && apiOk && webOk;
   const fieldsOk = check.items.every((item) => {
+    // Access items are validated via the parsed curl / webpage inputs, not free text.
+    if (item.input_type === "api_curl") return humanApiInput.ok;
+    if (item.input_type === "webpage_url") return humanWebpageInput.ok;
     const v = userPrerequisites[item.id]?.value;
     return v != null && String(v).trim().length > 0;
   });
-  return actionsOk && fieldsOk;
+  return actionsOk && fieldsOk && apiOk && webOk;
 }
 
 
@@ -2702,6 +2711,14 @@ function submitPrerequisites() {
     return false;
   }
   pipelineState = "READY_FOR_WRITER";
+  const providedActions = blockingOrchestratorActions
+    .filter((a) => (a.provided_value || "").trim().length > 0)
+    .map((a) => ({
+      action: a.action || "ACTION",
+      target: a.target || "",
+      detail: a.detail || "",
+      value: a.provided_value.trim(),
+    }));
   if (storyOutputs?.analyst) {
     storyOutputs.analyst.pipeline_state = "READY_FOR_WRITER";
     // Pass Agent 1 outputs into Agent 2 input channel
@@ -2709,6 +2726,10 @@ function submitPrerequisites() {
       testable_conditions: storyOutputs.analyst.testable_conditions || [],
       prerequisites_needed: storyOutputs.analyst.prerequisites_needed || { blocking: [], non_blocking: [] },
     };
+    // Capture any values the human typed for the blocking orchestrator actions.
+    if (providedActions.length) {
+      writerInput.human_provided_prerequisites = providedActions;
+    }
     storyOutputs.analyst.writer_input = writerInput;
     if (storyOutputs.writer) {
       storyOutputs.writer.analyst_input = writerInput;
@@ -3029,30 +3050,56 @@ function updatePrerequisitesPanel(story, options = {}) {
     ).join("");
   }
 
-  if (panel.hidden) return;
+  if (panel.hidden) {
+    prereqShowsApi = false;
+    prereqShowsWeb = false;
+    return;
+  }
 
   if (list) {
     const actionChecklist = actions.length
-      ? `<div class="prereq-section-title">Orchestrator actions (checklist)</div>`
+      ? `<div class="prereq-section-title">Orchestrator actions — provide input or check off</div>`
         + actions.map((a, i) => `
-      <label class="prereq-field" style="display:flex;gap:.55rem;align-items:flex-start;cursor:pointer">
-        <input type="checkbox" class="orch-action-check" data-idx="${i}" ${a.resolved ? "checked" : ""} style="margin-top:.25rem" />
-        <span style="font-size:.78rem;line-height:1.45">
-          <span style="display:inline-block;background:#1e293b;color:#fff;border-radius:4px;padding:.05rem .35rem;font-size:.65rem;font-family:monospace">${escapeHtml(a.action || "ACTION")}</span>
-          <strong>${escapeHtml(a.target || "—")}</strong> — ${escapeHtml(a.detail || "")}
-        </span>
-      </label>`).join("")
+      <div class="prereq-field" data-action-idx="${i}" style="border-left:3px solid #c4b5fd;padding-left:.6rem">
+        <label style="display:flex;gap:.55rem;align-items:flex-start;cursor:pointer">
+          <input type="checkbox" class="orch-action-check" data-idx="${i}" ${a.resolved ? "checked" : ""} style="margin-top:.25rem" />
+          <span style="font-size:.78rem;line-height:1.45">
+            <span style="display:inline-block;background:#1e293b;color:#fff;border-radius:4px;padding:.05rem .35rem;font-size:.65rem;font-family:monospace">${escapeHtml(a.action || "ACTION")}</span>
+            <strong>${escapeHtml(a.target || "—")}</strong> — ${escapeHtml(a.detail || "")}
+          </span>
+        </label>
+        <input class="input orch-action-input" data-idx="${i}" placeholder="Provide value (URL, credentials, ticket ID…) — optional if handled externally" value="${escapeHtml(a.provided_value || "")}" style="margin-top:.4rem" />
+      </div>`).join("")
       : "";
+
+    // Track whether the analyst asked for API / webpage access as a prerequisite item.
+    prereqShowsApi = !!check.items?.some((it) => it.input_type === "api_curl");
+    prereqShowsWeb = !!check.items?.some((it) => it.input_type === "webpage_url");
+
+    const renderField = (item) => {
+      const head = `
+        <label class="field-label">${escapeHtml(item.label)}</label>
+        <p class="prereq-hint">${escapeHtml(item.analyst_note || item.reason || item.hint)}</p>
+        ${item.required_for?.length ? `<p class="prereq-for-ac">For ${escapeHtml(item.required_for.join(", "))}</p>` : ""}`;
+      if (item.input_type === "api_curl") {
+        return `<div class="prereq-field" data-id="${escapeHtml(item.id)}">${head}
+        <textarea class="input curl-input prereq-curl-input" rows="4" placeholder="${escapeHtml(item.hint)}">${escapeHtml(humanApiInput.curl || "")}</textarea>
+        <div class="prereq-curl-status" style="font-size:.72rem;margin-top:.3rem;color:var(--text-secondary)"></div>
+      </div>`;
+      }
+      if (item.input_type === "webpage_url") {
+        return `<div class="prereq-field" data-id="${escapeHtml(item.id)}">${head}
+        <input class="input prereq-web-input" type="url" placeholder="${escapeHtml(item.hint)}" value="${escapeHtml(humanWebpageInput.url || "")}" />
+      </div>`;
+      }
+      return `<div class="prereq-field" data-id="${escapeHtml(item.id)}">${head}
+        <input class="input prereq-input" data-id="${escapeHtml(item.id)}" placeholder="${escapeHtml(item.hint)}" value="${escapeHtml(userPrerequisites[item.id]?.value || "")}" />
+      </div>`;
+    };
 
     const fieldList = check.items?.length
       ? `<div class="prereq-section-title">${actions.length ? "Additional fields" : "Only you can provide"}</div>`
-        + check.items.map((item) => `
-      <div class="prereq-field" data-id="${escapeHtml(item.id)}">
-        <label class="field-label">${escapeHtml(item.label)}</label>
-        <p class="prereq-hint">${escapeHtml(item.analyst_note || item.reason || item.hint)}</p>
-        ${item.required_for?.length ? `<p class="prereq-for-ac">For ${escapeHtml(item.required_for.join(", "))}</p>` : ""}
-        <input class="input prereq-input" data-id="${escapeHtml(item.id)}" placeholder="${escapeHtml(item.hint)}" value="${escapeHtml(userPrerequisites[item.id]?.value || "")}" />
-      </div>`).join("")
+        + check.items.map(renderField).join("")
       : "";
 
     if (!actionChecklist && !fieldList) {
@@ -3079,6 +3126,53 @@ function updatePrerequisitesPanel(story, options = {}) {
         updatePrerequisiteStatus();
       });
     });
+
+    list.querySelectorAll(".orch-action-input").forEach((input) => {
+      input.addEventListener("input", () => {
+        const i = Number(input.dataset.idx);
+        const a = blockingOrchestratorActions[i];
+        if (!a) return;
+        a.provided_value = input.value;
+        const hasValue = input.value.trim().length > 0;
+        // Providing a value auto-resolves the action; clearing it reverts to the checkbox state.
+        if (hasValue) {
+          a.resolved = true;
+          const box = list.querySelector(`.orch-action-check[data-idx="${i}"]`);
+          if (box) box.checked = true;
+        }
+        userPrerequisites[`action-${i}`] = {
+          value: input.value,
+          label: a.detail || a.target || `Orchestrator action ${i + 1}`,
+          action: a.action || "ACTION",
+        };
+        updatePrerequisiteStatus();
+      });
+    });
+
+    const curlInput = list.querySelector(".prereq-curl-input");
+    if (curlInput) {
+      const statusNode = list.querySelector(".prereq-curl-status");
+      curlInput.addEventListener("input", () => {
+        const parsed = parseCurl(curlInput.value);
+        humanApiInput = parsed.ok ? parsed : { ok: false, curl: curlInput.value };
+        if (statusNode) {
+          statusNode.textContent = curlInput.value.trim()
+            ? (parsed.ok ? `Parsed: ${parsed.method} ${parsed.endpoint}` : parsed.error)
+            : "";
+          statusNode.style.color = parsed.ok ? "var(--accent, #16a34a)" : "var(--text-secondary)";
+        }
+        updatePrerequisiteStatus();
+      });
+    }
+
+    const webInput = list.querySelector(".prereq-web-input");
+    if (webInput) {
+      webInput.addEventListener("input", () => {
+        const parsed = parseWebpageInput(webInput.value, humanWebpageInput.title);
+        humanWebpageInput = parsed.ok ? parsed : { ok: false, url: webInput.value, path: "", origin: "", title: "" };
+        updatePrerequisiteStatus();
+      });
+    }
   }
   updatePrerequisiteStatus();
 }
