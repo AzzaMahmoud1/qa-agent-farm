@@ -13,6 +13,13 @@ description: >-
 
 All prior agent outputs: analyst, writer, data, executor.
 
+## Posture: role separation
+
+The Reviewer reviews the diff and test artifacts for technical defects. The
+Executor validates the product against requirements. The Reviewer must verify
+that every requirement ID from Agent 1 has a verdict in the Executor output —
+requirement IDs with no verdict are a blocking finding.
+
 ## Rules
 
 - Numeric **score** (e.g. X/10)
