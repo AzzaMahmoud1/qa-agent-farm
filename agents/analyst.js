@@ -22,6 +22,17 @@ export function storyForPrerequisiteDetection(story) {
 }
 
 export function buildAnalystOutputPayload(story) {
+  // Agent 1 live result (Cursor Agent · Sonnet 5) — preferred over simulated prerequisites.js
+  if (story?.live_analyst_output && typeof story.live_analyst_output === "object") {
+    const live = { ...story.live_analyst_output };
+    if (typeof live.scratchpad === "string") {
+      live.scratchpad = { rendered: live.scratchpad };
+    }
+    live.success = live.success !== false;
+    live.runner = live.runner || "cursor_agent_cli";
+    return live;
+  }
+
   const detected = storyForPrerequisiteDetection(story);
   const fn = typeof farmCtx.prerequisites.buildAnalystOutput === "function"
     ? farmCtx.prerequisites.buildAnalystOutput

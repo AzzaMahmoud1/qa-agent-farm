@@ -328,10 +328,10 @@ a { color: var(--text-accent); }
             <div id="panel-requirements-input" class="input-source-panel" hidden>
               <label class="field-label">Requirements description</label>
               <textarea id="req-description" class="input" rows="14" placeholder="Login with email and password&#10;&#10;As a user I want to sign in so I can access my dashboard.&#10;&#10;Acceptance Criteria:&#10;- Valid email and password logs the user in&#10;- Wrong password shows an error&#10;- Empty fields show validation errors"></textarea>
-              <p style="font-size:.72rem;color:var(--text-muted);margin:.35rem 0 .65rem;line-height:1.45">Paste the full requirement. Use an <strong>Acceptance Criteria:</strong> section or bullet list for testable conditions — metadata lines (UC05, Priority, Status) are not treated as ACs.</p>
+              <p style="font-size:.72rem;color:var(--text-muted);margin:.35rem 0 .65rem;line-height:1.45">Paste the full requirement. <strong>Agent 1</strong> analyzes it via Cursor Agent (Sonnet 5, high effort) — expect ~1–2 minutes. Use an <strong>Acceptance Criteria:</strong> section or bullet list for testable conditions.</p>
               <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
-                <button type="button" class="btn btn-primary btn-fetch" id="btn-load-requirements"><i class="ti ti-player-play"></i> Load &amp; run pipeline</button>
-                <button type="button" class="btn btn-fetch" id="btn-load-sample-requirements" title="Load the Login use case sample (UC05, flows, behavioural ACs)"><i class="ti ti-file-text"></i> Load sample</button>
+                <button type="button" class="btn btn-primary btn-fetch" id="btn-load-requirements"><i class="ti ti-player-play"></i> Load · run Agent 1</button>
+                <button type="button" class="btn btn-fetch" id="btn-load-sample-requirements" title="Load the Login use case sample, then run Agent 1"><i class="ti ti-file-text"></i> Load sample</button>
               </div>
               <span id="requirements-load-status" class="jira-status" style="display:inline-block;margin-top:.5rem"></span>
             </div>

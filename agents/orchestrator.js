@@ -11,6 +11,113 @@ import { inferHumanInputNeeds } from "../lib/human-input.js";
 import { getLiveRequirements } from "../lib/requirements.js";
 import { buildValidationResult, validateAnalystOutputLive, DATA_EXTRACTOR_API_CHECKS } from "./validator.js";
 
+/** Pipeline pause after Agent 1 when orchestrator_actions are blocking. */
+export const PIPELINE_STATE = {
+  RUNNING: "RUNNING",
+  WAITING_ON_HUMAN: "WAITING_ON_HUMAN",
+  READY_FOR_WRITER: "READY_FOR_WRITER",
+};
+
+/**
+ * After Agent 1 resolves — decide whether to hold for human or proceed to Agent 2.
+ * @param {object} parsed Analyst JSON (parsed)
+ * @returns {{
+ *   state: string,
+ *   blocking_actions: Array<object>,
+ *   proceed: boolean,
+ *   writer_input: { testable_conditions: Array, prerequisites_needed: object } | null,
+ *   message: string | null,
+ * }}
+ */
+export function resolveAnalystOrchestratorGate(parsed) {
+  const actions = parsed?.analyst_report?.orchestrator_actions || [];
+  const blocking = actions.filter((a) => a && a.blocking === true);
+
+  if (blocking.length) {
+    return {
+      state: PIPELINE_STATE.WAITING_ON_HUMAN,
+      blocking_actions: blocking,
+      proceed: false,
+      writer_input: null,
+      message: null,
+    };
+  }
+
+  const hasProceed = actions.some((a) => a && a.action === "PROCEED");
+  if (parsed?.ready_for_test_design === true && hasProceed) {
+    return {
+      state: PIPELINE_STATE.READY_FOR_WRITER,
+      blocking_actions: [],
+      proceed: true,
+      writer_input: {
+        testable_conditions: parsed.testable_conditions || [],
+        prerequisites_needed: parsed.prerequisites_needed || { blocking: [], non_blocking: [] },
+      },
+      message: null,
+    };
+  }
+
+  return {
+    state: PIPELINE_STATE.WAITING_ON_HUMAN,
+    blocking_actions: actions.length
+      ? actions
+      : [{
+        action: "HOLD",
+        target: "human",
+        detail: "Analyst did not clear the ticket",
+        blocking: true,
+      }],
+    proceed: false,
+    writer_input: null,
+    message: "Analyst did not clear the ticket",
+  };
+}
+
+/**
+ * Derive orchestrator_actions when the simulated analyst path has none (compat).
+ */
+export function ensureAnalystReportActions(parsed) {
+  if (!parsed || typeof parsed !== "object") return parsed;
+  const report = parsed.analyst_report || {};
+  if (Array.isArray(report.orchestrator_actions) && report.orchestrator_actions.length) {
+    return parsed;
+  }
+
+  const missingBlocking = (parsed.prerequisites_needed?.blocking || []).filter((b) => !b.satisfied_by_ticket);
+  let orchestrator_actions;
+  if (missingBlocking.length) {
+    orchestrator_actions = missingBlocking.map((b) => ({
+      action: "ASK_HUMAN",
+      target: "human",
+      detail: b.item || "Provide missing prerequisite",
+      blocking: true,
+    }));
+  } else if (parsed.ready_for_test_design === true) {
+    orchestrator_actions = [{
+      action: "PROCEED",
+      target: "writer",
+      detail: "Proceed to Test Case Writer with testable_conditions",
+      blocking: false,
+    }];
+  } else {
+    orchestrator_actions = [{
+      action: "HOLD",
+      target: "human",
+      detail: "Analyst did not clear the ticket",
+      blocking: true,
+    }];
+  }
+
+  parsed.analyst_report = {
+    what_i_did: report.what_i_did || ["Simulated analyst path — actions derived from prerequisites"],
+    why: report.why || [],
+    assumptions_made: report.assumptions_made || [],
+    orchestrator_actions,
+    confidence: report.confidence || { overall: "medium", reason: "derived from simulated analyst output" },
+  };
+  return parsed;
+}
+
 export function mem(story, extra) {
   return Object.assign({
     story: story.id + " — " + story.title,
@@ -356,8 +463,73 @@ export function resolvePipelineEvents(story, runOptions) {
   return buildEvents(story);
 }
 
-export function buildPrerequisiteInputEvents(story) {
+export function buildPrerequisiteInputEvents(story, analystParsed) {
+  const parsed = ensureAnalystReportActions(
+    analystParsed || buildAnalystOutputPayload(story),
+  );
+  const gate = resolveAnalystOrchestratorGate(parsed);
   const check = buildAnalystPrerequisitePayload(story);
+
+  // Agent 1 gate: blocking orchestrator_actions → WAITING_ON_HUMAN (stop before Agent 2)
+  if (gate.state === PIPELINE_STATE.WAITING_ON_HUMAN) {
+    return [
+      {
+        kind: "prerequisite_input_request",
+        phase: "gap_analysis",
+        pipeline_state: PIPELINE_STATE.WAITING_ON_HUMAN,
+        orchestrator_actions: gate.blocking_actions,
+        prerequisite_need: {
+          needed: true,
+          items: check.needed ? (check.items || []) : [],
+          already_satisfied: check.already_satisfied || [],
+          not_applicable: check.not_applicable || [],
+          summary: gate.message || parsed.summary || "Waiting on human before Test Case Writer",
+          blocking: parsed.prerequisites_needed?.blocking || [],
+          non_blocking: parsed.prerequisites_needed?.non_blocking || [],
+          reasoning: check.reasoning || "",
+          reasoning_steps: check.reasoning_steps || [],
+          story_analysis: check.story_analysis,
+        },
+        message: gate.message
+          || `Analyst gate — WAITING_ON_HUMAN (${gate.blocking_actions.length} blocking action(s)). Resolve checklist before Agent 2.`,
+        role: null,
+        orchestrator_memory: mem(story, {
+          phase: "gap_analysis",
+          pipeline_state: PIPELINE_STATE.WAITING_ON_HUMAN,
+          blocking_actions: String(gate.blocking_actions.length),
+          awaiting: "human_orchestrator_actions",
+        }),
+        agent_context: {
+          pipeline_state: PIPELINE_STATE.WAITING_ON_HUMAN,
+          orchestrator_actions: gate.blocking_actions,
+          source: "Requirement Analyst analyst_report.orchestrator_actions",
+        },
+        agent_returns: {},
+        decision: "WAITING_ON_HUMAN — stop before Agent 2 (Test Case Writer)",
+      },
+      {
+        kind: "prerequisite_input_received",
+        phase: "gap_analysis",
+        pipeline_state: PIPELINE_STATE.READY_FOR_WRITER,
+        orchestrator_actions: gate.blocking_actions,
+        prerequisite_need: check,
+        message: "Human resolved orchestrator actions — resume to Agent 2 (Test Case Writer)",
+        role: null,
+        orchestrator_memory: mem(story, { phase: "gap_analysis", prerequisites: "received", pipeline_state: PIPELINE_STATE.READY_FOR_WRITER }),
+        agent_context: {
+          source: "human",
+          writer_input: {
+            testable_conditions: parsed.testable_conditions || [],
+            prerequisites_needed: parsed.prerequisites_needed || { blocking: [], non_blocking: [] },
+          },
+        },
+        agent_returns: {},
+        decision: "proceed to test_case_writing",
+      },
+    ];
+  }
+
+  // PROCEED path — no human gate; writer receives testable_conditions + prerequisites_needed
   if (!check.needed) return [];
 
   return [
@@ -582,8 +754,8 @@ export function buildEvents(story) {
   const component = (story.components || [])[0] || "general";
 
   const analystInstructions = {
-    target_agent: "Requirement Analyst (L2 — Forced Scratchpad Mode)",
-    task: "Analyze ticket — produce scratchpad steps A–E, then final JSON",
+    target_agent: "Agent 1 — Requirement Analyst (L3 — Cursor Agent · Sonnet 5 high)",
+    task: "Analyze ticket — produce scratchpad Activities A–E, then final JSON with analyst_report",
     ticket: s + " · " + story.title,
     scratchpad_steps: [
       "A — Ambiguity scan (UNIMPLEMENTED, VAGUE, MISSING ACTOR/STATE, CONFLICT, CLEAN)",
@@ -607,17 +779,23 @@ export function buildEvents(story) {
   const analystFull = buildAnalystOutputPayload(story);
   const analystPrereqPayload = buildAnalystPrerequisitePayload(story);
 
+  const analystWithActions = ensureAnalystReportActions({ ...analystFull });
+  const analystGateDecision = resolveAnalystOrchestratorGate(analystWithActions);
+
   const analystFeedback = {
     success: true,
-    scratchpad: analystFull.scratchpad,
-    analyst_reasoning: analystFull.analyst_reasoning,
-    testable_conditions: analystFull.testable_conditions,
-    coverage_gaps: analystFull.coverage_gaps,
-    affected_components: analystFull.affected_components,
-    related_files: analystFull.related_files,
-    prerequisites_needed: { ...analystPrereqPayload, blocking: analystFull.prerequisites_needed?.blocking || [], non_blocking: analystFull.prerequisites_needed?.non_blocking || [] },
-    ready_for_test_design: analystFull.ready_for_test_design,
-    summary: analystFull.summary,
+    scratchpad: analystWithActions.scratchpad,
+    analyst_reasoning: analystWithActions.analyst_reasoning,
+    testable_conditions: analystWithActions.testable_conditions,
+    coverage_gaps: analystWithActions.coverage_gaps,
+    affected_components: analystWithActions.affected_components,
+    related_files: analystWithActions.related_files,
+    prerequisites_needed: { ...analystPrereqPayload, blocking: analystWithActions.prerequisites_needed?.blocking || [], non_blocking: analystWithActions.prerequisites_needed?.non_blocking || [] },
+    analyst_report: analystWithActions.analyst_report,
+    ready_for_test_design: analystWithActions.ready_for_test_design,
+    summary: analystWithActions.summary,
+    pipeline_state: analystGateDecision.state,
+    writer_input: analystGateDecision.writer_input,
   };
 
   const analystFeedbackIncomplete = {
@@ -720,7 +898,7 @@ export function buildEvents(story) {
     ...analystGate,
   ];
 
-  const prerequisiteEvents = buildPrerequisiteInputEvents(story);
+  const prerequisiteEvents = buildPrerequisiteInputEvents(story, analystWithActions);
 
   const requiresApi = farmCtx.storyRequiresApi(story);
   const requiresWeb = farmCtx.storyRequiresWebpage(story);

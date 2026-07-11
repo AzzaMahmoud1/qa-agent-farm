@@ -9,9 +9,10 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node test-requirements.js && node test/eval-fixes.js",
+    "test": "node test-requirements.js && node test/eval-fixes.js && node test/agent1-analyst.js",
     "test:requirements": "node test-requirements.js",
     "test:eval": "node test/eval-fixes.js",
+    "test:agent1": "node test/agent1-analyst.js",
     "doctor": "node scripts/doctor.js",
     "check:modules": "node scripts/check-modules.js"
   },

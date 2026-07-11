@@ -32,6 +32,12 @@ export {
   getModelForAgent,
 } from "./registry.js";
 
+export {
+  PIPELINE_STATE,
+  resolveAnalystOrchestratorGate,
+  ensureAnalystReportActions,
+} from "./orchestrator.js";
+
 /**
  * @param {object} ctx - runtime deps: mutable state, prerequisites module, el(), helper fns
  */

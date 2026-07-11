@@ -58,7 +58,7 @@ function getModelForAgent(role) {
 const PIPELINE_STEPS = [
       { id: "orchestrator", label: "Orchestrator", icon: "🎯" },
       { id: "validator", label: "Validator", icon: "✅" },
-      { id: "analyst", label: "Analyst", icon: "🔍" },
+      { id: "analyst", label: "Agent 1", icon: "🔍" },
       { id: "writer", label: "Writer", icon: "📝" },
       { id: "test_data_extractor", label: "Data", icon: "🧪" },
       { id: "test_executor", label: "Executor", icon: "▶️" },
@@ -69,7 +69,7 @@ const PIPELINE_STEPS = [
 const AGENT_META = {
       orchestrator: { label: "Orchestrator", icon: "🎯", level: "L1", model: MODEL_ORCHESTRATOR, skillPath: "skills/orchestrator/SKILL.md", skillFolder: "skills/orchestrator" },
       validator: { label: "Output Validator", icon: "✅", level: "L2", model: MODEL_WORKER, skillPath: "skills/validator/SKILL.md", skillFolder: "skills/validator" },
-      analyst: { label: "Requirement Analyst", icon: "🔍", level: "L2", model: MODEL_WORKER, skillPath: "skills/analyst/SKILL.md", skillFolder: "skills/analyst" },
+      analyst: { label: "Agent 1 · Requirement Analyst", icon: "🔍", level: "L3", model: "claude-sonnet-5 (high)", skillPath: "skills/analyst/SKILL.md", skillFolder: "skills/analyst" },
       writer: { label: "Test Case Writer", icon: "📝", level: "L3", model: MODEL_WORKER, skillPath: "skills/writer/SKILL.md", skillFolder: "skills/writer" },
       test_data_extractor: { label: "Test Data Extractor", icon: "🧪", level: "L3", model: MODEL_WORKER, skillPath: "skills/data-extractor/SKILL.md", skillFolder: "skills/data-extractor" },
       test_executor: { label: "Test Executor", icon: "▶️", level: "L3", model: MODEL_WORKER, skillPath: "skills/executor/SKILL.md", skillFolder: "skills/executor" },

@@ -2,9 +2,11 @@ import http from "http";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { fetchIssue, parseIssueKey } from "./jira.js";
+import { fetchIssue, parseIssueKey, loadEnv } from "./jira.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+loadEnv(path.join(__dirname, ".env"));
+
 const root = __dirname;
 const port = Number(process.env.PORT) || 5173;
 const host = process.env.HOST || "127.0.0.1";
@@ -227,6 +229,40 @@ http
         const status = err.message.includes("exceeds") || err.message.includes("Invalid JSON") ? 400 : 502;
         sendJson(res, req, status, { error: err.message });
       }
+      return;
+    }
+
+    if (pathname === "/api/agents/analyst" && req.method === "POST") {
+      if (!isLocalRequester(req)) {
+        sendJson(res, req, 403, { error: "Analyst API is local-only" });
+        return;
+      }
+      try {
+        const body = await readBody(req);
+        const ticketText = body.ticketText || body.ticket || body.text || "";
+        if (!String(ticketText).trim()) {
+          sendJson(res, req, 400, { error: "ticketText is required" });
+          return;
+        }
+        const { runRequirementAnalyst } = await import("./src/agents/requirementAnalyst.js");
+        const result = await runRequirementAnalyst(ticketText);
+        sendJson(res, req, result.success === false ? 422 : 200, result);
+      } catch (err) {
+        const status = err.message?.includes("exceeds") || err.message?.includes("Invalid JSON") ? 400 : 500;
+        sendJson(res, req, status, { error: err.message });
+      }
+      return;
+    }
+
+    if (pathname === "/api/agents/analyst/health" && req.method === "GET") {
+      sendJson(res, req, 200, {
+        ok: true,
+        runner: "cursor_agent_cli",
+        binary: process.env.CURSOR_AGENT_BIN || "cursor-agent (auto-detected)",
+        model: process.env.ANALYST_MODEL || "claude-sonnet-5",
+        effort: process.env.ANALYST_EFFORT || "high",
+        note: "Uses Cursor Agent CLI login (cursor-agent login) — routes through Cursor, not api.anthropic.com",
+      });
       return;
     }
 

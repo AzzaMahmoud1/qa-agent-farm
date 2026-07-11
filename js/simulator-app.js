@@ -45,6 +45,10 @@ let orchestratorInactivityDeadline = null;
 let pausedForHumanInput = false;
 let userPrerequisites = {};
 let cachedPrerequisiteCheck = null;
+/** @type {"RUNNING"|"WAITING_ON_HUMAN"|"READY_FOR_WRITER"} */
+let pipelineState = "RUNNING";
+/** @type {Array<{action?:string,target?:string,detail?:string,blocking?:boolean,resolved?:boolean}>} */
+let blockingOrchestratorActions = [];
 
 let idx = -1;
 let EVENTS = [];
@@ -627,9 +631,15 @@ function isHumanInputSatisfied(need) {
 
 
 function isPrerequisitesSatisfied() {
-  const check = cachedPrerequisiteCheck || getPrerequisiteCheck(currentStory);
-  if (!check.needed) return true;
-  return check.items.every((item) => (userPrerequisites[item.id]?.value || "").trim().length > 0);
+  const actionsOk = !blockingOrchestratorActions.length
+    || blockingOrchestratorActions.every((a) => a.resolved);
+  const check = cachedPrerequisiteCheck;
+  if (!check?.items?.length) return actionsOk;
+  const fieldsOk = check.items.every((item) => {
+    const v = userPrerequisites[item.id]?.value;
+    return v != null && String(v).trim().length > 0;
+  });
+  return actionsOk && fieldsOk;
 }
 
 
@@ -700,28 +710,106 @@ function kindLabel(kind) {
 }
 
 
-function loadRequirementsFromForm(runOptions) {
+function shouldSkipAgent1(runOptions) {
+  // Validator-failure demo still uses the scripted incomplete analyst path
+  return (runOptions || currentRunOptions)?.demo === "requirements";
+}
+
+function ticketTextForAnalyst(story) {
+  if (!story) return "";
+  if (story.requirements_raw) return String(story.requirements_raw);
+  const parts = [
+    story.title ? `Title: ${story.title}` : "",
+    story.description || "",
+    (story.acceptance_criteria_list || []).length
+      ? "Acceptance Criteria:\n" + story.acceptance_criteria_list.map((a, i) => `- AC-${i + 1}: ${a}`).join("\n")
+      : "",
+  ];
+  return parts.filter(Boolean).join("\n\n");
+}
+
+async function runAgent1(story) {
+  const ticketText = ticketTextForAnalyst(story);
+  if (!ticketText.trim()) throw new Error("No ticket text for Agent 1");
+  if (location.protocol === "file:") {
+    throw new Error("Agent 1 needs the local server (npm start) — file:// cannot call Cursor Agent");
+  }
+
+  const statusTarget = currentInputSource === "jira" ? setJiraStatus : setRequirementsLoadStatus;
+  statusTarget("loading", "Agent 1 running via Cursor Agent (Sonnet 5)… (~1–2 min)");
+  el("event-message").textContent = "Agent 1 (Requirement Analyst) is analyzing the ticket via Cursor Agent · Sonnet 5…";
+  el("status-orchestrator").textContent = "awaiting Agent 1";
+  if (el("status-analyst")) el("status-analyst").textContent = "running…";
+
+  const res = await fetch("/api/agents/analyst", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ticketText }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.success === false) {
+    throw new Error(data.error || data.message || `Agent 1 failed (HTTP ${res.status})`);
+  }
+
+  const scratchpad = data.scratchpad;
+  const parsed = data.parsed || data;
+  story.live_analyst_output = {
+    ...parsed,
+    scratchpad: typeof scratchpad === "string" ? scratchpad : (scratchpad?.rendered || scratchpad),
+    runner: "cursor_agent_cli",
+    model: "claude-sonnet-5 (high)",
+    success: true,
+  };
+  if (el("status-analyst")) el("status-analyst").textContent = "done";
+  return story.live_analyst_output;
+}
+
+/** Always run Agent 1 unless demo mode or result already attached. */
+async function ensureAgent1(story, runOptions) {
+  if (!story || shouldSkipAgent1(runOptions)) return story;
+  if (story.live_analyst_output) return story;
+  await runAgent1(story);
+  return story;
+}
+
+async function loadRequirementsFromForm(runOptions) {
   const story = buildStoryFromRequirementsForm();
   try {
     const raw = el("req-description")?.value || "";
     if (raw.trim()) sessionStorage.setItem("qa-last-requirements", raw);
   } catch { /* ignore */ }
-  setRequirementsLoadStatus("ok", "loaded " + story.id);
+
+  try {
+    await ensureAgent1(story, runOptions);
+    setRequirementsLoadStatus(
+      "ok",
+      shouldSkipAgent1(runOptions) ? "loaded " + story.id + " (demo)" : "Agent 1 done · " + story.id,
+    );
+  } catch (err) {
+    setRequirementsLoadStatus("err", err.message || "Agent 1 failed");
+    throw err;
+  }
+
   loadStory(story, runOptions);
-  el("event-message").textContent = "Requirements loaded — press Play to start the QA pipeline.";
+  el("event-message").textContent = story.live_analyst_output
+    ? "Agent 1 complete (Cursor Agent · Sonnet 5) — press Play. Pipeline pauses on WAITING_ON_HUMAN when actions are blocking."
+    : "Requirements loaded — press Play to start the QA pipeline.";
+  activeOutputTab = "analyst";
+  renderOutputTabs();
+  renderActiveOutputTab();
   return story;
 }
 
 
-function loadSampleRequirements(runOptions, autoRun) {
+async function loadSampleRequirements(runOptions, autoRun) {
   const sample = typeof LOGIN_USE_CASE_SAMPLE === "string" ? LOGIN_USE_CASE_SAMPLE : "";
   if (!sample || !el("req-description")) return null;
   setInputSource("requirements");
   el("req-description").value = sample;
-  setRequirementsLoadStatus("ok", "sample loaded");
-  const story = loadRequirementsFromForm(runOptions);
+  setRequirementsLoadStatus("ok", "sample loaded — starting Agent 1…");
+  const story = await loadRequirementsFromForm(runOptions);
   if (autoRun) {
-    el("event-message").textContent = "Login use case sample loaded — press Play to run the pipeline.";
+    el("event-message").textContent = "Login use case sample · Agent 1 done — press Play.";
   }
   return story;
 }
@@ -744,6 +832,11 @@ function loadStory(story, runOptions) {
   userPrerequisites = {};
   cachedPrerequisiteCheck = null;
   cachedHumanInputNeed = null;
+  pipelineState = "RUNNING";
+  blockingOrchestratorActions = [];
+  if (storyOutputs?.analyst?.pipeline_state) {
+    pipelineState = storyOutputs.analyst.pipeline_state;
+  }
   if (el("human-api-curl")) el("human-api-curl").value = "";
   if (el("human-web-url")) el("human-web-url").value = "";
   if (el("human-web-title")) el("human-web-title").value = "";
@@ -782,8 +875,12 @@ async function loadStoryByKey(input, preferJira, runOptions) {
   if (preferJira && location.protocol !== "file:") {
     try {
       const story = await fetchJiraTicket(resolved.url);
+      await ensureAgent1(story, runOptions);
       loadStory(story, runOptions);
-      setJiraStatus("ok", "loaded " + resolved.key);
+      setJiraStatus("ok", "loaded " + resolved.key + (story.live_analyst_output ? " · Agent 1 done" : ""));
+      activeOutputTab = "analyst";
+      renderOutputTabs();
+      renderActiveOutputTab();
       return;
     } catch (err) {
       setJiraStatus("err", err.message.slice(0, 40));
@@ -792,8 +889,18 @@ async function loadStoryByKey(input, preferJira, runOptions) {
 
   const fallback = FALLBACK_STORIES[resolved.key];
   if (fallback) {
-    loadStory(fallback, runOptions);
-    if (!preferJira) setJiraStatus("err", "mock data");
+    try {
+      const story = { ...fallback };
+      await ensureAgent1(story, runOptions);
+      loadStory(story, runOptions);
+      if (!preferJira) setJiraStatus("err", "mock data");
+      activeOutputTab = "analyst";
+      renderOutputTabs();
+      renderActiveOutputTab();
+    } catch (err) {
+      setJiraStatus("err", err.message.slice(0, 40));
+      alert(err.message);
+    }
   } else {
     el("event-message").textContent = "Could not load " + resolved.key + ". Check the JIRA URL and server.";
   }
@@ -815,30 +922,46 @@ el("speed").oninput = () => {
   if (playing) { stopPlay(); startPlay(); }
 };
 el("btn-fetch-jira").onclick = async () => {
+  const btn = el("btn-fetch-jira");
+  if (btn) btn.disabled = true;
   try {
     const story = await fetchJiraTicket();
     setInputSource("jira");
+    await ensureAgent1(story, currentRunOptions);
     loadStory(story, currentRunOptions);
-    setJiraStatus("ok", "loaded " + story.id);
+    setJiraStatus("ok", "loaded " + story.id + (story.live_analyst_output ? " · Agent 1 done" : ""));
+    activeOutputTab = "analyst";
+    renderOutputTabs();
+    renderActiveOutputTab();
   } catch (err) {
     setJiraStatus("err", err.message.slice(0, 48));
     alert(err.message);
+  } finally {
+    if (btn) btn.disabled = false;
   }
 };
-el("btn-load-requirements")?.addEventListener("click", () => {
+el("btn-load-requirements")?.addEventListener("click", async () => {
+  const btn = el("btn-load-requirements");
+  if (btn) btn.disabled = true;
   try {
-    loadRequirementsFromForm(currentRunOptions);
+    await loadRequirementsFromForm(currentRunOptions);
   } catch (err) {
     setRequirementsLoadStatus("err", err.message);
     alert(err.message);
+  } finally {
+    if (btn) btn.disabled = false;
   }
 });
-el("btn-load-sample-requirements")?.addEventListener("click", () => {
+el("btn-load-sample-requirements")?.addEventListener("click", async () => {
+  const btn = el("btn-load-sample-requirements");
+  if (btn) btn.disabled = true;
   try {
-    loadSampleRequirements(currentRunOptions, false);
+    await loadSampleRequirements(currentRunOptions, false);
   } catch (err) {
     setRequirementsLoadStatus("err", err.message);
     alert(err.message);
+  } finally {
+    if (btn) btn.disabled = false;
   }
 });
 el("tab-source-jira")?.addEventListener("click", () => setInputSource("jira"));
@@ -1234,11 +1357,48 @@ function renderAnalystPrerequisitesBlock(prereq, scratchpad) {
 
 
 function renderAnalystScratchpad(scratchpad) {
-  if (!scratchpad?.rendered) return "";
-  return `<div class="output-kv-item validator" style="margin-bottom:.65rem">
-    <div class="output-kv-key">Scratchpad (steps A–E)</div>
-    <div class="output-kv-val"><pre class="output-json" style="white-space:pre-wrap;font-size:.74rem;line-height:1.5;margin:0">${escapeHtml(scratchpad.rendered)}</pre></div>
-  </div>`;
+  const text = typeof scratchpad === "string"
+    ? scratchpad
+    : (scratchpad?.rendered || "");
+  if (!text) return "";
+  return `<details class="analyst-reasoning-accordion" style="margin-bottom:.65rem;border:1px solid var(--border);border-radius:8px;padding:.55rem .7rem;background:var(--surface, #fafafa)">
+    <summary style="cursor:pointer;font-size:.78rem;font-weight:600;color:var(--text)">Analyst reasoning</summary>
+    <pre class="output-json" style="white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:.74rem;line-height:1.5;margin:.55rem 0 0">${escapeHtml(text)}</pre>
+  </details>`;
+}
+
+function renderOrchestratorActionRows(actions) {
+  if (!actions?.length) return "";
+  const rows = actions.map((a) => {
+    const verb = escapeHtml(a.action || "ACTION");
+    const target = escapeHtml(a.target || "—");
+    const detail = escapeHtml(a.detail || "");
+    const blocking = a.blocking === true
+      ? `<span style="font-size:.65rem;color:#b91c1c;margin-left:.35rem">blocking</span>`
+      : "";
+    return `<div class="orch-action-row" style="display:flex;gap:.5rem;align-items:flex-start;margin-bottom:.4rem;font-size:.78rem;line-height:1.45">
+      <span style="flex-shrink:0;background:#1e293b;color:#fff;border-radius:4px;padding:.1rem .4rem;font-size:.68rem;font-weight:600;font-family:ui-monospace,monospace">${verb}</span>
+      <span><strong>${target}</strong> — ${detail}${blocking}</span>
+    </div>`;
+  }).join("");
+  return `<div class="output-kv-item validator"><div class="output-kv-key">Orchestrator actions</div><div class="output-kv-val">${rows}</div></div>`;
+}
+
+function renderBlockingPrerequisitesSection(blocking) {
+  if (!blocking?.length) return "";
+  const rows = blocking.map((p) => {
+    const satisfied = p.satisfied_by_ticket === true;
+    const badge = satisfied
+      ? `<span style="display:inline-block;background:#dcfce7;color:#166534;border-radius:4px;padding:.05rem .4rem;font-size:.65rem;font-weight:700">SATISFIED</span>`
+      : `<span style="display:inline-block;background:#fee2e2;color:#991b1b;border-radius:4px;padding:.05rem .4rem;font-size:.65rem;font-weight:700">MISSING</span>`;
+    return `<div style="margin-bottom:.5rem;padding-bottom:.45rem;border-bottom:1px solid var(--border);font-size:.78rem;line-height:1.45">
+      ${badge}
+      <strong style="margin-left:.35rem">${escapeHtml(p.item || "—")}</strong>
+      <div class="muted" style="font-size:.72rem;margin-top:.15rem">[${escapeHtml(p.category || "—")}]${p.derived_from ? ` · from: ${escapeHtml(p.derived_from)}` : ""}</div>
+      ${!satisfied && p.if_not_satisfied ? `<div class="muted" style="font-size:.72rem">${escapeHtml(p.if_not_satisfied)}</div>` : ""}
+    </div>`;
+  }).join("");
+  return `<div class="output-kv-item validator"><div class="output-kv-key">Blocking prerequisites</div><div class="output-kv-val">${rows}</div></div>`;
 }
 
 
@@ -1660,14 +1820,22 @@ function renderReportView(report) {
 function renderStructuredAnalystOutput(data) {
   if (!data) return "";
   const parts = [];
+  const parsed = data.parsed || data;
 
-  if (data.summary) {
-    parts.push(`<div class="output-kv-item"><div class="output-kv-key">Summary</div><div class="output-kv-val">${escapeHtml(data.summary)}</div></div>`);
+  if (parsed.summary) {
+    parts.push(`<div class="output-kv-item" style="border-color:#c4b5fd;background:#f5f3ff"><div class="output-kv-key">Summary</div><div class="output-kv-val" style="font-weight:600;font-size:.85rem">${escapeHtml(parsed.summary)}</div></div>`);
   }
 
-  parts.push(renderAnalystScratchpad(data.scratchpad));
+  if (parsed.pipeline_state === "WAITING_ON_HUMAN") {
+    parts.push(`<div class="output-kv-item validator" style="border-color:#fca5a5;margin-bottom:.65rem"><div class="output-kv-key">Pipeline state</div><div class="output-kv-val" style="color:#b91c1c;font-weight:600">WAITING_ON_HUMAN — resolve orchestrator actions before Agent 2</div></div>`);
+  }
 
-  const conditions = data.testable_conditions || [];
+  const scratchText = typeof data.scratchpad === "string"
+    ? data.scratchpad
+    : (parsed.scratchpad?.rendered || parsed.scratchpad || data.scratchpad);
+  parts.push(renderAnalystScratchpad(scratchText));
+
+  const conditions = parsed.testable_conditions || [];
   if (conditions.length) {
     const rows = conditions.map((c) => `
       <div class="prereq-ac-row" style="margin-bottom:.55rem;padding-bottom:.55rem;border-bottom:1px solid var(--border)">
@@ -1682,13 +1850,13 @@ function renderStructuredAnalystOutput(data) {
     parts.push(`<div class="output-kv-item validator"><div class="output-kv-key">Testable conditions (${conditions.length})</div><div class="output-kv-val prereq-ac-map">${rows}</div></div>`);
   }
 
-  const reasoning = data.analyst_reasoning;
+  const reasoning = parsed.analyst_reasoning;
   if (reasoning) {
     const rejected = (reasoning.rejected_as_non_ac || []).map((r) => `<li class="muted" style="font-size:.74rem">${escapeHtml(r)}</li>`).join("");
     const ambiguous = (reasoning.ambiguous_acs || []).map((a) =>
       `<li style="font-size:.74rem"><strong>${escapeHtml(a.ac_id)}</strong> — ${escapeHtml(a.issue)}<br><span class="muted">Assumption:</span> ${escapeHtml(a.assumption)}</li>`
     ).join("");
-    parts.push(`<div class="output-kv-item validator"><div class="output-kv-key">Analyst reasoning</div><div class="output-kv-val" style="font-size:.78rem">
+    parts.push(`<div class="output-kv-item validator"><div class="output-kv-key">Structured reasoning</div><div class="output-kv-val" style="font-size:.78rem">
       ${reasoning.ticket_read ? `<p style="margin:0 0 .45rem">${escapeHtml(reasoning.ticket_read)}</p>` : ""}
       ${(reasoning.unimplemented_rules || []).length ? `<p style="margin:0 0 .35rem"><strong>Out of scope:</strong> ${escapeHtml(reasoning.unimplemented_rules.join("; "))}</p>` : ""}
       ${rejected ? `<p style="margin:.35rem 0 .2rem;font-size:.72rem;color:var(--muted)">Rejected as non-AC (${reasoning.rejected_as_non_ac.length})</p><ul style="margin:0;padding-left:1.1rem">${rejected}</ul>` : ""}
@@ -1696,37 +1864,29 @@ function renderStructuredAnalystOutput(data) {
     </div></div>`);
   }
 
-  const pn = data.prerequisites_needed || {};
-  const blocking = pn.blocking || [];
+  const pn = parsed.prerequisites_needed || {};
+  parts.push(renderBlockingPrerequisitesSection(pn.blocking || []));
+
   const nonBlocking = pn.non_blocking || [];
-  if (blocking.length || nonBlocking.length) {
-    const fmt = (items, label) => items.length
-      ? `<p style="margin:.35rem 0 .2rem;font-size:.72rem;color:var(--muted)">${label}</p><ul style="margin:0 0 .45rem;padding-left:1.1rem;font-size:.74rem">${items.map((p) =>
-        `<li><strong>${escapeHtml(p.item)}</strong> [${escapeHtml(p.category)}] — ${p.satisfied_by_ticket ? "satisfied" : "missing"}${p.if_not_satisfied ? `<br><span class="muted">${escapeHtml(p.if_not_satisfied)}</span>` : ""}</li>`
-      ).join("")}</ul>`
-      : "";
-    parts.push(`<div class="output-kv-item validator"><div class="output-kv-key">Prerequisites</div><div class="output-kv-val">${fmt(blocking, "Blocking")}${fmt(nonBlocking, "Non-blocking")}</div></div>`);
+  if (nonBlocking.length) {
+    parts.push(`<div class="output-kv-item validator"><div class="output-kv-key">Non-blocking prerequisites</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem;font-size:.74rem">${nonBlocking.map((p) =>
+      `<li><strong>${escapeHtml(p.item)}</strong> [${escapeHtml(p.category)}]${p.derived_from ? ` — ${escapeHtml(p.derived_from)}` : ""}</li>`
+    ).join("")}</ul></div></div>`);
   }
 
-  const gaps = data.coverage_gaps || [];
+  parts.push(renderOrchestratorActionRows(parsed.analyst_report?.orchestrator_actions || []));
+
+  const gaps = parsed.coverage_gaps || [];
   if (gaps.length) {
     parts.push(`<div class="output-kv-item validator"><div class="output-kv-key">Coverage gaps (${gaps.length})</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem;font-size:.74rem">${gaps.map((g) =>
       `<li><strong>${escapeHtml(g.category)}</strong> [${escapeHtml(g.severity)}] — ${escapeHtml(g.gap)}<br><span class="muted">Suggested:</span> ${escapeHtml(g.suggested_test || "—")}</li>`
     ).join("")}</ul></div></div>`);
   }
 
-  const files = data.related_files || [];
+  const files = parsed.related_files || [];
   if (files.length) {
     parts.push(`<div class="output-kv-item"><div class="output-kv-key">Related files</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem;font-size:.74rem">${files.map((f) =>
       `<li><code>${escapeHtml(f.path || f)}</code>${f.reason ? ` — ${escapeHtml(f.reason)}` : ""}</li>`
-    ).join("")}</ul></div></div>`);
-  }
-
-  const legacyPrereq = pn.items ? pn : buildAnalystPrerequisitePayload(currentStory);
-  const gapsNeedInput = (legacyPrereq.items || []).filter((i) => i.status !== "already_in_ticket");
-  if (gapsNeedInput.length) {
-    parts.push(`<div class="output-kv-item validator"><div class="output-kv-key">Needs your input (${gapsNeedInput.length})</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem;font-size:.74rem">${gapsNeedInput.map((i) =>
-      `<li><strong>${escapeHtml(i.label)}</strong> — ${escapeHtml(i.analyst_note || i.reason)}</li>`
     ).join("")}</ul></div></div>`);
   }
 
@@ -2094,17 +2254,31 @@ function showEvent(i) {
     }
   } else if (e.kind === "prerequisite_input_request" || e.kind === "prerequisite_input_received") {
     const check = e.prerequisite_need || getPrerequisiteCheck(currentStory);
+    const actions = e.orchestrator_actions || e.agent_context?.orchestrator_actions || [];
+    if (e.kind === "prerequisite_input_request") {
+      pipelineState = e.pipeline_state || "WAITING_ON_HUMAN";
+      blockingOrchestratorActions = (actions.length ? actions : []).map((a) => ({ ...a, resolved: false }));
+    } else {
+      pipelineState = e.pipeline_state || "READY_FOR_WRITER";
+    }
     el("agent-panel-title").textContent = e.kind === "prerequisite_input_request"
-      ? `👤 Human · provide ${check.items.length} prerequisite(s)`
-      : "👤 Human · prerequisites received";
+      ? (pipelineState === "WAITING_ON_HUMAN"
+        ? `👤 Human · WAITING_ON_HUMAN (${blockingOrchestratorActions.length || check.items?.length || 0})`
+        : `👤 Human · provide ${check.items.length} prerequisite(s)`)
+      : "👤 Human · resolved — continue to Agent 2";
     el("agent-context").textContent = renderDict(e.agent_context);
     el("agent-returns").textContent = renderDict(e.agent_returns);
     setActive("orchestrator");
     el("status-orchestrator").textContent = e.kind === "prerequisite_input_request"
-      ? "awaiting prerequisites"
+      ? (pipelineState === "WAITING_ON_HUMAN" ? "WAITING_ON_HUMAN" : "awaiting prerequisites")
       : "prerequisites received";
     activeOutputTab = "orchestrator";
-    updatePrerequisitesPanel(currentStory, { prerequisiteNeed: check, forceShow: e.kind === "prerequisite_input_request" });
+    updatePrerequisitesPanel(currentStory, {
+      prerequisiteNeed: check,
+      forceShow: e.kind === "prerequisite_input_request",
+      orchestratorActions: blockingOrchestratorActions,
+      pipelineState,
+    });
     if (e.kind === "prerequisite_input_request") {
       if (playing) pausedForHumanInput = true;
       stopPlay();
@@ -2297,10 +2471,10 @@ function startOrchestratorInactivityTimer() {
 }
 
 
-function startPipelineFromActiveSource(runOptions) {
+async function startPipelineFromActiveSource(runOptions) {
   if (currentInputSource === "requirements") {
     try {
-      loadRequirementsFromForm(runOptions);
+      await loadRequirementsFromForm(runOptions);
     } catch (err) {
       setRequirementsLoadStatus("err", err.message);
       alert(err.message);
@@ -2318,6 +2492,12 @@ function startPipelineFromActiveSource(runOptions) {
   url.searchParams.set("ticket", resolved.url);
   history.replaceState(null, "", url);
   if (currentStory && !currentStory.from_requirements) {
+    try {
+      await ensureAgent1(currentStory, runOptions);
+    } catch (err) {
+      alert(err.message);
+      return;
+    }
     loadStory(currentStory, runOptions);
   } else {
     loadStoryByKey(resolved.url, location.protocol !== "file:" && !runOptions?.demo, runOptions);
@@ -2351,7 +2531,7 @@ function startPlay() {
 }
 
 
-function startRequirementsDemo() {
+async function startRequirementsDemo() {
   currentRunOptions = { demo: "requirements" };
   const url = new URL(location.href);
   url.searchParams.set("demo", "requirements");
@@ -2360,7 +2540,7 @@ function startRequirementsDemo() {
     url.searchParams.delete("ticket");
     history.replaceState(null, "", url);
     try {
-      loadRequirementsFromForm(currentRunOptions);
+      await loadRequirementsFromForm(currentRunOptions);
     } catch (err) {
       setRequirementsLoadStatus("err", err.message);
     }
@@ -2496,6 +2676,19 @@ function submitPrerequisites() {
   if (!isPrerequisitesSatisfied()) {
     promptForPrerequisites();
     return false;
+  }
+  pipelineState = "READY_FOR_WRITER";
+  if (storyOutputs?.analyst) {
+    storyOutputs.analyst.pipeline_state = "READY_FOR_WRITER";
+    // Pass Agent 1 outputs into Agent 2 input channel
+    const writerInput = storyOutputs.analyst.writer_input || {
+      testable_conditions: storyOutputs.analyst.testable_conditions || [],
+      prerequisites_needed: storyOutputs.analyst.prerequisites_needed || { blocking: [], non_blocking: [] },
+    };
+    storyOutputs.analyst.writer_input = writerInput;
+    if (storyOutputs.writer) {
+      storyOutputs.writer.analyst_input = writerInput;
+    }
   }
   syncRequirementsToTestData();
   if (EVENTS[idx]?.kind === "prerequisite_input_request" && idx < EVENTS.length - 1) {
@@ -2752,7 +2945,9 @@ function updatePrerequisitesPanel(story, options = {}) {
   const waitingAtStep = options.forceShow || EVENTS[idx]?.kind === "prerequisite_input_request";
   const check = options.prerequisiteNeed || getPrerequisiteCheck(story);
   cachedPrerequisiteCheck = check;
-  panel.hidden = !waitingAtStep || !check.needed;
+  const actions = options.orchestratorActions || blockingOrchestratorActions;
+  const state = options.pipelineState || pipelineState;
+  panel.hidden = !waitingAtStep || !(check.needed || actions.length || state === "WAITING_ON_HUMAN");
 
   const list = el("prerequisites-list");
   const desc = el("prerequisites-desc");
@@ -2760,11 +2955,20 @@ function updatePrerequisitesPanel(story, options = {}) {
   const reasoningEl = el("prerequisites-reasoning");
   const satisfiedWrap = el("prerequisites-satisfied-wrap");
   const satisfiedEl = el("prerequisites-satisfied");
+  const submitBtn = el("btn-submit-prerequisites");
 
   if (desc) {
     desc.textContent = waitingAtStep
-      ? (check.summary || "Story analysis complete.")
+      ? (state === "WAITING_ON_HUMAN"
+        ? (check.summary || "Analyst set WAITING_ON_HUMAN — resolve blocking orchestrator actions, then continue to Agent 2.")
+        : (check.summary || "Story analysis complete."))
       : (check.summary || "");
+  }
+
+  if (submitBtn) {
+    submitBtn.innerHTML = state === "WAITING_ON_HUMAN"
+      ? `<i class="ti ti-player-play"></i> Resolved — continue pipeline`
+      : `<i class="ti ti-check"></i> Confirm prerequisites`;
   }
 
   if (storyMapEl && check.story_analysis?.test_actions?.length && waitingAtStep) {
@@ -2804,17 +3008,33 @@ function updatePrerequisitesPanel(story, options = {}) {
   if (panel.hidden) return;
 
   if (list) {
-    if (!check.items.length) {
-      list.innerHTML = `<p style="font-size:.75rem;color:var(--text-secondary);margin:0">Nothing extra needed — the ticket already has what tests require.</p>`;
-    } else {
-      list.innerHTML = `<div class="prereq-section-title">Only you can provide</div>`
+    const actionChecklist = actions.length
+      ? `<div class="prereq-section-title">Orchestrator actions (checklist)</div>`
+        + actions.map((a, i) => `
+      <label class="prereq-field" style="display:flex;gap:.55rem;align-items:flex-start;cursor:pointer">
+        <input type="checkbox" class="orch-action-check" data-idx="${i}" ${a.resolved ? "checked" : ""} style="margin-top:.25rem" />
+        <span style="font-size:.78rem;line-height:1.45">
+          <span style="display:inline-block;background:#1e293b;color:#fff;border-radius:4px;padding:.05rem .35rem;font-size:.65rem;font-family:monospace">${escapeHtml(a.action || "ACTION")}</span>
+          <strong>${escapeHtml(a.target || "—")}</strong> — ${escapeHtml(a.detail || "")}
+        </span>
+      </label>`).join("")
+      : "";
+
+    const fieldList = check.items?.length
+      ? `<div class="prereq-section-title">${actions.length ? "Additional fields" : "Only you can provide"}</div>`
         + check.items.map((item) => `
       <div class="prereq-field" data-id="${escapeHtml(item.id)}">
         <label class="field-label">${escapeHtml(item.label)}</label>
         <p class="prereq-hint">${escapeHtml(item.analyst_note || item.reason || item.hint)}</p>
         ${item.required_for?.length ? `<p class="prereq-for-ac">For ${escapeHtml(item.required_for.join(", "))}</p>` : ""}
         <input class="input prereq-input" data-id="${escapeHtml(item.id)}" placeholder="${escapeHtml(item.hint)}" value="${escapeHtml(userPrerequisites[item.id]?.value || "")}" />
-      </div>`).join("");
+      </div>`).join("")
+      : "";
+
+    if (!actionChecklist && !fieldList) {
+      list.innerHTML = `<p style="font-size:.75rem;color:var(--text-secondary);margin:0">Nothing extra needed — the ticket already has what tests require.</p>`;
+    } else {
+      list.innerHTML = actionChecklist + fieldList;
     }
 
     list.querySelectorAll(".prereq-input").forEach((input) => {
@@ -2822,6 +3042,16 @@ function updatePrerequisitesPanel(story, options = {}) {
         const id = input.dataset.id;
         const meta = check.items.find((i) => i.id === id);
         userPrerequisites[id] = { value: input.value, label: meta?.label || id };
+        updatePrerequisiteStatus();
+      });
+    });
+
+    list.querySelectorAll(".orch-action-check").forEach((box) => {
+      box.addEventListener("change", () => {
+        const i = Number(box.dataset.idx);
+        if (blockingOrchestratorActions[i]) {
+          blockingOrchestratorActions[i].resolved = box.checked;
+        }
         updatePrerequisiteStatus();
       });
     });

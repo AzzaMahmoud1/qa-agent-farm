@@ -9,6 +9,7 @@ import { buildReviewerOutput } from "./reviewer.js";
 import { buildReporterOutput } from "./reporter.js";
 import { buildTestDataExtractorOutput } from "./data-extractor.js";
 import { buildTestExecutorOutput } from "./executor.js";
+import { ensureAnalystReportActions, resolveAnalystOrchestratorGate } from "./orchestrator.js";
 
 export function buildAgentOutputs(story) {
   const s = story.id;
@@ -20,22 +21,29 @@ export function buildAgentOutputs(story) {
     const prereqLegacy = buildAnalystPrerequisitePayload(story);
     // Attach compliance evidence onto story for downstream reporter/reviewer
     if (full.compliance_evidence) story.compliance_evidence = full.compliance_evidence;
+
+    const withReport = ensureAnalystReportActions({ ...full });
+    const gate = resolveAnalystOrchestratorGate(withReport);
+
     return {
-      success: full.success,
-      scratchpad: full.scratchpad,
-      analyst_reasoning: full.analyst_reasoning,
-      testable_conditions: full.testable_conditions,
+      success: withReport.success,
+      scratchpad: withReport.scratchpad,
+      analyst_reasoning: withReport.analyst_reasoning,
+      testable_conditions: withReport.testable_conditions,
       prerequisites_needed: {
         ...prereqLegacy,
-        blocking: full.prerequisites_needed?.blocking || [],
-        non_blocking: full.prerequisites_needed?.non_blocking || [],
+        blocking: withReport.prerequisites_needed?.blocking || [],
+        non_blocking: withReport.prerequisites_needed?.non_blocking || [],
       },
-      coverage_gaps: full.coverage_gaps,
-      compliance_evidence: full.compliance_evidence || null,
-      affected_components: full.affected_components,
-      related_files: full.related_files,
-      ready_for_test_design: full.ready_for_test_design,
-      summary: full.summary,
+      coverage_gaps: withReport.coverage_gaps,
+      compliance_evidence: withReport.compliance_evidence || null,
+      affected_components: withReport.affected_components,
+      related_files: withReport.related_files,
+      analyst_report: withReport.analyst_report || null,
+      ready_for_test_design: withReport.ready_for_test_design,
+      summary: withReport.summary,
+      pipeline_state: gate.state,
+      writer_input: gate.writer_input,
     };
   })();
 
@@ -50,21 +58,22 @@ export function buildAgentOutputs(story) {
       ticket: `${s} — ${story.title}`,
       source: story.from_jira ? "JIRA live" : story.from_requirements ? "Requirements (pasted)" : "mock",
       stage: "1 — Orchestrator leads the pipeline",
-      orchestration_mode: "simulated_pipeline",
-      orchestration_note: "Agent/validator loop is a deterministic simulator. Live work is limited to JIRA fetch and optional /api/execute HTTP transport smoke.",
+      orchestration_mode: story.live_analyst_output ? "agent1_cursor_agent" : "simulated_pipeline",
+      orchestration_note: story.live_analyst_output
+        ? "Agent 1 (Requirement Analyst) runs via the Cursor Agent CLI on Sonnet 5 (high effort). Downstream agents remain simulated until replaced."
+        : "Agent/validator loop is a deterministic simulator except where live Agent 1 output is attached.",
       model_routing: {
         orchestrator: MODEL_ORCHESTRATOR,
         workers: MODEL_WORKER,
-        by_role: { ...AGENT_MODEL_ROUTING },
+        analyst: story.live_analyst_output ? "claude-sonnet-5 (high)" : MODEL_WORKER,
+        by_role: { ...AGENT_MODEL_ROUTING, analyst: story.live_analyst_output ? "claude-sonnet-5 (high)" : MODEL_WORKER },
       },
       pipeline_plan: [
-        "① Orchestrator (Fable 5) assigns ticket → Requirement Analyst (Sonnet)",
-        "② Analyst extracts conditions + prerequisites → Validator checks (max 2 attempts, Sonnet)",
-        "③ If prerequisites need human values → orchestrator pauses for your input",
-        "④ Writer → Human input if story requires it → no simulated data before you provide it",
-        "⑤ Data → Executor → Reviewer → Reporter (Sonnet workers; only after required input received)",
-        "⑥ 1st validator fail → one retry · 2nd fail → run aborts",
-        "⑦ Note: pipeline events are simulated; HTTP execute is transport-only (not per-AC pass)",
+        "① Orchestrator assigns ticket → Agent 1 Requirement Analyst (Cursor Agent · Sonnet 5 high)",
+        "② Agent 1 extracts conditions + prerequisites + orchestrator_actions",
+        "③ If blocking actions → WAITING_ON_HUMAN before Test Case Writer",
+        "④ Writer → Human input if needed → Data → Executor → Reviewer → Reporter",
+        "⑤ Validator checks worker outputs (max 2 attempts)",
       ],
       agents_in_pipeline: AGENT_ROLES.map((r) => ({ role: r, model: getModelForAgent(r) })),
       acceptance_criteria_count: story.acceptance_criteria,
