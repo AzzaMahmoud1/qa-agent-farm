@@ -715,6 +715,23 @@ function shouldSkipAgent1(runOptions) {
   return (runOptions || currentRunOptions)?.demo === "requirements";
 }
 
+/**
+ * Live Agent 1 (Cursor Agent · Sonnet 5) is OFF by default so the simulator
+ * runs end-to-end with no cursor-agent login. Turn it on with either
+ * `?agent1=live` in the URL or localStorage.setItem("qa-live-agent1","1").
+ */
+function isLiveAgent1Enabled() {
+  try {
+    const url = new URL(location.href);
+    const q = url.searchParams.get("agent1");
+    if (q === "live") return true;
+    if (q === "local") return false;
+    return localStorage.getItem("qa-live-agent1") === "1";
+  } catch {
+    return false;
+  }
+}
+
 function ticketTextForAnalyst(story) {
   if (!story) return "";
   if (story.requirements_raw) return String(story.requirements_raw);
@@ -764,11 +781,23 @@ async function runAgent1(story) {
   return story.live_analyst_output;
 }
 
-/** Always run Agent 1 unless demo mode or result already attached. */
+/**
+ * Ensure Agent 1 analysis is available. Default path is the local
+ * deterministic analyst (no network, instant). When live Agent 1 is enabled,
+ * call the Cursor Agent CLI and gracefully fall back to local on any failure.
+ */
 async function ensureAgent1(story, runOptions) {
   if (!story || shouldSkipAgent1(runOptions)) return story;
   if (story.live_analyst_output) return story;
-  await runAgent1(story);
+  if (!isLiveAgent1Enabled()) return story; // local deterministic analyst
+  try {
+    await runAgent1(story);
+  } catch (err) {
+    console.warn("Live Agent 1 failed; falling back to local analyst:", err?.message || err);
+    if (el("status-analyst")) el("status-analyst").textContent = "local";
+    const statusTarget = currentInputSource === "jira" ? setJiraStatus : setRequirementsLoadStatus;
+    statusTarget("ok", "live Agent 1 unavailable — using local analyst");
+  }
   return story;
 }
 
@@ -779,16 +808,11 @@ async function loadRequirementsFromForm(runOptions) {
     if (raw.trim()) sessionStorage.setItem("qa-last-requirements", raw);
   } catch { /* ignore */ }
 
-  try {
-    await ensureAgent1(story, runOptions);
-    setRequirementsLoadStatus(
-      "ok",
-      shouldSkipAgent1(runOptions) ? "loaded " + story.id + " (demo)" : "Agent 1 done · " + story.id,
-    );
-  } catch (err) {
-    setRequirementsLoadStatus("err", err.message || "Agent 1 failed");
-    throw err;
-  }
+  await ensureAgent1(story, runOptions);
+  setRequirementsLoadStatus(
+    "ok",
+    story.live_analyst_output ? "Agent 1 done · " + story.id : "loaded " + story.id,
+  );
 
   loadStory(story, runOptions);
   el("event-message").textContent = story.live_analyst_output
@@ -806,10 +830,10 @@ async function loadSampleRequirements(runOptions, autoRun) {
   if (!sample || !el("req-description")) return null;
   setInputSource("requirements");
   el("req-description").value = sample;
-  setRequirementsLoadStatus("ok", "sample loaded — starting Agent 1…");
+  setRequirementsLoadStatus("ok", "sample loaded");
   const story = await loadRequirementsFromForm(runOptions);
   if (autoRun) {
-    el("event-message").textContent = "Login use case sample · Agent 1 done — press Play.";
+    el("event-message").textContent = "Login use case sample loaded — press Play.";
   }
   return story;
 }
