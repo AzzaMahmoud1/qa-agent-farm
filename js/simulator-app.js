@@ -499,14 +499,6 @@ function getDoneRolesUpTo(i) {
 }
 
 
-function getHumanApiInput() {
-  if (humanApiInput.ok) return humanApiInput;
-  const curlRaw = el("human-api-curl")?.value?.trim() || "";
-  if (!curlRaw) return { ok: false, curl: "" };
-  return parseCurl(curlRaw);
-}
-
-
 function getJiraInput() {
   return (el("jira-url")?.value || "").trim();
 }
