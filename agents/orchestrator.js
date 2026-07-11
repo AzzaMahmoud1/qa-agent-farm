@@ -10,6 +10,7 @@ import { inferTcType } from "./writer.js";
 import { inferHumanInputNeeds } from "../lib/human-input.js";
 import { getLiveRequirements } from "../lib/requirements.js";
 import { buildValidationResult, validateAnalystOutputLive, DATA_EXTRACTOR_API_CHECKS } from "./validator.js";
+import { analystReturnV1, buildAnalystReturnV2 } from "./demo-fixtures.js";
 
 /** Pipeline pause after Agent 1 when orchestrator_actions are blocking. */
 export const PIPELINE_STATE = {
@@ -287,53 +288,19 @@ export function validationGateEvents(targetAgent, phase, story, agentReturns, op
 
 export function buildRequirementsFailureDemo(story) {
   const s = story.id;
-  const gapSummary = story.gaps + " (" + story.blocking_gaps + " blocking)";
   const acList = story.acceptance_criteria_list || [];
   const acPreview = acList.slice(0, 2).join("; ") || story.acceptance_criteria + " criteria";
-  const component = (story.components || [])[0] || "general";
 
   const analystInstructions = {
     target_agent: "Requirement Analyst (L2 — Forced Scratchpad Mode)",
     task: "Analyze JIRA ticket — scratchpad A–E then structured JSON",
     ticket: s + " · " + story.title,
-    scratchpad_steps: [
-      "A — Ambiguity scan",
-      "B — Section classification",
-      "C — ACs from Business Rules / Alt / Exception Flow only",
-      "D — Prerequisites (DATA/ENVIRONMENT/DEPENDENCY/KNOWLEDGE)",
-      "E — Coverage gaps by category",
-    ],
-    deliverables: [
-      "Visible scratchpad before JSON",
-      "Structured testable_conditions",
-      "prerequisites_needed.blocking and .non_blocking",
-      "Structured coverage_gaps",
-      "related_files with reasons",
-    ],
     acceptance_criteria: acList.length ? acList : [acPreview],
     constraints: "Only use ticket context — do not assume unlisted behavior",
     priority: story.priority,
   };
 
-  const analystReturnV1 = {
-    success: false,
-    testable_conditions: "Unmapped summary only",
-    coverage_gaps: "Gaps mentioned without blocking split",
-    affected_components: "",
-    related_files: null,
-    ready_for_test_design: false,
-    summary: "Demo v1 — requirements output missing AC mapping, components, and related_files",
-  };
-
-  const analystReturnV2 = {
-    success: false,
-    testable_conditions: story.acceptance_criteria + " condition(s) listed without AC IDs",
-    coverage_gaps: gapSummary,
-    affected_components: (story.components || []).join(", ") || "API",
-    related_files: null,
-    ready_for_test_design: false,
-    summary: "Demo v2 — partial retry: components added but related_files and AC mapping still missing",
-  };
+  const analystReturnV2 = buildAnalystReturnV2(story);
 
   const retryInstructions = {
     target_agent: "Requirement Analyst (L2)",
@@ -344,8 +311,6 @@ export function buildRequirementsFailureDemo(story) {
       "Add related_files with controller, service, and spec paths",
       "Split coverage gaps into blocking vs non-blocking",
     ],
-    acceptance_criteria: acList.length ? acList : [acPreview],
-    priority: story.priority,
   };
 
   const failValidation1 = buildValidationResult("analyst", false, [
@@ -757,20 +722,6 @@ export function buildEvents(story) {
     target_agent: "Agent 1 — Requirement Analyst (L3 — Cursor Agent · Sonnet 5 high)",
     task: "Analyze ticket — produce scratchpad Activities A–E, then final JSON with analyst_report",
     ticket: s + " · " + story.title,
-    scratchpad_steps: [
-      "A — Ambiguity scan (UNIMPLEMENTED, VAGUE, MISSING ACTOR/STATE, CONFLICT, CLEAN)",
-      "B — Section classification (Pre-conditions→prerequisites, Basic Flow→test steps not ACs, Business Rules→ACs)",
-      "C — Extract ACs ONLY from Business Rules, Alternative Flow, Exception Flow",
-      "D — Prerequisites in DATA/ENVIRONMENT/DEPENDENCY/KNOWLEDGE with BLOCKING/NON-BLOCKING",
-      "E — Coverage gaps per category (boundary, negative, security, concurrency, integration, regression, performance, ui)",
-    ],
-    deliverables: [
-      "Visible scratchpad (steps A–E) before JSON",
-      "Structured testable_conditions with source, roles, pass/fail evidence",
-      "prerequisites_needed.blocking and .non_blocking arrays",
-      "Structured coverage_gaps with category and severity",
-      "related_files with path and reason",
-    ],
     acceptance_criteria: acList.length ? acList : [acPreview],
     constraints: "Never extract ACs from Pre-conditions, Basic Flow, Post-conditions, or metadata",
     priority: story.priority,
@@ -813,15 +764,12 @@ export function buildEvents(story) {
     target_agent: "Requirement Analyst (L2)",
     task: "RETRY — re-run ALL scratchpad steps A–E, then resubmit full JSON",
     validator_feedback: "Missing scratchpad and structured L2 deliverables",
-    deliverables: analystInstructions.deliverables,
     corrections: [
       "Output scratchpad steps A–E before final JSON",
       "Add prerequisites_needed.blocking and .non_blocking with category",
       "Add related_files as { path, reason } objects",
       "Map each AC to structured testable_conditions entry",
     ],
-    acceptance_criteria: acList.length ? acList : [acPreview],
-    priority: story.priority,
   };
 
   const analystQuality = validateAnalystOutputLive(story, analystFeedback);
