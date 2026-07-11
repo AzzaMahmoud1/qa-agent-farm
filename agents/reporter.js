@@ -3,6 +3,18 @@ export const AGENT_ID = "reporter";
 export const SKILL_PATH = "skills/reporter/SKILL.md";
 export const SKILL_FOLDER = "skills/reporter";
 
+function rowStatus(result) {
+  if (!result) return "Planned";
+  if (result.status === "passed") return "Passed";
+  if (result.status === "failed") return "Failed";
+  if (result.status === "blocked") return "Blocked";
+  if (result.status === "transport_observed") return "Transport observed (not AC pass)";
+  if (result.status === "pending_browser") return "Pending browser";
+  if (result.status === "not_executed") return "Not executed";
+  if (result.status === "not_run") return "Not run";
+  return "Planned";
+}
+
 export function buildReporterOutput(story, test_cases, executorOutput) {
   const s = story.id;
   const tcIds = story.test_cases;
@@ -12,10 +24,13 @@ export function buildReporterOutput(story, test_cases, executorOutput) {
     passed: 0,
     failed: 0,
     blocked: 0,
+    pending_browser: 0,
+    transport_observed: 0,
     measured: false,
   };
 
   const resultById = Object.fromEntries((executorOutput?.results || []).map((r) => [r.test_case_id, r]));
+  const compliance = story?.compliance_evidence || null;
 
   return {
     project_name: "SEHA",
@@ -23,22 +38,21 @@ export function buildReporterOutput(story, test_cases, executorOutput) {
     ticket_title: story.title,
     report_date: new Date().toLocaleDateString("en-US"),
     environment: story.from_jira ? "JIRA live + simulator" : story.from_requirements ? "Requirements" : "Simulator",
+    orchestration_mode: executorOutput?.orchestration_mode || "simulated_pipeline",
     summary,
     metrics_note: summary.measured
-      ? "Metrics derived from executed scenarios with evidence"
-      : "Metrics unknown until execution completes — planned counts only",
+      ? "Metrics derived from per-AC asserted scenarios only"
+      : "No per-AC passes — transport observations and pending browser URLs are not counted as passed",
+    compliance_evidence: compliance,
     regression_rows: test_cases.map((tc) => {
       const result = resultById[tc.id];
-      let status = "Planned";
-      if (result?.status === "passed" || result?.status === "executed") status = "Passed";
-      else if (result?.status === "failed") status = "Failed";
-      else if (result?.status === "blocked") status = "Blocked";
       return {
         id: tc.id,
         title: tc.title,
-        type: tc.type.replace("_", " "),
-        status,
+        type: String(tc.type || "").replace("_", " "),
+        status: rowStatus(result),
         evidence: result?.evidence || null,
+        assertion_level: result?.assertion_level || null,
       };
     }),
     defects: {
@@ -49,9 +63,15 @@ export function buildReporterOutput(story, test_cases, executorOutput) {
       medium: 0,
       high: summary.failed || 0,
     },
-    comments: summary.measured
-      ? `Report generated after ${summary.executed} executed scenario(s).`
-      : "Execution not measured — report shows planned work only.",
+    comments: [
+      summary.measured
+        ? `Report after ${summary.executed} asserted scenario(s).`
+        : "Execution not measured as AC passes — report shows planned/observed work only.",
+      compliance?.release_gate === "blocked"
+        ? "NCA/ECC release gate: blocked (missing security evidence)."
+        : null,
+      executorOutput?.orchestration_note || null,
+    ].filter(Boolean).join(" "),
     reported_by: "QA Agent Farm",
   };
 }

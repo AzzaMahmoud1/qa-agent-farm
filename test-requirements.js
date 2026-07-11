@@ -3,13 +3,21 @@
  * Requirements pipeline smoke tests — run with:
  *   node test-requirements.js
  */
+import { createRequire } from "module";
+import { pathToFileURL } from "url";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+
 const {
   parseFullRequirements,
   analyzeStoryPrerequisites,
   buildAnalystOutput,
   validateAnalystOutput,
-} = require("./lib/prerequisites.js");
-const { LOGIN_USE_CASE_SAMPLE } = require("./requirements-sample.js");
+} = require("./lib/prerequisites.cjs");
+const { LOGIN_USE_CASE_SAMPLE } = require("./requirements-sample.cjs");
 
 const SAMPLE = LOGIN_USE_CASE_SAMPLE;
 

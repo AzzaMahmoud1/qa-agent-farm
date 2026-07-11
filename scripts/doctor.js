@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 const required = [
   "server.js",
@@ -9,6 +11,7 @@ const required = [
   "js/simulator-app.js",
   "agents/index.js",
   "lib/prerequisites.js",
+  "lib/prerequisites.cjs",
   "package.json",
   "README.md",
 ];
@@ -16,9 +19,18 @@ const required = [
 let ok = true;
 console.log("QA Agent Farm — doctor\n");
 
+const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+if (pkg.type !== "module") {
+  console.log("✗ package.json must set \"type\": \"module\"");
+  ok = false;
+} else {
+  console.log("✓ package.json type=module");
+}
+
 const nodeMajor = Number(process.versions.node.split(".")[0]);
-if (nodeMajor < 18) {
-  console.log("✗ Node.js 18+ required (found", process.versions.node + ")");
+const nodeMinor = Number(process.versions.node.split(".")[1] || 0);
+if (nodeMajor < 18 || (nodeMajor === 18 && nodeMinor < 18)) {
+  console.log("✗ Node.js >=18.18 required (found", process.versions.node + ")");
   ok = false;
 } else {
   console.log("✓ Node.js", process.versions.node);

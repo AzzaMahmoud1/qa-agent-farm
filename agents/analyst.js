@@ -1,4 +1,5 @@
 import { farmCtx } from "./ctx-bridge.js";
+import { mergeNcaGapsIntoCoverage } from "../lib/nca-controls.js";
 
 /** @see skills/analyst/SKILL.md */
 export const AGENT_ID = "analyst";
@@ -21,28 +22,43 @@ export function storyForPrerequisiteDetection(story) {
 }
 
 export function buildAnalystOutputPayload(story) {
+  const detected = storyForPrerequisiteDetection(story);
   const fn = typeof farmCtx.prerequisites.buildAnalystOutput === "function"
     ? farmCtx.prerequisites.buildAnalystOutput
     : null;
-  if (fn) return fn(storyForPrerequisiteDetection(story));
-  const legacyFn = typeof farmCtx.prerequisites.analyzeStoryPrerequisites === "function"
-    ? farmCtx.prerequisites.analyzeStoryPrerequisites
-    : typeof farmCtx.prerequisites.detectTicketPrerequisites === "function"
-      ? farmCtx.prerequisites.detectTicketPrerequisites
-      : null;
-  if (!legacyFn) {
-    return {
-      success: true,
-      scratchpad: {},
-      testable_conditions: [],
-      prerequisites_needed: { blocking: [], non_blocking: [] },
-      coverage_gaps: [],
-      needed: false,
-      items: [],
-      summary: "No prerequisites detected",
-    };
+  let out;
+  if (fn) {
+    out = fn(detected);
+  } else {
+    const legacyFn = typeof farmCtx.prerequisites.analyzeStoryPrerequisites === "function"
+      ? farmCtx.prerequisites.analyzeStoryPrerequisites
+      : typeof farmCtx.prerequisites.detectTicketPrerequisites === "function"
+        ? farmCtx.prerequisites.detectTicketPrerequisites
+        : null;
+    if (!legacyFn) {
+      out = {
+        success: true,
+        scratchpad: {},
+        testable_conditions: [],
+        prerequisites_needed: { blocking: [], non_blocking: [] },
+        coverage_gaps: [],
+        needed: false,
+        items: [],
+        summary: "No prerequisites detected",
+      };
+    } else {
+      out = legacyFn(detected);
+    }
   }
-  return legacyFn(storyForPrerequisiteDetection(story));
+
+  const { gaps, compliance_evidence } = mergeNcaGapsIntoCoverage(out.coverage_gaps || [], detected);
+  out.coverage_gaps = gaps;
+  out.compliance_evidence = compliance_evidence;
+  if (compliance_evidence?.release_gate === "blocked") {
+    out.ready_for_test_design = false;
+    out.summary = `${out.summary || ""} NCA/ECC security evidence required before release.`.trim();
+  }
+  return out;
 }
 
 export function buildAnalystPrerequisitePayload(story) {

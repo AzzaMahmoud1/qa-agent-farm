@@ -1,10 +1,11 @@
 {
   "name": "qa-agent-farm",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "QA planning simulator with multi-agent pipeline, JIRA integration, and evidence-based execution",
   "private": true,
+  "type": "module",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.18.0"
   },
   "scripts": {
     "start": "node server.js",

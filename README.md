@@ -13,9 +13,19 @@ Configured in `agents/registry.js` (`AGENT_MODEL_ROUTING`) and `.cursor/agents/*
 
 ## Requirements
 
-- **Node.js 18+** (for built-in `fetch` in the execution worker)
+- **Node.js >= 18.18** with `"type": "module"` in `package.json`
+- Browser classic scripts (`lib/prerequisites.js`, samples) stay CJS-compatible; Node loads `lib/prerequisites.cjs` via `createRequire`
 - Optional: JIRA credentials in `.env` for live ticket fetch
 - For Cursor agent runs: enable **Claude Fable 5** and **Claude Sonnet** in Cursor Models settings
+
+## Honest execution semantics (v0.3)
+
+- Pipeline agent/validator loop is a **simulated** orchestrator (`orchestration_mode: simulated_pipeline`)
+- `/api/execute` performs a **transport-only** HTTP call — HTTP 2xx is `transport_observed`, **not** a per-AC pass
+- Webpage URLs are `pending_browser` until real browser evidence exists
+- Secrets in curl/JSON (`api_key`, `access_token`, `password`, …) are redacted in UI/logs/exports
+- NCA/ECC security gaps (injection, IDOR, URL manipulation, API exposure, auth bypass) block release when applicable
+- Executor deny-by-default: no loopback, redirect re-allowlisted, rate limit + local/token auth + audit log
 
 ## Quick start
 

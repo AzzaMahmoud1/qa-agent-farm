@@ -1,8 +1,12 @@
-const https = require("https");
+import https from "https";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
-function loadEnv(filePath) {
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export function loadEnv(filePath) {
   try {
-    const fs = require("fs");
     const text = fs.readFileSync(filePath, "utf8");
     for (const line of text.split("\n")) {
       const trimmed = line.trim();
@@ -18,7 +22,7 @@ function loadEnv(filePath) {
   }
 }
 
-loadEnv(`${__dirname}/.env`);
+loadEnv(path.join(__dirname, ".env"));
 
 function adfToText(node) {
   if (!node) return "";
@@ -57,7 +61,7 @@ function extractAcceptanceCriteria(text) {
   return ac;
 }
 
-function parseIssueKey(input) {
+export function parseIssueKey(input) {
   if (!input) return null;
   const s = String(input).trim();
 
@@ -80,7 +84,7 @@ function parseIssueKey(input) {
   return m ? m[1].toUpperCase() : null;
 }
 
-function jiraRequest(path, options = {}) {
+function jiraRequest(reqPath, options = {}) {
   const base = (process.env.JIRA_URL || "").replace(/\/$/, "");
   const user = process.env.JIRA_USERNAME;
   const token = process.env.JIRA_API_TOKEN;
@@ -89,7 +93,7 @@ function jiraRequest(path, options = {}) {
   }
 
   const auth = Buffer.from(`${user}:${token}`).toString("base64");
-  const url = new URL(path, base);
+  const url = new URL(reqPath, base);
   const timeoutMs = options.timeoutMs || 15000;
   const maxBytes = options.maxBytes || 1024 * 1024;
 
@@ -136,7 +140,7 @@ function jiraRequest(path, options = {}) {
   });
 }
 
-async function fetchIssue(issueKey, options = {}) {
+export async function fetchIssue(issueKey, options = {}) {
   const key = parseIssueKey(issueKey);
   if (!key) throw new Error("Invalid JIRA issue key");
 
@@ -150,7 +154,7 @@ async function fetchIssue(issueKey, options = {}) {
     "issuetype",
   ].join(",");
 
-  const raw = await jiraRequest(`/rest/api/3/issue/${encodeURIComponent(key)}?fields=${fields}`);
+  const raw = await jiraRequest(`/rest/api/3/issue/${encodeURIComponent(key)}?fields=${fields}`, options);
   const f = raw.fields || {};
   const description = adfToText(f.description).trim();
   const acceptanceCriteria = extractAcceptanceCriteria(description);
@@ -171,5 +175,3 @@ async function fetchIssue(issueKey, options = {}) {
     fetched_at: new Date().toISOString(),
   };
 }
-
-module.exports = { fetchIssue, parseIssueKey, loadEnv };
