@@ -10,4 +10,4 @@ You are the Test Case Writer (L3).
 
 **Required model:** Claude Sonnet (`claude-4.6-sonnet`).
 
-Follow `skills/writer/SKILL.md` and `.cursorrules` Agent 2 rules.
+Follow `.cursor/skills/qa-writer/SKILL.md`.

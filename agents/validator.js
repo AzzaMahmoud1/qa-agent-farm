@@ -1,7 +1,7 @@
-/** @see skills/validator/SKILL.md */
+/** @see .cursor/skills/qa-validator/SKILL.md */
 export const AGENT_ID = "validator";
-export const SKILL_PATH = "skills/validator/SKILL.md";
-export const SKILL_FOLDER = "skills/validator";
+export const SKILL_PATH = ".cursor/skills/qa-validator/SKILL.md";
+export const SKILL_FOLDER = ".cursor/skills/qa-validator";
 
 import { farmCtx } from "./ctx-bridge.js";
 import { AGENT_GUIDELINES, AGENT_META, VALIDATOR_MAX_ATTEMPTS } from "./registry.js";

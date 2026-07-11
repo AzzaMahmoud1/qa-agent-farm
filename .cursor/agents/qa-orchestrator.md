@@ -36,4 +36,4 @@ When spawning or instructing worker agents, they MUST run on **Claude Sonnet** (
 - Pause when story requires human curl or webpage URL before data/execution
 - Apply inactivity timeout if blocked waiting for human too long
 
-Follow `skills/orchestrator/SKILL.md` and `agents/orchestrator.js`.
+Follow `.cursor/skills/qa-orchestrator/SKILL.md` and `agents/orchestrator.js`.

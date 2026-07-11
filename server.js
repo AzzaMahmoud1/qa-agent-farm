@@ -29,7 +29,7 @@ const types = {
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 };
 
-const PUBLIC_DIRS = new Set(["agents", "js", "lib", "skills", "templates"]);
+const PUBLIC_DIRS = new Set(["agents", "js", "lib", "templates"]);
 const PUBLIC_FILES = new Set([
   "simulator.html",
   "index.html",

@@ -1,7 +1,7 @@
-/** @see skills/orchestrator/SKILL.md */
+/** @see .cursor/skills/qa-orchestrator/SKILL.md */
 export const AGENT_ID = "orchestrator";
-export const SKILL_PATH = "skills/orchestrator/SKILL.md";
-export const SKILL_FOLDER = "skills/orchestrator";
+export const SKILL_PATH = ".cursor/skills/qa-orchestrator/SKILL.md";
+export const SKILL_FOLDER = ".cursor/skills/qa-orchestrator";
 
 import { farmCtx } from "./ctx-bridge.js";
 import { AGENT_META, AGENT_ROLES, AGENT_GUIDELINES, VALIDATOR_MAX_ATTEMPTS, ORCHESTRATOR_INACTIVITY_TIMEOUT_MS, VALIDATOR_GUIDELINES } from "./registry.js";

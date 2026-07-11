@@ -1,7 +1,7 @@
-/** @see skills/writer/SKILL.md */
+/** @see .cursor/skills/qa-writer/SKILL.md */
 export const AGENT_ID = "writer";
-export const SKILL_PATH = "skills/writer/SKILL.md";
-export const SKILL_FOLDER = "skills/writer";
+export const SKILL_PATH = ".cursor/skills/qa-writer/SKILL.md";
+export const SKILL_FOLDER = ".cursor/skills/qa-writer";
 
 export function inferTcType(acText, index, total) {
   const t = String(acText || "").toLowerCase();

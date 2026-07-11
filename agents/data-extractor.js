@@ -1,7 +1,7 @@
-/** @see skills/data-extractor/SKILL.md */
+/** @see .cursor/skills/qa-data-extractor/SKILL.md */
 export const AGENT_ID = "test_data_extractor";
-export const SKILL_PATH = "skills/data-extractor/SKILL.md";
-export const SKILL_FOLDER = "skills/data-extractor";
+export const SKILL_PATH = ".cursor/skills/qa-data-extractor/SKILL.md";
+export const SKILL_FOLDER = ".cursor/skills/qa-data-extractor";
 
 import { farmCtx } from "./ctx-bridge.js";
 import { buildRequirementsFromStory } from "../lib/requirements.js";

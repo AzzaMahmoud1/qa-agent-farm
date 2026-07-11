@@ -1,7 +1,7 @@
-/** @see skills/reviewer/SKILL.md */
+/** @see .cursor/skills/qa-reviewer/SKILL.md */
 export const AGENT_ID = "reviewer";
-export const SKILL_PATH = "skills/reviewer/SKILL.md";
-export const SKILL_FOLDER = "skills/reviewer";
+export const SKILL_PATH = ".cursor/skills/qa-reviewer/SKILL.md";
+export const SKILL_FOLDER = ".cursor/skills/qa-reviewer";
 
 export function buildReviewerOutput(story, tcIds, executorOutput) {
   const summary = executorOutput?.summary || {};

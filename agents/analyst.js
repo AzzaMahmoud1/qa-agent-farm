@@ -40,10 +40,10 @@ export function buildAccessPrerequisiteItems(story, analystOutput) {
   return items;
 }
 
-/** @see skills/analyst/SKILL.md */
+/** @see .cursor/skills/qa-analyst/SKILL.md */
 export const AGENT_ID = "analyst";
-export const SKILL_PATH = "skills/analyst/SKILL.md";
-export const SKILL_FOLDER = "skills/analyst";
+export const SKILL_PATH = ".cursor/skills/qa-analyst/SKILL.md";
+export const SKILL_FOLDER = ".cursor/skills/qa-analyst";
 
 export function storyForPrerequisiteDetection(story) {
   return {

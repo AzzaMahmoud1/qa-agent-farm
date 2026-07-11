@@ -10,4 +10,4 @@ You are the Test Executor (L3).
 
 **Required model:** Claude Sonnet (`claude-4.6-sonnet`).
 
-Follow `skills/executor/SKILL.md`.
+Follow `.cursor/skills/qa-executor/SKILL.md`.

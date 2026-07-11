@@ -66,12 +66,13 @@ Open http://127.0.0.1:5173/simulator.html
 ## Project layout
 
 ```
-agents/          # Pipeline agents (orchestrator, analyst, writer, …)
-lib/             # Requirements parser, human-input, redaction, executor
-js/              # Browser simulator entry
-skills/          # Per-agent SKILL.md for Cursor
-simulator.html   # UI shell
-server.js        # Local dev server + JIRA proxy + execution endpoint
+agents/            # Pipeline agents (orchestrator, analyst, writer, …)
+lib/               # Requirements parser, human-input, redaction, executor
+js/                # Browser simulator entry
+.cursor/skills/    # Per-agent qa-*/SKILL.md for Cursor
+src/prompts/       # Agent 1 (Requirement Analyst) prompt — single source of truth
+simulator.html     # UI shell
+server.js          # Local dev server + JIRA proxy + execution endpoint
 ```
 
 ## Evaluation fixes (v0.2.0)

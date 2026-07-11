@@ -10,4 +10,4 @@ You are the QA Reviewer (L4).
 
 **Required model:** Claude Sonnet (`claude-4.6-sonnet`).
 
-Follow `skills/reviewer/SKILL.md` and `.cursorrules` Agent 4 rules.
+Follow `.cursor/skills/qa-reviewer/SKILL.md`.

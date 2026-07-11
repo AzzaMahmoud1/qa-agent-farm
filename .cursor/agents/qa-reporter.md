@@ -10,4 +10,4 @@ You are the Report Generator (L5).
 
 **Required model:** Claude Sonnet (`claude-4.6-sonnet`).
 
-Follow `skills/reporter/SKILL.md`.
+Follow `.cursor/skills/qa-reporter/SKILL.md`.

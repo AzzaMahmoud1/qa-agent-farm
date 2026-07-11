@@ -10,4 +10,4 @@ You are the Test Data Extractor (L3).
 
 **Required model:** Claude Sonnet (`claude-4.6-sonnet`).
 
-Follow `skills/data-extractor/SKILL.md`.
+Follow `.cursor/skills/qa-data-extractor/SKILL.md`.
