@@ -1,5 +1,7 @@
 /**
- * Canonical requirements paste used for pipeline smoke tests and simulator demo.
+ * Canonical requirements paste — single source of truth.
+ * Loaded by Node (require in tests) and by the browser (classic <script>
+ * in simulator.html, which sets window.LOGIN_USE_CASE_SAMPLE).
  */
 const LOGIN_USE_CASE_SAMPLE = `Login use case
 UC05

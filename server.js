@@ -33,7 +33,7 @@ const PUBLIC_DIRS = new Set(["agents", "js", "lib", "skills", "templates"]);
 const PUBLIC_FILES = new Set([
   "simulator.html",
   "index.html",
-  "requirements-sample.js",
+  "requirements-sample.cjs",
   "report-docx.js",
 ]);
 
