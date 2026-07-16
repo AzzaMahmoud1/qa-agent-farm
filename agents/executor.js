@@ -5,6 +5,7 @@ export const SKILL_FOLDER = ".cursor/skills/qa-executor";
 
 import { farmCtx } from "./ctx-bridge.js";
 import { redactParsedCurl } from "../lib/redaction.js";
+import { hasStructuredOutput, isApprovableOutput } from "./dependency-gate.js";
 
 export function blockedExecutorOutput(story, reason) {
   const tcIds = story?.test_cases || [];
@@ -102,7 +103,7 @@ function buildWebResults(tcIds, web, writerCases) {
   });
 }
 
-export function buildTestExecutorOutput(story, api, webpage, executionResult) {
+export function buildTestExecutorOutput(story, api, webpage, executionResult, authorOutput) {
   const s = story.id;
   const tcIds = story.test_cases;
   const humanNeed = farmCtx.getLiveHumanInputNeed(story);
@@ -112,6 +113,15 @@ export function buildTestExecutorOutput(story, api, webpage, executionResult) {
   const prereq = farmCtx.getPrerequisiteCheck(story);
   const liveExecution = executionResult || farmCtx.executionResult || null;
   const writerCases = farmCtx.storyOutputs?.writer?.test_cases || [];
+  const authorOut = authorOutput || farmCtx.storyOutputs?.author;
+
+  if (!hasStructuredOutput("author", authorOut) || !isApprovableOutput("author", authorOut)) {
+    return blockedExecutorOutput(
+      story,
+      authorOut?.blocked_reason
+        || "BLOCKED — Executor waiting on validated Author output (Author must reach REVIEW)",
+    );
+  }
 
   if (prereq.needed && !farmCtx.isPrerequisitesSatisfied()) {
     return blockedExecutorOutput(story, "Confirm prerequisites before running tests.");

@@ -1,4 +1,6 @@
 /** @see .cursor/skills/qa-author/SKILL.md */
+import { hasStructuredOutput, dependencyBlockedOutput } from "./dependency-gate.js";
+
 export const AGENT_ID = "author";
 export const SKILL_PATH = ".cursor/skills/qa-author/SKILL.md";
 export const SKILL_FOLDER = ".cursor/skills/qa-author";
@@ -14,6 +16,31 @@ export const SKILL_FOLDER = ".cursor/skills/qa-author";
  * @param {{ url?: string, ok?: boolean } | null} [webpage]
  */
 export function buildAuthorOutput(story, writerOutput, analystOutput, webpage) {
+  if (!hasStructuredOutput("analyst", analystOutput)) {
+    return {
+      ...dependencyBlockedOutput("author", "BLOCKED — Author waiting on Analyst structured output"),
+      status: "NEEDS_INPUT",
+      session_id: null,
+      outlines: [],
+      steps: [],
+      requirement_verdicts: {},
+      summary: "Author blocked — Analyst output missing.",
+    };
+  }
+  if (!hasStructuredOutput("writer", writerOutput)
+    && !(Array.isArray(writerOutput?.test_cases) && writerOutput.test_cases.length)
+    && !(Array.isArray(writerOutput?.test_outlines) && writerOutput.test_outlines.length)) {
+    return {
+      ...dependencyBlockedOutput("author", "BLOCKED — Author waiting on Writer structured output"),
+      status: "NEEDS_INPUT",
+      session_id: null,
+      outlines: [],
+      steps: [],
+      requirement_verdicts: {},
+      summary: "Author blocked — Writer output missing.",
+    };
+  }
+
   const conditions = analystOutput?.testable_conditions || [];
   const outlines = writerOutput?.test_outlines
     || (writerOutput?.test_cases || []).map((tc, i) => ({

@@ -62,7 +62,19 @@ After the human submits prerequisites:
 
 Regression: `test/human-input-recheck.js`.
 
-### 4. Honest terminal states
+### 4. Upstream validated-output dependency
+
+```text
+Agent N may start ONLY IF Agent N-1 has:
+  1) structured output in storyOutputs, AND
+  2) Validator approve (orchestrator_gate)
+```
+
+Writer+ phases are not pre-built while human gates are open; they append after unlock. Blocked Author → pipeline hold (no Executor).
+
+Regression: `test/dependency-gate.js`.
+
+### 5. Honest terminal states
 
 | State | Meaning |
 |-------|---------|
@@ -132,6 +144,7 @@ Rules:
 | **S0** | Zero-AC gate + no placeholder TC + no success without ACs | Done |
 | **S0+** | Reviewer human-input recheck vs Analyst (blame + accept/reject) | Done |
 | **S0+** | `qa-author` scaffold in pipeline | Done (stub) |
+| **S0+** | Upstream validated-output dependency gate | Done |
 | **S1** | Writer emits `test_outlines` + approval UI | Next |
 | **S2** | Author MVP (Playwright) for 1 happy-path outline | Planned |
 | **S3** | Persist run state + rehydrate simulator | Planned |

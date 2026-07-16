@@ -38,6 +38,15 @@ export {
   hasTestableConditions,
   resolveAnalystOrchestratorGate,
   ensureAnalystReportActions,
+  PIPELINE_DEPENDENCY,
+  hasStructuredOutput,
+  isApprovableOutput,
+  deriveValidatedRolesFromEvents,
+  assertCanAssign,
+  dependencyBlockedOutput,
+  buildDownstreamPhases,
+  buildEventsAfterHumanPrerequisites,
+  buildEventsAfterHumanApiInput,
 } from "./orchestrator.js";
 
 /**

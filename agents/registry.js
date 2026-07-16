@@ -98,6 +98,7 @@ const AGENT_GUIDELINES = {
         level: "L3",
         required_deliverables: ["test_cases", "given_when_then", "ac_mapping"],
         rules: [
+          "Refuse work without validated Analyst output",
           "Each test case must use Given / When / Then format",
           "At least one happy-path and one negative or edge case",
           "Every acceptance criterion must be covered by a test case",
@@ -110,6 +111,7 @@ const AGENT_GUIDELINES = {
         level: "L3",
         required_deliverables: ["datasets", "fixtures", "env_variables", "tc_mapping", "test_oracle"],
         rules: [
+          "Refuse work without validated Writer output",
           "Extract test data for every writer test case",
           "For API stories: derive datasets from human-provided curl (URL, method, headers, body)",
           "For UI stories: derive datasets from human-provided webpage URL and page context",
@@ -127,6 +129,7 @@ const AGENT_GUIDELINES = {
         level: "L3",
         required_deliverables: ["session_id", "status", "steps", "requirement_verdicts"],
         rules: [
+          "Refuse work without validated Data Extractor (and Analyst/Writer) output",
           "Refuse to author when testable_conditions is empty",
           "Build only from approved test outlines",
           "Use Plan→Act→Reflect; never fabricate a pass without evidence",
@@ -137,6 +140,7 @@ const AGENT_GUIDELINES = {
         level: "L3",
         required_deliverables: ["execution_plan", "results", "evidence"],
         rules: [
+          "Refuse work without validated Author output (status REVIEW)",
           "Execute all test cases using extracted test data",
           "Record pass/fail/blocked per test case with evidence",
           "For API stories: use human-provided curl command only",
@@ -147,6 +151,7 @@ const AGENT_GUIDELINES = {
         level: "L4",
         required_deliverables: ["score", "impact", "missing_coverage", "fix", "unimplemented_rules_tested"],
         rules: [
+          "Refuse post-exec review without validated Executor output (human-input recheck may run earlier)",
           "Provide a numeric or scored QA assessment",
           "Assess impact and regression risk",
           "List missing coverage and duplicate scenarios",
@@ -159,6 +164,7 @@ const AGENT_GUIDELINES = {
         level: "L5",
         required_deliverables: ["summary", "regression_rows", "ticket_metadata"],
         rules: [
+          "Refuse work without validated Reviewer output",
           "Include ticket key, title, and environment",
           "Summarize planned vs executed test counts",
           "List all regression rows with status",

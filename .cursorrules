@@ -10,6 +10,12 @@ Run the QA pipeline when a message contains any of:
 Analyst → Writer → Data Extractor → Author → Executor → Reviewer → Reporter.
 Each agent uses all previous agents' outputs as input.
 
+## Dependency gate
+
+No worker agent may be assigned or run until its immediate upstream dependency
+has returned structured output **and** the Validator has approved that output.
+Blocked / non-REVIEW Author does not unlock Executor.
+
 ## Dispatch control (orchestrator is the only entry point)
 
 Only the orchestrator (.cursor/agents/qa-orchestrator.md) starts a run and

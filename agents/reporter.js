@@ -15,7 +15,16 @@ function rowStatus(result) {
   return "Planned";
 }
 
-export function buildReporterOutput(story, test_cases, executorOutput) {
+export function buildReporterOutput(story, test_cases, executorOutput, reviewerOutput) {
+  if (reviewerOutput?.blocked && !reviewerOutput?.human_input_recheck) {
+    return {
+      success: false,
+      blocked: true,
+      blocked_reason: "BLOCKED — Reporter waiting on Reviewer structured output",
+      ticket_key: story?.id,
+      final_report: null,
+    };
+  }
   const s = story.id;
   const tcIds = story.test_cases;
   const summary = executorOutput?.summary || {

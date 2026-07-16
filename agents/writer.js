@@ -1,4 +1,6 @@
 /** @see .cursor/skills/qa-writer/SKILL.md */
+import { hasStructuredOutput, dependencyBlockedOutput } from "./dependency-gate.js";
+
 export const AGENT_ID = "writer";
 export const SKILL_PATH = ".cursor/skills/qa-writer/SKILL.md";
 export const SKILL_FOLDER = ".cursor/skills/qa-writer";
@@ -18,10 +20,31 @@ export function inferTcType(acText, index, total) {
   return "happy_path";
 }
 
+/** Full Writer output; refuses work without Analyst structured output. */
+export function buildWriterOutput(story, analystOutput) {
+  if (!hasStructuredOutput("analyst", analystOutput)) {
+    return {
+      ...dependencyBlockedOutput("writer", "BLOCKED — Writer waiting on Analyst structured output"),
+      test_cases: [],
+      test_outlines: [],
+    };
+  }
+  return {
+    success: true,
+    blocked: false,
+    test_cases: buildWriterTestCases(story),
+    analyst_input: {
+      testable_conditions: analystOutput.testable_conditions,
+      prerequisites_needed: analystOutput.prerequisites_needed,
+    },
+  };
+}
+
 export function buildWriterTestCases(story) {
   const s = story.id;
   const acList = story.acceptance_criteria_list || [];
-  const tcIds = story.test_cases;
+  const tcIds = story.test_cases || [];
+  if (!tcIds.length) return [];
   return tcIds.map((id, i) => {
     const ac = acList[i] || acList[0] || story.title;
     const type = inferTcType(ac, i, tcIds.length);

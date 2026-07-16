@@ -123,6 +123,14 @@ await test("executor denies loopback by default and requires allowlist", () => {
   assert.strictEqual(isUrlAllowlisted("https://169.254.169.254/latest", ["api.example.com"]), false);
 });
 
+const approvedAuthor = {
+  success: true,
+  blocked: false,
+  status: "REVIEW",
+  outlines: [{ id: "TO-01", status: "approved" }],
+  steps: [{ task_id: "T1", result: "pass" }],
+};
+
 await test("UI URL results are pending_browser not passed", async () => {
   const { setFarmCtx } = await import(pathToFileURL(path.join(__dirname, "../agents/ctx-bridge.js")).href);
   const { buildTestExecutorOutput } = await import(pathToFileURL(path.join(__dirname, "../agents/executor.js")).href);
@@ -135,7 +143,10 @@ await test("UI URL results are pending_browser not passed", async () => {
     isPrerequisitesSatisfied: () => true,
     humanApiInput: { ok: false },
     humanWebpageInput: { ok: true, url: "https://app.example.com/login", title: "Login", path: "/login" },
-    storyOutputs: { writer: { test_cases: [{ id: "TC-01", type: "happy_path" }, { id: "TC-02", type: "negative" }] } },
+    storyOutputs: {
+      writer: { test_cases: [{ id: "TC-01", type: "happy_path" }, { id: "TC-02", type: "negative" }] },
+      author: approvedAuthor,
+    },
     executionResult: null,
   });
   const out = buildTestExecutorOutput(
@@ -143,6 +154,7 @@ await test("UI URL results are pending_browser not passed", async () => {
     null,
     { ok: true, url: "https://app.example.com/login", title: "Login", path: "/login" },
     null,
+    approvedAuthor,
   );
   assert.ok(out.results.every((r) => r.status === "pending_browser"));
   assert.ok(out.results.every((r) => r.passed === false));
@@ -163,7 +175,10 @@ await test("single HTTP observation is not copied as pass for every TC", async (
     isPrerequisitesSatisfied: () => true,
     humanApiInput: { ok: true, method: "GET", url: "https://api.example.com/x", endpoint: "/x", headers: {} },
     humanWebpageInput: { ok: false },
-    storyOutputs: { writer: { test_cases: [{ id: "TC-01" }, { id: "TC-02" }, { id: "TC-03" }] } },
+    storyOutputs: {
+      writer: { test_cases: [{ id: "TC-01" }, { id: "TC-02" }, { id: "TC-03" }] },
+      author: approvedAuthor,
+    },
     executionResult: {
       executed: true,
       http_ok: true,
@@ -185,6 +200,7 @@ await test("single HTTP observation is not copied as pass for every TC", async (
       request: { method: "GET", url: "https://api.example.com/x", headers: {} },
       response: { status: 200, body_snippet: "{}" },
     },
+    approvedAuthor,
   );
   assert.strictEqual(out.results[0].status, "transport_observed");
   assert.strictEqual(out.results[0].passed, false);

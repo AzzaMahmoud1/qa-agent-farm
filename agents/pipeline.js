@@ -4,7 +4,7 @@ import {
   MODEL_ORCHESTRATOR, MODEL_WORKER, AGENT_MODEL_ROUTING, getModelForAgent,
 } from "./registry.js";
 import { buildAnalystOutputPayload, buildAnalystPrerequisitePayload } from "./analyst.js";
-import { buildWriterTestCases } from "./writer.js";
+import { buildWriterTestCases, buildWriterOutput } from "./writer.js";
 import { buildReviewerOutput } from "./reviewer.js";
 import { buildReporterOutput } from "./reporter.js";
 import { buildTestDataExtractorOutput } from "./data-extractor.js";
@@ -50,7 +50,13 @@ export function buildAgentOutputs(story) {
 
   const api = farmCtx.humanApiInput.ok ? farmCtx.humanApiInput : null;
   const web = farmCtx.humanWebpageInput.ok ? farmCtx.humanWebpageInput : null;
-  const executorOut = buildTestExecutorOutput(story, api, web, farmCtx.executionResult);
+  const writerOutput = buildWriterOutput(story, analystOutput);
+  const writerCases = writerOutput.test_cases?.length ? writerOutput.test_cases : test_cases;
+  const dataOut = buildTestDataExtractorOutput(story, api, writerCases, analystOutput, web);
+  const authorOut = buildAuthorOutput(story, writerOutput, analystOutput, web);
+  const executorOut = buildTestExecutorOutput(story, api, web, farmCtx.executionResult, authorOut);
+  const reviewerOut = buildReviewerOutput(story, tcIds, executorOut);
+  const reporterOut = buildReporterOutput(story, writerCases, executorOut, reviewerOut);
 
   return {
     orchestrator: {
@@ -73,8 +79,8 @@ export function buildAgentOutputs(story) {
         "① Orchestrator assigns ticket → Agent 1 Requirement Analyst (Cursor Agent · Sonnet 5 high)",
         "② Agent 1 extracts conditions + prerequisites + orchestrator_actions",
         "③ If zero testable ACs → NEEDS_INPUT / fail (never Complete)",
-        "④ Writer → Human input if needed → Data → Author → Executor → Reviewer → Reporter",
-        "⑤ Validator checks worker outputs (max 2 attempts)",
+        "④ Each agent runs only after upstream output is Validator-approved",
+        "⑤ Writer → Human input if needed → Data → Author → Executor → Reviewer → Reporter",
       ],
       agents_in_pipeline: AGENT_ROLES.map((r) => ({ role: r, model: getModelForAgent(r) })),
       acceptance_criteria_count: story.acceptance_criteria,
@@ -82,12 +88,12 @@ export function buildAgentOutputs(story) {
       jira_status: story.status,
     },
     analyst: analystOutput,
-    writer: { test_cases },
-    test_data_extractor: buildTestDataExtractorOutput(story, api, test_cases, analystOutput, web),
-    author: buildAuthorOutput(story, { test_cases }, analystOutput, web),
+    writer: writerOutput,
+    test_data_extractor: dataOut,
+    author: authorOut,
     test_executor: executorOut,
-    reviewer: buildReviewerOutput(story, tcIds, executorOut),
-    reporter: buildReporterOutput(story, test_cases, executorOut),
+    reviewer: reviewerOut,
+    reporter: reporterOut,
     validator: {
       role: "Output Validator",
       model: MODEL_WORKER,

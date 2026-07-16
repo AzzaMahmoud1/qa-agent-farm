@@ -10,13 +10,14 @@
   "scripts": {
     "sync:cjs": "node -e \"require('fs').copyFileSync('lib/prerequisites.js','lib/prerequisites.cjs')\"",
     "start": "npm run sync:cjs && node server.js",
-    "test": "npm run sync:cjs && node test-requirements.js && node test/eval-fixes.js && node test/agent1-analyst.js && node test/zero-ac-gate.js && node test/human-input-recheck.js && node test/real-run-no-forced-retry.js",
+    "test": "npm run sync:cjs && node test-requirements.js && node test/eval-fixes.js && node test/agent1-analyst.js && node test/zero-ac-gate.js && node test/human-input-recheck.js && node test/real-run-no-forced-retry.js && node test/dependency-gate.js",
     "test:requirements": "node test-requirements.js",
     "test:eval": "node test/eval-fixes.js",
     "test:agent1": "node test/agent1-analyst.js",
     "test:zero-ac": "node test/zero-ac-gate.js",
     "test:human-recheck": "node test/human-input-recheck.js",
     "test:real-run": "node test/real-run-no-forced-retry.js",
+    "test:dependency-gate": "node test/dependency-gate.js",
     "doctor": "node scripts/doctor.js",
     "check:modules": "node scripts/check-modules.js"
   },

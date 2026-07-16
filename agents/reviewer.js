@@ -231,6 +231,19 @@ export function reviewHumanInputAgainstAnalyst(analystOutput, humanBundle = {}) 
 }
 
 export function buildReviewerOutput(story, tcIds, executorOutput) {
+  if (!executorOutput || (executorOutput.blocked && !executorOutput.summary && !executorOutput.results)) {
+    // Allow human_input_recheck without Executor; post-exec review needs Executor payload.
+    if (!executorOutput) {
+      return {
+        success: false,
+        blocked: true,
+        blocked_reason: "BLOCKED — Reviewer waiting on Executor structured output",
+        score: "—",
+        missing_coverage: ["Executor has not returned"],
+        fix: "Run Executor after validated Author output before post-exec review.",
+      };
+    }
+  }
   const summary = executorOutput?.summary || {};
   const executed = summary.executed || 0;
   const passed = summary.passed || 0;

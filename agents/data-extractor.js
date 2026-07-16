@@ -8,6 +8,7 @@ import { buildRequirementsFromStory } from "../lib/requirements.js";
 import { inferHumanInputNeeds } from "../lib/human-input.js";
 import { inferRequirementSignals, scenarioRoleForType, inferApiFields, buildInvalidFieldValue, buildBoundaryFieldValue, buildValidFieldValue } from "../lib/test-data.js";
 import { buildAnalystPrerequisitePayload } from "./analyst.js";
+import { hasStructuredOutput } from "./dependency-gate.js";
 
 export function blockedDataExtractorOutput(story, reason, requirements, inputNeed) {
   return {
@@ -140,6 +141,15 @@ export function buildTestDataExtractorOutput(story, api, writerCases, analystOut
   const web = webpage || (farmCtx.humanWebpageInput.ok ? farmCtx.humanWebpageInput : null);
   const inputNeed = inferHumanInputNeeds(story, analystOutput, cases);
   const prereq = farmCtx.storyOutputs?.analyst?.prerequisites_needed || buildAnalystPrerequisitePayload(story);
+
+  if (!hasStructuredOutput("writer", { test_cases: cases, success: cases.length > 0 })) {
+    return blockedDataExtractorOutput(
+      story,
+      "BLOCKED — Data Extractor waiting on Writer structured output",
+      requirements,
+      inputNeed,
+    );
+  }
 
   if (prereq.needed && !farmCtx.isPrerequisitesSatisfied()) {
     return blockedDataExtractorOutput(

@@ -121,6 +121,8 @@ const {
   resolveLiveValidatorReturn, validationGateEvents, buildOrchestratorInactivityFailureEvents,
   buildValidatorLiveState, buildFeedbackLoops, buildOrchestratorLiveState, enrichEventForDisplay,
   buildPrerequisiteInputEvents, buildHumanInputEvents,
+  buildEventsAfterHumanPrerequisites, buildEventsAfterHumanApiInput,
+  assertCanAssign, deriveValidatedRolesFromEvents,
   buildTestExecutorOutput, buildReviewerOutput, reviewHumanInputAgainstAnalyst,
   buildReporterOutput, buildTestDataExtractorOutput,
 } = farm;
@@ -691,7 +693,7 @@ function kindClass(kind) {
   if (kind === "orchestrator_instruct" || kind === "orchestrator_reinstruct" || kind === "human_input_request" || kind === "human_input_received" || kind === "prerequisite_input_request" || kind === "prerequisite_input_received" || kind.includes("assign")) return "assign";
   if (kind === "orchestrator_receive" || kind.includes("return")) return kind === "validator_return" ? "validate" : "return";
   if (kind === "validator_assign") return "validate";
-  if (kind === "validator_brake" || kind === "run_failed" || kind === "orchestrator_abort" || kind === "orchestrator_inactivity_timeout") return "abort";
+  if (kind === "validator_brake" || kind === "run_failed" || kind === "orchestrator_abort" || kind === "orchestrator_inactivity_timeout" || kind === "pipeline_hold") return "abort";
   if (kind.includes("decision") || kind.includes("validate") || kind === "orchestrator_stage" || kind === "orchestrator_gate") return "decision";
   if (kind.includes("end")) return "end";
   return "phase";
@@ -720,6 +722,7 @@ function kindLabel(kind) {
     human_input_request: "Human input · required",
     prerequisite_input_request: "Prerequisites · human input required",
     prerequisite_input_received: "Prerequisites · received",
+    pipeline_hold: "Pipeline hold · upstream not validated",
     orchestrator_inactivity_timeout: "Orchestrator · inactivity timeout",
     human_input_received: "Human input · received",
     run_end: "Run end",
@@ -867,6 +870,13 @@ function loadStory(story, runOptions) {
   storyOutputs = buildAgentOutputs(story);
   EVENTS = resolvePipelineEvents(story, opts);
   initAgentOutputState();
+  // Seed Analyst (and any precomputed) outputs so humans can open tabs before Play.
+  if (storyOutputs?.analyst) {
+    publishAgentOutputForHuman("analyst", storyOutputs.analyst, story.live_analyst_output ? "done" : "pending");
+  }
+  if (storyOutputs?.orchestrator) {
+    publishAgentOutputForHuman("orchestrator", storyOutputs.orchestrator, "pending");
+  }
   updateDemoBanner(opts);
   humanApiInput = { ok: false, curl: "", base_url: "", endpoint: "", method: "GET", url: "", headers: {}, auth: "", body: null };
   humanWebpageInput = { ok: false, url: "", path: "", origin: "", title: "" };
@@ -1049,6 +1059,21 @@ function logTimestamp() {
 }
 
 
+function dependencyAssignContext() {
+  const need = currentStory ? getLiveHumanInputNeed(currentStory) : { needsHumanInput: false };
+  const recheck = storyOutputs?.reviewer?.human_input_recheck;
+  const hadPrereqRequest = EVENTS.some((e) => e?.kind === "prerequisite_input_request");
+  return {
+    storyOutputs: storyOutputs || {},
+    validatedRoles: deriveValidatedRolesFromEvents(EVENTS, idx),
+    pipelineState,
+    requireHumanRecheck: hadPrereqRequest && pipelineState !== "READY_FOR_WRITER",
+    humanInputRecheckPassed: recheck?.passed === true || (!hadPrereqRequest && pipelineState === "READY_FOR_WRITER"),
+    needsHumanInput: !!need.needsHumanInput,
+    humanInputSatisfied: currentStory ? isHumanInputSatisfied(need) : true,
+  };
+}
+
 function next() {
   if (isWaitingForPrerequisites(idx)) {
     stopPlay();
@@ -1067,6 +1092,15 @@ function next() {
     stopPlay();
     promptForRequiredInput();
     return;
+  }
+  const nextEv = idx < EVENTS.length - 1 ? EVENTS[idx + 1] : null;
+  if (nextEv?.kind === "agent_assign" && nextEv.role) {
+    const gate = assertCanAssign(nextEv.role, dependencyAssignContext());
+    if (!gate.ok) {
+      stopPlay();
+      if (el("event-message")) el("event-message").textContent = gate.blocked_reason;
+      return;
+    }
   }
   if (idx < EVENTS.length - 1) showEvent(idx + 1);
   else {
@@ -2194,6 +2228,19 @@ function setActive(role) {
 }
 
 
+/**
+ * Publish an agent payload into the human-visible Agent outputs panel.
+ * Prefer live agent_returns from the event; fall back to storyOutputs.
+ */
+function publishAgentOutputForHuman(role, payload, status = "done") {
+  if (!role || payload == null || typeof payload !== "object") return;
+  agentOutputs[role] = payload;
+  if (storyOutputs && role !== "validator" && role !== "orchestrator") {
+    storyOutputs[role] = payload;
+  }
+  setAgentOutputStatus(role, status);
+}
+
 function setAgentOutputStatus(role, status) {
   agentStatuses[role] = status;
   const tab = document.querySelector(`.output-tab[data-agent="${role}"]`);
@@ -2292,12 +2339,15 @@ function showEvent(i) {
     if (e.kind === "agent_return" && !e.structured_output && e.output_note) {
       el("agent-returns").textContent = renderDict(e.agent_returns) + "\n\n⚠ " + e.output_note;
     }
-    if (e.kind === "agent_return" && e.structured_output) {
-      setAgentOutputStatus(e.role, "done");
-      activeOutputTab = "validator";
-    }
-    if (e.kind === "agent_return" && !e.structured_output) {
-      activeOutputTab = "validator";
+    if (e.kind === "agent_return" && e.role) {
+      // Always surface the return payload on the Agent outputs tab for the human.
+      const live = e.agent_returns && Object.keys(e.agent_returns).length
+        ? e.agent_returns
+        : storyOutputs?.[e.role];
+      publishAgentOutputForHuman(e.role, live, "done");
+      activeOutputTab = e.role;
+      renderOutputTabs();
+      renderActiveOutputTab();
     }
   } else if (e.kind === "validator_assign" || e.kind === "validator_return") {
     const target = e.target_agent || "worker";
@@ -2312,9 +2362,19 @@ function showEvent(i) {
     const vStatus = document.getElementById("status-validator");
     if (vStatus) vStatus.textContent = e.kind === "validator_assign" ? "checking…" : (e.passed ? "passed" : "failed");
     activeOutputTab = "validator";
-    if (e.kind === "validator_return") {
+    if (e.kind === "validator_assign") {
+      // Show the worker payload under review so the human can inspect it.
+      const underReview = e.agent_context?.agent_output || storyOutputs?.[e.target_agent];
+      if (underReview && e.target_agent) {
+        publishAgentOutputForHuman(e.target_agent, underReview, agentStatuses[e.target_agent] || "done");
+      }
       setAgentOutputStatus("validator", "working");
     }
+    if (e.kind === "validator_return") {
+      setAgentOutputStatus("validator", e.passed ? "done" : "working");
+    }
+    renderOutputTabs();
+    renderActiveOutputTab();
   } else if (e.kind === "prerequisite_input_request" || e.kind === "prerequisite_input_received") {
     const check = e.prerequisite_need || getPrerequisiteCheck(currentStory);
     const actions = e.orchestrator_actions || e.agent_context?.orchestrator_actions || [];
@@ -2412,6 +2472,23 @@ function showEvent(i) {
       : e.kind === "orchestrator_receive" ? "feedback received"
       : e.kind === "orchestrator_instruct" ? "instructing…" : "leading";
     activeOutputTab = "orchestrator";
+  } else if (e.kind === "pipeline_hold") {
+    el("agent-panel-title").textContent = "⏸ Pipeline hold · " + (e.target_agent || "upstream") + " not validated";
+    el("agent-context").textContent = renderDict(e.agent_context);
+    el("agent-returns").textContent = renderDict(e.agent_returns);
+    setActive("orchestrator");
+    el("status-orchestrator").textContent = "hold — downstream blocked";
+    // Keep the blocked agent's output visible for the human.
+    const held = e.agent_context?.agent_output || e.agent_returns;
+    if (e.target_agent && held) {
+      publishAgentOutputForHuman(e.target_agent, held, "done");
+      activeOutputTab = e.target_agent;
+    } else {
+      activeOutputTab = "orchestrator";
+    }
+    renderOutputTabs();
+    renderActiveOutputTab();
+    stopPlay();
   } else if (e.kind === "validator_brake" || e.kind === "run_failed") {
     el("agent-panel-title").textContent = e.kind === "validator_brake"
       ? "✅ Validator · brake applied"
@@ -2698,6 +2775,19 @@ function submitHumanInput(advanceStep) {
     if (need.types.includes("webpage") && humanWebpageInput.ok) parts.push(humanWebpageInput.url);
     if (executionResult?.executed) parts.push(`HTTP ${executionResult.status ?? "error"}`);
     setHumanInputStatus("ok", parts.join(" · "));
+
+    // Append Data→… only after human input; do not pre-build past the request.
+    const alreadyHasData = EVENTS.some((e) => e?.kind === "agent_assign" && e.role === "test_data_extractor");
+    if (!alreadyHasData && EVENTS[idx]?.kind === "human_input_request") {
+      const more = buildEventsAfterHumanApiInput(
+        currentStory,
+        storyOutputs?.analyst,
+        storyOutputs?.writer,
+      );
+      EVENTS = EVENTS.slice(0, idx + 1).concat(more);
+      el("step-total").textContent = EVENTS.length;
+    }
+
     if (advanceStep && EVENTS[idx]?.kind === "human_input_request" && idx < EVENTS.length - 1) {
       stopPlay();
       next();
@@ -2826,6 +2916,16 @@ function submitPrerequisites() {
   }
   renderHumanInputRecheckBanner(humanReview);
   syncRequirementsToTestData();
+
+  // Append Writer→… only after Analyst validated + human recheck accepted.
+  const alreadyHasWriter = EVENTS.some((e) => e?.kind === "agent_assign" && e.role === "writer");
+  if (!alreadyHasWriter) {
+    const more = buildEventsAfterHumanPrerequisites(currentStory, storyOutputs?.analyst);
+    const at = EVENTS[idx]?.kind === "prerequisite_input_request" ? idx : EVENTS.length - 1;
+    EVENTS = EVENTS.slice(0, at + 1).concat(more);
+    el("step-total").textContent = EVENTS.length;
+  }
+
   if (EVENTS[idx]?.kind === "prerequisite_input_request" && idx < EVENTS.length - 1) {
     stopPlay();
     next();
@@ -2910,8 +3010,8 @@ function syncOutputsToIndex(i) {
     if (ev?.kind === "agent_assign" && ev.role && ev.role !== "validator") {
       setAgentOutputStatus(ev.role, agentOutputs[ev.role] ? "done" : "working");
     }
-    if (ev?.kind === "agent_return" && ev.role && ev.structured_output) {
-      if (ev.role === "test_data_extractor" && currentStory) {
+    if (ev?.kind === "agent_return" && ev.role) {
+      if (ev.role === "test_data_extractor" && currentStory && ev.structured_output) {
         storyOutputs.test_data_extractor = buildTestDataExtractorOutput(
           currentStory,
           humanApiInput.ok ? humanApiInput : null,
@@ -2920,11 +3020,14 @@ function syncOutputsToIndex(i) {
           humanWebpageInput.ok ? humanWebpageInput : null,
         );
       }
-      if (ev.role === "test_executor" && currentStory) {
+      if (ev.role === "test_executor" && currentStory && ev.structured_output) {
         refreshExecutionOutputs();
       }
-      agentOutputs[ev.role] = storyOutputs[ev.role];
-      setAgentOutputStatus(ev.role, "done");
+      // Prefer live event payload so humans always see what the agent just returned.
+      const live = ev.agent_returns && Object.keys(ev.agent_returns).length
+        ? ev.agent_returns
+        : storyOutputs[ev.role];
+      publishAgentOutputForHuman(ev.role, live, "done");
       if (ev.role === "reporter") {
         activeOutputTab = "reporter";
       }
