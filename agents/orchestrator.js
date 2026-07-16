@@ -821,88 +821,77 @@ export function buildEvents(story) {
     writer_input: analystGateDecision.writer_input,
   };
 
-  const analystFeedbackIncomplete = {
-    success: true,
-    testable_conditions: story.acceptance_criteria + " condition(s) extracted from JIRA",
-    coverage_gaps: [],
-    affected_components: (story.components || []).join(", ") || "API, Backend",
-    related_files: null,
-    prerequisites_needed: null,
-    ready_for_test_design: false,
-    summary: "Gap analysis returned but missing scratchpad, structured prerequisites, and related_files — incomplete for L2 guidelines",
-  };
-
-  const analystRetryInstructions = {
-    target_agent: "Requirement Analyst (L2)",
-    task: "RETRY — re-run ALL scratchpad steps A–E, then resubmit full JSON",
-    validator_feedback: "Missing scratchpad and structured L2 deliverables",
-    corrections: [
-      "Output scratchpad steps A–E before final JSON",
-      "Add prerequisites_needed.blocking and .non_blocking with category",
-      "Add related_files as { path, reason } objects",
-      "Map each AC to structured testable_conditions entry",
-    ],
-  };
-
+  // Default pipeline = real run: one Analyst return, then live validate.
+  // Forced incomplete→fail→retry lives only in demo: "requirements" (Demos panel).
   const analystQuality = validateAnalystOutputLive(story, analystFeedback);
-  const analystGateOpts = {
-    failAttempts: [1],
-    failures: [
-      "Complete all scratchpad steps A–E before final JSON",
-      "Include related source and test file paths with reasons",
-    ],
-    failRecommendation: "Add scratchpad A–E, prerequisites_needed.blocking/non_blocking, and related_files",
-    retryInstructions: analystRetryInstructions,
-    retryOutput: analystFeedback,
+  const analystGateBase = {
     gateMessage: analystPrereqPayload.needed
       ? "Orchestrator received validated analyst output — will request human prerequisites next"
       : "Orchestrator received validated analyst feedback — proceeding to test design",
     gateDecision: analystPrereqPayload.needed ? "request human prerequisites" : "proceed to test_case_writing",
-    retryEvents: [
-      {
-        kind: "agent_assign",
-        phase: "gap_analysis",
-        message: "Analyst receives orchestrator re-instructions (validator retry 1/1)",
-        role: "analyst",
-        is_retry: true,
-        feedback_addressed: analystRetryInstructions.corrections,
-        orchestrator_memory: mem(story, { phase: "gap_analysis", awaiting: "analyst_retry", retries_left: 0 }),
-        agent_context: analystRetryInstructions,
-        agent_returns: {},
-        decision: null,
-      },
-      {
-        kind: "agent_return",
-        phase: "gap_analysis",
-        message: analystFeedback.summary + " (retry — scratchpad + structured deliverables added)",
-        role: "analyst",
-        is_retry: true,
-        before_output: analystFeedbackIncomplete,
-        changes_made: [
-          "Added scratchpad steps A–E",
-          "Added prerequisites_needed.blocking/non_blocking — "
-            + (analystPrereqPayload.items.length || 0) + " human gap(s), "
-            + (analystPrereqPayload.already_satisfied?.length || 0) + " satisfied in ticket",
-          "Added related_files with path and reason",
-          "Mapped " + (analystFull.testable_conditions?.length || 0) + " structured testable condition(s)",
-          "Set ready_for_test_design: " + analystFull.ready_for_test_design,
-        ],
-        orchestrator_memory: mem(story, { phase: "gap_analysis", analyst_status: "returned_retry" }),
-        agent_context: {},
-        agent_returns: analystFeedback,
-        decision: null,
-        structured_output: "__analyst__",
-      },
-    ],
   };
-  if (!analystQuality.passed) {
-    analystGateOpts.failAttempts = [1, 2];
-    analystGateOpts.failures2 = analystQuality.failures;
-    analystGateOpts.failRecommendation2 = analystQuality.recommendation || "Analyst mapped ticket metadata as acceptance criteria — exclude non-AC lines";
-    analystGateOpts.failValidation2 = analystQuality;
+  let analystGateOpts;
+  if (analystQuality.passed) {
+    analystGateOpts = {
+      ...analystGateBase,
+      failAttempts: [],
+      failValidation: analystQuality,
+    };
+  } else {
+    const corrections = (analystQuality.failures || []).slice(0, 4);
+    const retryInstructions = {
+      target_agent: "Requirement Analyst (L2)",
+      task: "RETRY — address validator feedback (last attempt)",
+      validator_feedback: (analystQuality.failures || []).join("; ") || "L2 guideline failures",
+      corrections: corrections.length
+        ? corrections
+        : ["Re-run scratchpad A–E and resubmit full structured JSON"],
+    };
+    analystGateOpts = {
+      ...analystGateBase,
+      failAttempts: [1, 2],
+      failures: analystQuality.failures || [],
+      failRecommendation: analystQuality.recommendation
+        || "Fix validator failures and resubmit full Analyst JSON",
+      failValidation: analystQuality,
+      failures2: analystQuality.failures || [],
+      failRecommendation2: analystQuality.recommendation
+        || "Analyst output still invalid after retry — run will abort",
+      failValidation2: analystQuality,
+      retryInstructions,
+      retryOutput: analystFeedback,
+      retryEvents: [
+        {
+          kind: "agent_assign",
+          phase: "gap_analysis",
+          message: "Analyst receives orchestrator re-instructions (validator retry 1/1)",
+          role: "analyst",
+          is_retry: true,
+          feedback_addressed: retryInstructions.corrections,
+          orchestrator_memory: mem(story, { phase: "gap_analysis", awaiting: "analyst_retry", retries_left: 0 }),
+          agent_context: retryInstructions,
+          agent_returns: {},
+          decision: null,
+        },
+        {
+          kind: "agent_return",
+          phase: "gap_analysis",
+          message: (analystFeedback.summary || "Analyst resubmit") + " (retry)",
+          role: "analyst",
+          is_retry: true,
+          before_output: analystFeedback,
+          changes_made: retryInstructions.corrections,
+          orchestrator_memory: mem(story, { phase: "gap_analysis", analyst_status: "returned_retry" }),
+          agent_context: {},
+          agent_returns: analystFeedback,
+          decision: null,
+          structured_output: "__analyst__",
+        },
+      ],
+    };
   }
 
-  const analystGate = validationGateEvents("analyst", "gap_analysis", story, analystFeedbackIncomplete, analystGateOpts);
+  const analystGate = validationGateEvents("analyst", "gap_analysis", story, analystFeedback, analystGateOpts);
 
   const coreStart = [
     { kind: "run_start", phase: "init", message: "Orchestrator received ticket " + s + (story.from_jira ? " (live from JIRA)" : ""), role: null, orchestrator_memory: mem(story, { phase: "init", source: story.from_jira ? "jira" : "mock" }), agent_context: {}, agent_returns: {}, decision: "begin QA pipeline — orchestrator leads" },
@@ -913,7 +902,20 @@ export function buildEvents(story) {
 
     { kind: "agent_assign", phase: "gap_analysis", message: "Analyst receives orchestrator instructions", role: "analyst", orchestrator_memory: mem(story, { phase: "gap_analysis", awaiting: "analyst" }), agent_context: analystInstructions, agent_returns: {}, decision: null },
 
-    { kind: "agent_return", phase: "gap_analysis", message: analystFeedbackIncomplete.summary, role: "analyst", orchestrator_memory: mem(story, { phase: "gap_analysis", analyst_status: "returned" }), agent_context: {}, agent_returns: analystFeedbackIncomplete, decision: null, output_note: "Missing scratchpad + structured deliverables — will fail L2 validation (attempt 1/" + VALIDATOR_MAX_ATTEMPTS + ")" },
+    {
+      kind: "agent_return",
+      phase: "gap_analysis",
+      message: analystFeedback.summary,
+      role: "analyst",
+      orchestrator_memory: mem(story, { phase: "gap_analysis", analyst_status: "returned" }),
+      agent_context: {},
+      agent_returns: analystFeedback,
+      decision: null,
+      structured_output: "__analyst__",
+      output_note: analystQuality.passed
+        ? "Live Analyst output — proceeding to single validator check"
+        : `Live Analyst output failed quality checks (${(analystQuality.failures || []).length}) — validator retry path`,
+    },
 
     ...analystGate,
   ];

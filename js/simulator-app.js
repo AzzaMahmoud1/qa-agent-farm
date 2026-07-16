@@ -729,7 +729,7 @@ function kindLabel(kind) {
 
 
 function shouldSkipAgent1(runOptions) {
-  // Validator-failure demo still uses the scripted incomplete analyst path
+  // Skip live Agent 1 only for the Requirements failures demo (scripted incomplete path).
   return (runOptions || currentRunOptions)?.demo === "requirements";
 }
 

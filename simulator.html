@@ -299,7 +299,7 @@ a { color: var(--text-accent); }
     </header>
 
     <div id="demo-banner" class="banner-warn" hidden>
-      <strong>Demo:</strong> <span id="demo-banner-text">Requirements step — analyst fails validation twice, then the run aborts (validator brake).</span>
+      <strong>Demo:</strong> <span id="demo-banner-text">Requirements failures — Analyst returns incomplete output, fails validation twice, then the run aborts (validator brake). Exit to use the real default pipeline.</span>
       <a href="?" id="demo-exit-link" style="margin-left:.5rem">Exit demo</a>
     </div>
 
@@ -404,7 +404,7 @@ a { color: var(--text-accent); }
           <div class="panel-body">
             <button type="button" class="btn" id="btn-demo-default" style="width:100%;justify-content:center;margin-bottom:.5rem"><i class="ti ti-route"></i> Default pipeline</button>
             <button type="button" class="btn btn-primary" id="btn-demo-requirements" style="width:100%;justify-content:center"><i class="ti ti-alert-triangle"></i> Requirements failures</button>
-            <p style="font-size:.75rem;color:var(--text-muted);margin:.65rem 0 0;line-height:1.5">Separate demo: Requirement Analyst fails validator checks at the requirements step (2 strikes → run abort). Does not change the default run.</p>
+            <p style="font-size:.75rem;color:var(--text-muted);margin:.65rem 0 0;line-height:1.5"><strong>Default</strong> = real run (one Analyst return → one Validator check; retry only if live output fails). <strong>Requirements failures</strong> = scripted incomplete→fail→retry→abort demo.</p>
           </div>
         </div>
       </aside>
