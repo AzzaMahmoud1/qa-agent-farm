@@ -240,9 +240,10 @@ await test("model routing: orchestrator Fable 5, workers Sonnet", async () => {
   assert.strictEqual(registry.MODEL_ORCHESTRATOR, "claude-fable-5");
   assert.strictEqual(registry.MODEL_WORKER, "claude-4.6-sonnet");
   assert.strictEqual(registry.getModelForAgent("orchestrator"), "claude-fable-5");
-  for (const role of ["validator", "analyst", "writer", "test_data_extractor", "test_executor", "reviewer", "reporter"]) {
+  for (const role of ["validator", "analyst", "writer", "test_data_extractor", "author", "test_executor", "reviewer", "reporter"]) {
     assert.strictEqual(registry.getModelForAgent(role), "claude-4.6-sonnet", role);
   }
+  assert.ok(registry.AGENT_ROLES.includes("author"), "author role registered");
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -9,6 +9,7 @@ import * as writer from "./writer.js";
 import * as reviewer from "./reviewer.js";
 import * as reporter from "./reporter.js";
 import * as dataExtractor from "./data-extractor.js";
+import * as author from "./author.js";
 import * as executor from "./executor.js";
 import * as validator from "./validator.js";
 import * as orchestrator from "./orchestrator.js";
@@ -34,6 +35,7 @@ export {
 
 export {
   PIPELINE_STATE,
+  hasTestableConditions,
   resolveAnalystOrchestratorGate,
   ensureAnalystReportActions,
 } from "./orchestrator.js";
@@ -50,6 +52,7 @@ export function createAgentFarm(ctx) {
     ...reviewer,
     ...reporter,
     ...dataExtractor,
+    ...author,
     ...executor,
     ...validator,
     ...orchestrator,

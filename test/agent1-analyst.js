@@ -94,6 +94,15 @@ function validParsed(overrides = {}) {
 }
 
 {
+  const emptyAc = resolveAnalystOrchestratorGate(validParsed({
+    testable_conditions: [],
+    ready_for_test_design: true,
+  }));
+  assert.equal(emptyAc.state, PIPELINE_STATE.NEEDS_INPUT);
+  assert.equal(emptyAc.proceed, false);
+}
+
+{
   const derived = ensureAnalystReportActions({
     success: true,
     ready_for_test_design: false,

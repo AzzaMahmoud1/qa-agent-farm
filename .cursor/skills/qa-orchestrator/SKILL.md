@@ -22,17 +22,19 @@ When spawning or instructing worker agents, require them to run on **Claude Sonn
 
 1. Assign **Analyst** → validate
 2. Human prerequisites (if blocking gaps)
-3. Assign **Writer** → validate
+3. Assign **Writer** → validate (outlines; human approve before Author)
 4. Human API curl / webpage (if story requires)
 5. Assign **Data Extractor** → validate
-6. Assign **Executor**
-7. Assign **Reviewer**
-8. Assign **Reporter**
+6. Assign **Author** (Plan→Act→Reflect; refuse zero ACs)
+7. Assign **Executor**
+8. Assign **Reviewer**
+9. Assign **Reporter**
 
 ## Rules
 
 - Max **2 validator attempts** per agent; on 2nd failure → **abort run**
 - Never rewrite agent output — only instruct and gate
+- **Hard gate:** zero `testable_conditions` → `NEEDS_INPUT` / run failed — never Complete
 - Pause when analyst blocking prerequisites are unsatisfied
 - Pause when story requires human curl or webpage URL before data/execution
 - Apply inactivity timeout if blocked waiting for human too long

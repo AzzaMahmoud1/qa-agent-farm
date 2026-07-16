@@ -8,6 +8,7 @@ import { buildWriterTestCases } from "./writer.js";
 import { buildReviewerOutput } from "./reviewer.js";
 import { buildReporterOutput } from "./reporter.js";
 import { buildTestDataExtractorOutput } from "./data-extractor.js";
+import { buildAuthorOutput } from "./author.js";
 import { buildTestExecutorOutput } from "./executor.js";
 import { ensureAnalystReportActions, resolveAnalystOrchestratorGate } from "./orchestrator.js";
 
@@ -71,8 +72,8 @@ export function buildAgentOutputs(story) {
       pipeline_plan: [
         "① Orchestrator assigns ticket → Agent 1 Requirement Analyst (Cursor Agent · Sonnet 5 high)",
         "② Agent 1 extracts conditions + prerequisites + orchestrator_actions",
-        "③ If blocking actions → WAITING_ON_HUMAN before Test Case Writer",
-        "④ Writer → Human input if needed → Data → Executor → Reviewer → Reporter",
+        "③ If zero testable ACs → NEEDS_INPUT / fail (never Complete)",
+        "④ Writer → Human input if needed → Data → Author → Executor → Reviewer → Reporter",
         "⑤ Validator checks worker outputs (max 2 attempts)",
       ],
       agents_in_pipeline: AGENT_ROLES.map((r) => ({ role: r, model: getModelForAgent(r) })),
@@ -83,6 +84,7 @@ export function buildAgentOutputs(story) {
     analyst: analystOutput,
     writer: { test_cases },
     test_data_extractor: buildTestDataExtractorOutput(story, api, test_cases, analystOutput, web),
+    author: buildAuthorOutput(story, { test_cases }, analystOutput, web),
     test_executor: executorOut,
     reviewer: buildReviewerOutput(story, tcIds, executorOut),
     reporter: buildReporterOutput(story, test_cases, executorOut),

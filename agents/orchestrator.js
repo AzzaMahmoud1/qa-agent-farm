@@ -16,8 +16,14 @@ import { analystReturnV1, buildAnalystReturnV2 } from "./demo-fixtures.js";
 export const PIPELINE_STATE = {
   RUNNING: "RUNNING",
   WAITING_ON_HUMAN: "WAITING_ON_HUMAN",
+  NEEDS_INPUT: "NEEDS_INPUT",
   READY_FOR_WRITER: "READY_FOR_WRITER",
 };
+
+/** True when Agent 1 produced at least one structured testable condition. */
+export function hasTestableConditions(parsed) {
+  return Array.isArray(parsed?.testable_conditions) && parsed.testable_conditions.length > 0;
+}
 
 /**
  * After Agent 1 resolves — decide whether to hold for human or proceed to Agent 2.
@@ -33,6 +39,25 @@ export const PIPELINE_STATE = {
 export function resolveAnalystOrchestratorGate(parsed) {
   const actions = parsed?.analyst_report?.orchestrator_actions || [];
   const blocking = actions.filter((a) => a && a.blocking === true);
+
+  // Hard gate: zero validated ACs → never proceed to Writer/Author.
+  if (!hasTestableConditions(parsed)) {
+    const acAsk = blocking.length
+      ? blocking
+      : [{
+        action: "ASK_HUMAN",
+        target: "human",
+        detail: "Provide testable acceptance criteria or clarified test intent — zero validated ACs; Writer/Author blocked",
+        blocking: true,
+      }];
+    return {
+      state: PIPELINE_STATE.NEEDS_INPUT,
+      blocking_actions: acAsk,
+      proceed: false,
+      writer_input: null,
+      message: "INVALID_REQUIREMENTS — zero testable conditions",
+    };
+  }
 
   if (blocking.length) {
     return {
@@ -86,7 +111,14 @@ export function ensureAnalystReportActions(parsed) {
 
   const missingBlocking = (parsed.prerequisites_needed?.blocking || []).filter((b) => !b.satisfied_by_ticket);
   let orchestrator_actions;
-  if (missingBlocking.length) {
+  if (!hasTestableConditions(parsed)) {
+    orchestrator_actions = [{
+      action: "ASK_HUMAN",
+      target: "human",
+      detail: "Provide testable acceptance criteria or clarified test intent — zero validated ACs; Writer/Author blocked",
+      blocking: true,
+    }];
+  } else if (missingBlocking.length) {
     orchestrator_actions = missingBlocking.map((b) => ({
       action: "ASK_HUMAN",
       target: "human",
@@ -434,6 +466,46 @@ export function buildPrerequisiteInputEvents(story, analystParsed) {
   );
   const gate = resolveAnalystOrchestratorGate(parsed);
   const check = buildAnalystPrerequisitePayload(story);
+
+  // Zero ACs: hold for clarified requirements — do NOT emit a "received → proceed" event.
+  if (gate.state === PIPELINE_STATE.NEEDS_INPUT || !hasTestableConditions(parsed)) {
+    return [
+      {
+        kind: "prerequisite_input_request",
+        phase: "gap_analysis",
+        pipeline_state: PIPELINE_STATE.NEEDS_INPUT,
+        orchestrator_actions: gate.blocking_actions,
+        prerequisite_need: {
+          needed: true,
+          items: check.needed ? (check.items || []) : [],
+          already_satisfied: check.already_satisfied || [],
+          not_applicable: check.not_applicable || [],
+          summary: gate.message || "INVALID_REQUIREMENTS — zero testable conditions",
+          blocking: parsed.prerequisites_needed?.blocking || [],
+          non_blocking: parsed.prerequisites_needed?.non_blocking || [],
+          reasoning: check.reasoning || "",
+          reasoning_steps: check.reasoning_steps || [],
+          story_analysis: check.story_analysis,
+        },
+        message: gate.message
+          || "INVALID_REQUIREMENTS — zero validated testable conditions. Provide acceptance criteria before Writer/Author.",
+        role: null,
+        orchestrator_memory: mem(story, {
+          phase: "gap_analysis",
+          pipeline_state: PIPELINE_STATE.NEEDS_INPUT,
+          blocking_actions: String(gate.blocking_actions.length),
+          awaiting: "testable_acceptance_criteria",
+        }),
+        agent_context: {
+          pipeline_state: PIPELINE_STATE.NEEDS_INPUT,
+          orchestrator_actions: gate.blocking_actions,
+          source: "Requirement Analyst — zero testable_conditions",
+        },
+        agent_returns: { success: false, reason: "invalid_requirements", testable_conditions: 0 },
+        decision: "NEEDS_INPUT — Writer/Author blocked until testable ACs exist",
+      },
+    ];
+  }
 
   // Agent 1 gate: blocking orchestrator_actions → WAITING_ON_HUMAN (stop before Agent 2)
   if (gate.state === PIPELINE_STATE.WAITING_ON_HUMAN) {
@@ -848,6 +920,29 @@ export function buildEvents(story) {
 
   const prerequisiteEvents = buildPrerequisiteInputEvents(story, analystWithActions);
 
+  // Hard stop: never append Writer→Author→Reporter success path with zero ACs.
+  if (!hasTestableConditions(analystWithActions)) {
+    return [
+      ...coreStart,
+      ...prerequisiteEvents,
+      {
+        kind: "run_failed",
+        phase: "aborted",
+        message: `QA run FAILED · ${s} · zero testable acceptance criteria`,
+        role: null,
+        orchestrator_memory: mem(story, {
+          phase: "aborted",
+          reason: "invalid_requirements",
+          testable_conditions: "0",
+          goal: "not achieved",
+        }),
+        agent_context: {},
+        agent_returns: { success: false, reason: "invalid_requirements", testable_conditions: 0 },
+        decision: "run failed — invalid requirements (zero testable conditions)",
+      },
+    ];
+  }
+
   const requiresApi = farmCtx.storyRequiresApi(story);
   const requiresWeb = farmCtx.storyRequiresWebpage(story);
   const prelimWriter = story.test_cases.map((id, i) => {
@@ -876,6 +971,17 @@ export function buildEvents(story) {
     source: needsHumanInput ? `human ${humanNeed.types.join("+")}` : "story context",
   };
   const dataGate = validationGateEvents("test_data_extractor", "test_data_extraction", story, dataExtractorReturns, {
+    gateDecision: "proceed to test_authoring",
+  });
+
+  const authorReturns = {
+    success: false,
+    status: "BUILDING",
+    mode: "plan_act_reflect (stub until S2)",
+    blocked: true,
+    outlines: tc,
+  };
+  const authorGate = validationGateEvents("author", "test_authoring", story, authorReturns, {
     gateDecision: "proceed to test_execution",
   });
 
@@ -923,6 +1029,11 @@ export function buildEvents(story) {
       ? "Test Data Extractor — requires human " + humanNeed.types.join(" + ") + " before extracting datasets for " + tc + " test case(s)."
       : "Extracted test data for " + tc + " test case(s) from story context.", role: "test_data_extractor", orchestrator_memory: mem(story, { phase: "test_data_extraction", datasets: String(tc) }), agent_context: {}, agent_returns: dataExtractorReturns, decision: null, structured_output: "__test_data_extractor__" },
     ...dataGate,
+
+    { kind: "phase_start", phase: "test_authoring", message: "Enter phase: test_authoring (Plan→Act→Reflect)", role: null, orchestrator_memory: mem(story, { phase: "test_authoring", test_cases: String(tc) }), agent_context: {}, agent_returns: {}, decision: null },
+    { kind: "agent_assign", phase: "test_authoring", message: "Orchestrator assigns task to Test Author", role: "author", orchestrator_memory: mem(story, { phase: "test_authoring", test_cases: String(tc) }), agent_context: { ticket: s, test_cases: tc + " item(s)", mode: "plan_act_reflect" }, agent_returns: {}, decision: null },
+    { kind: "agent_return", phase: "test_authoring", message: "Test Author staged session for " + tc + " case(s) — live Playwright authoring lands in S2.", role: "author", orchestrator_memory: mem(story, { phase: "test_authoring", status: "BUILDING" }), agent_context: {}, agent_returns: authorReturns, decision: null, structured_output: "__author__" },
+    ...authorGate,
 
     { kind: "phase_start", phase: "test_execution", message: "Enter phase: test_execution" + (needsHumanInput ? " (using requirement-driven test data)" : ""), role: null, orchestrator_memory: mem(story, { phase: "test_execution", test_cases: String(tc), human_input: humanNeed.types.join("+") }), agent_context: {}, agent_returns: {}, decision: null },
     { kind: "agent_assign", phase: "test_execution", message: "Orchestrator assigns task to Test Executor" + (needsHumanInput ? ` with human ${humanNeed.types.join(" + ")}` : ""), role: "test_executor", orchestrator_memory: mem(story, { phase: "test_execution", test_cases: String(tc) }), agent_context: { ticket: s, test_cases: tc + " item(s)", test_data: "ready", human_input_types: humanNeed.types, human_api: requiresApi && farmCtx.humanApiInput.ok ? farmCtx.humanApiInput : null, human_webpage: requiresWeb && farmCtx.humanWebpageInput.ok ? farmCtx.humanWebpageInput : null }, agent_returns: {}, decision: null },

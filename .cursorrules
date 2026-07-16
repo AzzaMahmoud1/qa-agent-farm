@@ -7,15 +7,15 @@ Run the QA pipeline when a message contains any of:
 
 ## Pipeline order
 
-Analyst → Writer → Data Extractor → Executor → Reviewer → Reporter.
+Analyst → Writer → Data Extractor → Author → Executor → Reviewer → Reporter.
 Each agent uses all previous agents' outputs as input.
 
 ## Dispatch control (orchestrator is the only entry point)
 
 Only the orchestrator (.cursor/agents/qa-orchestrator.md) starts a run and
 dispatches work. The worker subagents — analyst, writer, data-extractor,
-executor, reviewer, reporter, validator — MUST run ONLY when the orchestrator
-dispatched them as part of a pipeline run.
+author, executor, reviewer, reporter, validator — MUST run ONLY when the
+orchestrator dispatched them as part of a pipeline run.
 
 If a worker subagent is invoked directly (not dispatched by the orchestrator),
 it MUST decline: do no analysis/test/validation work and reply that the run

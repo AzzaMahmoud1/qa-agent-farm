@@ -29,7 +29,7 @@ const FALLBACK_STORIES = {
     };
 
 
-const AGENT_ROLES = ["analyst", "writer", "test_data_extractor", "test_executor", "reviewer", "reporter"];
+const AGENT_ROLES = ["analyst", "writer", "test_data_extractor", "author", "test_executor", "reviewer", "reporter"];
 
 /** Cursor / Anthropic model IDs for pipeline routing */
 const MODEL_ORCHESTRATOR = "claude-fable-5";
@@ -46,6 +46,7 @@ const AGENT_MODEL_ROUTING = {
   analyst: MODEL_WORKER,
   writer: MODEL_WORKER,
   test_data_extractor: MODEL_WORKER,
+  author: MODEL_WORKER,
   test_executor: MODEL_WORKER,
   reviewer: MODEL_WORKER,
   reporter: MODEL_WORKER,
@@ -61,6 +62,7 @@ const PIPELINE_STEPS = [
       { id: "analyst", label: "Agent 1", icon: "🔍" },
       { id: "writer", label: "Writer", icon: "📝" },
       { id: "test_data_extractor", label: "Data", icon: "🧪" },
+      { id: "author", label: "Author", icon: "🛠️" },
       { id: "test_executor", label: "Executor", icon: "▶️" },
       { id: "reviewer", label: "Reviewer", icon: "🛡️" },
       { id: "reporter", label: "Report", icon: "📊" },
@@ -72,6 +74,7 @@ const AGENT_META = {
       analyst: { label: "Agent 1 · Requirement Analyst", icon: "🔍", level: "L3", model: "claude-sonnet-5 (high)", skillPath: ".cursor/skills/qa-analyst/SKILL.md", skillFolder: ".cursor/skills/qa-analyst" },
       writer: { label: "Test Case Writer", icon: "📝", level: "L3", model: MODEL_WORKER, skillPath: ".cursor/skills/qa-writer/SKILL.md", skillFolder: ".cursor/skills/qa-writer" },
       test_data_extractor: { label: "Test Data Extractor", icon: "🧪", level: "L3", model: MODEL_WORKER, skillPath: ".cursor/skills/qa-data-extractor/SKILL.md", skillFolder: ".cursor/skills/qa-data-extractor" },
+      author: { label: "Test Author", icon: "🛠️", level: "L3", model: MODEL_WORKER, skillPath: ".cursor/skills/qa-author/SKILL.md", skillFolder: ".cursor/skills/qa-author" },
       test_executor: { label: "Test Executor", icon: "▶️", level: "L3", model: MODEL_WORKER, skillPath: ".cursor/skills/qa-executor/SKILL.md", skillFolder: ".cursor/skills/qa-executor" },
       reviewer: { label: "QA Reviewer", icon: "🛡️", level: "L4", model: MODEL_WORKER, skillPath: ".cursor/skills/qa-reviewer/SKILL.md", skillFolder: ".cursor/skills/qa-reviewer" },
       reporter: { label: "Report Generator", icon: "📊", level: "L5", model: MODEL_WORKER, skillPath: ".cursor/skills/qa-reporter/SKILL.md", skillFolder: ".cursor/skills/qa-reporter" },
@@ -118,6 +121,16 @@ const AGENT_GUIDELINES = {
           "Valid coordinates: latitude ∈ [-90, 90], longitude ∈ [-180, 180]",
           "Invalid/boundary rows must use geographically correct out-of-range or edge values",
           "Never use unrelated mock data (e.g. login emails) from other stories",
+        ],
+      },
+      author: {
+        level: "L3",
+        required_deliverables: ["session_id", "status", "steps", "requirement_verdicts"],
+        rules: [
+          "Refuse to author when testable_conditions is empty",
+          "Build only from approved test outlines",
+          "Use Plan→Act→Reflect; never fabricate a pass without evidence",
+          "Emit one verdict per requirement ID",
         ],
       },
       test_executor: {

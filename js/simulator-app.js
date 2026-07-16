@@ -45,7 +45,7 @@ let orchestratorInactivityDeadline = null;
 let pausedForHumanInput = false;
 let userPrerequisites = {};
 let cachedPrerequisiteCheck = null;
-/** @type {"RUNNING"|"WAITING_ON_HUMAN"|"READY_FOR_WRITER"} */
+/** @type {"RUNNING"|"WAITING_ON_HUMAN"|"NEEDS_INPUT"|"READY_FOR_WRITER"} */
 let pipelineState = "RUNNING";
 /** @type {Array<{action?:string,target?:string,detail?:string,blocking?:boolean,resolved?:boolean}>} */
 let blockingOrchestratorActions = [];
@@ -285,7 +285,8 @@ function buildStoryFromRequirementsForm() {
   } = parsed;
 
   const id = `REQ-${Date.now().toString(36).toUpperCase()}`;
-  const tcCount = acList.length > 0 ? acList.length : 1;
+  // Never invent placeholder TCs when zero ACs were parsed — that caused false-complete runs.
+  const tcCount = acList.length;
   const test_cases = Array.from({ length: tcCount }, (_, i) =>
     `TC-${String(i + 1).padStart(2, "0")}`
   );
@@ -1324,6 +1325,8 @@ function renderActiveOutputTab() {
     content = renderTestCases(data.test_cases);
   } else if (activeOutputTab === "test_data_extractor" && data) {
     content = renderTestDataOutput(data);
+  } else if (activeOutputTab === "author" && data) {
+    content = renderAuthorOutput(data);
   } else if (activeOutputTab === "test_executor" && data) {
     content = renderTestExecutorOutput(data);
   } else if (activeOutputTab === "analyst" && data) {
@@ -1827,7 +1830,9 @@ function renderStructuredAnalystOutput(data) {
     parts.push(`<div class="output-kv-item" style="border-color:#c4b5fd;background:#f5f3ff"><div class="output-kv-key">Summary</div><div class="output-kv-val" style="font-weight:600;font-size:.85rem">${escapeHtml(parsed.summary)}</div></div>`);
   }
 
-  if (parsed.pipeline_state === "WAITING_ON_HUMAN") {
+  if (parsed.pipeline_state === "NEEDS_INPUT") {
+    parts.push(`<div class="output-kv-item validator" style="border-color:#fca5a5;margin-bottom:.65rem"><div class="output-kv-key">Pipeline state</div><div class="output-kv-val" style="color:#b91c1c;font-weight:600">NEEDS_INPUT — zero testable ACs; Writer/Author blocked</div></div>`);
+  } else if (parsed.pipeline_state === "WAITING_ON_HUMAN") {
     parts.push(`<div class="output-kv-item validator" style="border-color:#fca5a5;margin-bottom:.65rem"><div class="output-kv-key">Pipeline state</div><div class="output-kv-val" style="color:#b91c1c;font-weight:600">WAITING_ON_HUMAN — resolve orchestrator actions before Agent 2</div></div>`);
   }
 
@@ -1892,6 +1897,28 @@ function renderStructuredAnalystOutput(data) {
   }
 
   return parts.join("");
+}
+
+
+function renderAuthorOutput(data) {
+  if (!data) return "";
+  const tone = data.blocked || data.status === "NEEDS_INPUT" || data.status === "FAILED"
+    ? "#b91c1c"
+    : data.status === "REVIEW" ? "var(--success)" : "var(--text)";
+  const verdicts = data.requirement_verdicts
+    ? Object.entries(data.requirement_verdicts).map(([id, v]) =>
+      `<li style="font-size:.74rem"><strong>${escapeHtml(id)}</strong> — ${escapeHtml(v.verdict || "—")}${v.evidence ? `: ${escapeHtml(v.evidence)}` : ""}</li>`
+    ).join("")
+    : "";
+  return `
+    <div class="output-kv-item validator" style="margin-bottom:.65rem;border-color:${data.blocked ? "#fca5a5" : "var(--border)"}">
+      <div class="output-kv-key">Author session</div>
+      <div class="output-kv-val" style="color:${tone};font-weight:600">${escapeHtml(data.status || "—")}${data.session_id ? ` · ${escapeHtml(data.session_id)}` : ""}</div>
+    </div>
+    ${data.blocked_reason ? `<div class="output-kv-item validator" style="margin-bottom:.65rem;border-color:#fca5a5"><div class="output-kv-key">Blocked</div><div class="output-kv-val validation-fail">${escapeHtml(data.blocked_reason)}</div></div>` : ""}
+    ${data.summary ? `<div class="output-kv-item"><div class="output-kv-key">Summary</div><div class="output-kv-val">${escapeHtml(data.summary)}</div></div>` : ""}
+    ${verdicts ? `<div class="output-kv-item"><div class="output-kv-key">Requirement verdicts</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem">${verdicts}</ul></div></div>` : ""}
+  `;
 }
 
 
@@ -2263,15 +2290,19 @@ function showEvent(i) {
       pipelineState = e.pipeline_state || "READY_FOR_WRITER";
     }
     el("agent-panel-title").textContent = e.kind === "prerequisite_input_request"
-      ? (pipelineState === "WAITING_ON_HUMAN"
-        ? `👤 Human · WAITING_ON_HUMAN (${blockingOrchestratorActions.length || check.items?.length || 0})`
-        : `👤 Human · provide ${check.items.length} prerequisite(s)`)
+      ? (pipelineState === "NEEDS_INPUT"
+        ? `👤 Human · NEEDS_INPUT — provide testable ACs`
+        : pipelineState === "WAITING_ON_HUMAN"
+          ? `👤 Human · WAITING_ON_HUMAN (${blockingOrchestratorActions.length || check.items?.length || 0})`
+          : `👤 Human · provide ${check.items.length} prerequisite(s)`)
       : "👤 Human · resolved — continue to Agent 2";
     el("agent-context").textContent = renderDict(e.agent_context);
     el("agent-returns").textContent = renderDict(e.agent_returns);
     setActive("orchestrator");
     el("status-orchestrator").textContent = e.kind === "prerequisite_input_request"
-      ? (pipelineState === "WAITING_ON_HUMAN" ? "WAITING_ON_HUMAN" : "awaiting prerequisites")
+      ? (pipelineState === "NEEDS_INPUT"
+        ? "NEEDS_INPUT"
+        : pipelineState === "WAITING_ON_HUMAN" ? "WAITING_ON_HUMAN" : "awaiting prerequisites")
       : "prerequisites received";
     activeOutputTab = "orchestrator";
     updatePrerequisitesPanel(currentStory, {
@@ -2678,6 +2709,18 @@ function submitPrerequisites() {
     promptForPrerequisites();
     return false;
   }
+  const conditions = storyOutputs?.analyst?.testable_conditions || [];
+  if (!conditions.length) {
+    const status = el("prerequisites-status");
+    if (status) {
+      status.className = "jira-status err";
+      status.textContent = "Blocked — zero testable ACs. Paste requirements with Business Rules / Alt / Exception flows, then re-run Agent 1.";
+    }
+    if (el("event-message")) {
+      el("event-message").textContent = "INVALID_REQUIREMENTS — prerequisites cannot unlock Writer/Author without validated testable conditions.";
+    }
+    return false;
+  }
   pipelineState = "READY_FOR_WRITER";
   const providedActions = blockingOrchestratorActions
     .filter((a) => (a.provided_value || "").trim().length > 0)
@@ -2948,7 +2991,7 @@ function updatePrerequisitesPanel(story, options = {}) {
   cachedPrerequisiteCheck = check;
   const actions = options.orchestratorActions || blockingOrchestratorActions;
   const state = options.pipelineState || pipelineState;
-  panel.hidden = !waitingAtStep || !(check.needed || actions.length || state === "WAITING_ON_HUMAN");
+  panel.hidden = !waitingAtStep || !(check.needed || actions.length || state === "WAITING_ON_HUMAN" || state === "NEEDS_INPUT");
 
   const list = el("prerequisites-list");
   const desc = el("prerequisites-desc");
@@ -2960,16 +3003,21 @@ function updatePrerequisitesPanel(story, options = {}) {
 
   if (desc) {
     desc.textContent = waitingAtStep
-      ? (state === "WAITING_ON_HUMAN"
-        ? (check.summary || "Analyst set WAITING_ON_HUMAN — resolve blocking orchestrator actions, then continue to Agent 2.")
-        : (check.summary || "Story analysis complete."))
+      ? (state === "NEEDS_INPUT"
+        ? (check.summary || "INVALID_REQUIREMENTS — zero testable ACs. Re-paste requirements with Business Rules / Alt / Exception flows and re-run Agent 1.")
+        : state === "WAITING_ON_HUMAN"
+          ? (check.summary || "Analyst set WAITING_ON_HUMAN — resolve blocking orchestrator actions, then continue to Agent 2.")
+          : (check.summary || "Story analysis complete."))
       : (check.summary || "");
   }
 
   if (submitBtn) {
-    submitBtn.innerHTML = state === "WAITING_ON_HUMAN"
-      ? `<i class="ti ti-player-play"></i> Resolved — continue pipeline`
-      : `<i class="ti ti-check"></i> Confirm prerequisites`;
+    submitBtn.innerHTML = state === "NEEDS_INPUT"
+      ? `<i class="ti ti-ban"></i> Blocked — need testable ACs`
+      : state === "WAITING_ON_HUMAN"
+        ? `<i class="ti ti-player-play"></i> Resolved — continue pipeline`
+        : `<i class="ti ti-check"></i> Confirm prerequisites`;
+    submitBtn.disabled = state === "NEEDS_INPUT";
   }
 
   if (storyMapEl && check.story_analysis?.test_actions?.length && waitingAtStep) {
