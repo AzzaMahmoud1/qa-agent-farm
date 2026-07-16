@@ -121,7 +121,8 @@ const {
   resolveLiveValidatorReturn, validationGateEvents, buildOrchestratorInactivityFailureEvents,
   buildValidatorLiveState, buildFeedbackLoops, buildOrchestratorLiveState, enrichEventForDisplay,
   buildPrerequisiteInputEvents, buildHumanInputEvents,
-  buildTestExecutorOutput, buildReviewerOutput, buildReporterOutput, buildTestDataExtractorOutput,
+  buildTestExecutorOutput, buildReviewerOutput, reviewHumanInputAgainstAnalyst,
+  buildReporterOutput, buildTestDataExtractorOutput,
 } = farm;
 
 // ctx helpers wired after function declarations (hoisted)
@@ -1329,6 +1330,8 @@ function renderActiveOutputTab() {
     content = renderAuthorOutput(data);
   } else if (activeOutputTab === "test_executor" && data) {
     content = renderTestExecutorOutput(data);
+  } else if (activeOutputTab === "reviewer" && data) {
+    content = renderReviewerOutput(data);
   } else if (activeOutputTab === "analyst" && data) {
     content = renderStructuredAnalystOutput(data);
   } else if (data) {
@@ -1919,6 +1922,38 @@ function renderAuthorOutput(data) {
     ${data.summary ? `<div class="output-kv-item"><div class="output-kv-key">Summary</div><div class="output-kv-val">${escapeHtml(data.summary)}</div></div>` : ""}
     ${verdicts ? `<div class="output-kv-item"><div class="output-kv-key">Requirement verdicts</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem">${verdicts}</ul></div></div>` : ""}
   `;
+}
+
+function renderReviewerOutput(data) {
+  if (!data) return "";
+  const parts = [];
+  const recheck = data.human_input_recheck;
+  if (recheck) {
+    const ok = recheck.passed;
+    const rows = (recheck.checks || []).map((c) =>
+      `<li style="font-size:.74rem;margin:.3rem 0">
+        <strong style="color:${c.status === "pass" ? "var(--success)" : "#b91c1c"}">${escapeHtml((c.status || "").toUpperCase())}</strong>
+        — ${escapeHtml(c.asked_for || c.analyst_ref || "")}
+        <br><span class="muted">Provided:</span> ${escapeHtml(String(c.provided || "").slice(0, 140))}
+        ${c.blame ? `<br><span style="color:#b91c1c"><strong>Blame:</strong> ${escapeHtml(c.blame)}</span>` : ""}
+      </li>`
+    ).join("");
+    parts.push(`
+      <div class="output-kv-item validator" style="margin-bottom:.65rem;border-color:${ok ? "#86efac" : "#fca5a5"}">
+        <div class="output-kv-key">Human input vs Analyst</div>
+        <div class="output-kv-val" style="font-weight:600;color:${ok ? "var(--success)" : "#b91c1c"}">${escapeHtml(recheck.verdict || "")} — ${escapeHtml(recheck.summary || "")}</div>
+      </div>
+      ${rows ? `<div class="output-kv-item"><div class="output-kv-key">Checks</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem">${rows}</ul></div></div>` : ""}
+      ${recheck.fix ? `<div class="output-kv-item"><div class="output-kv-key">Fix</div><div class="output-kv-val">${escapeHtml(recheck.fix)}</div></div>` : ""}
+    `);
+  }
+  // Keep legacy score fields when present (post-executor review).
+  const rest = Object.entries(data)
+    .filter(([k]) => k !== "human_input_recheck")
+    .map(([k, v]) => renderKv(k, v))
+    .join("");
+  if (rest) parts.push(`<div class="output-kv">${rest}</div>`);
+  return parts.join("") || `<div class="output-empty">No reviewer output yet.</div>`;
 }
 
 
@@ -2721,6 +2756,41 @@ function submitPrerequisites() {
     }
     return false;
   }
+
+  // Reviewer recheck: blame human answers against Analyst asks before unlocking Writer.
+  const check = cachedPrerequisiteCheck || getPrerequisiteCheck(currentStory);
+  const humanReview = reviewHumanInputAgainstAnalyst(storyOutputs?.analyst, {
+    actions: blockingOrchestratorActions,
+    prereqItems: check?.items || [],
+    userPrerequisites,
+    api: humanApiInput,
+    webpage: humanWebpageInput,
+  });
+  storyOutputs.reviewer = {
+    ...(storyOutputs.reviewer || {}),
+    human_input_recheck: humanReview,
+  };
+  agentOutputs.reviewer = storyOutputs.reviewer;
+  setAgentOutputStatus("reviewer", humanReview.passed ? "done" : "working");
+  activeOutputTab = "reviewer";
+  renderOutputTabs();
+  renderActiveOutputTab();
+
+  const status = el("prerequisites-status");
+  if (!humanReview.passed) {
+    pipelineState = "WAITING_ON_HUMAN";
+    if (storyOutputs?.analyst) storyOutputs.analyst.pipeline_state = "WAITING_ON_HUMAN";
+    if (status) {
+      status.className = "jira-status err";
+      status.textContent = humanReview.summary;
+    }
+    if (el("event-message")) {
+      el("event-message").textContent = `Reviewer rejected human input — ${humanReview.failures.length} issue(s). Fix blamed fields and resubmit.`;
+    }
+    renderHumanInputRecheckBanner(humanReview);
+    return false;
+  }
+
   pipelineState = "READY_FOR_WRITER";
   const providedActions = blockingOrchestratorActions
     .filter((a) => (a.provided_value || "").trim().length > 0)
@@ -2741,17 +2811,52 @@ function submitPrerequisites() {
     if (providedActions.length) {
       writerInput.human_provided_prerequisites = providedActions;
     }
+    writerInput.human_input_recheck = humanReview;
     storyOutputs.analyst.writer_input = writerInput;
     if (storyOutputs.writer) {
       storyOutputs.writer.analyst_input = writerInput;
     }
   }
+  if (status) {
+    status.className = "jira-status ok";
+    status.textContent = humanReview.summary;
+  }
+  if (el("event-message")) {
+    el("event-message").textContent = "Reviewer accepted human input against Analyst needs — continuing to Writer.";
+  }
+  renderHumanInputRecheckBanner(humanReview);
   syncRequirementsToTestData();
   if (EVENTS[idx]?.kind === "prerequisite_input_request" && idx < EVENTS.length - 1) {
     stopPlay();
     next();
   }
   return true;
+}
+
+function renderHumanInputRecheckBanner(review) {
+  const host = el("prerequisites-list");
+  if (!host || !review) return;
+  const existing = host.querySelector(".human-input-recheck");
+  if (existing) existing.remove();
+  const failures = review.failures || [];
+  const rows = (review.checks || []).map((c) => {
+    const ok = c.status === "pass";
+    return `<li style="font-size:.72rem;margin:.25rem 0;color:${ok ? "var(--success)" : "#b91c1c"}">
+      <strong>${ok ? "PASS" : "FAIL"}</strong> — ${escapeHtml(c.asked_for || c.analyst_ref || "")}
+      <br><span class="muted">Provided:</span> ${escapeHtml(String(c.provided || "").slice(0, 100))}
+      ${c.blame ? `<br><span style="font-weight:600">Blame:</span> ${escapeHtml(c.blame)}` : ""}
+    </li>`;
+  }).join("");
+  const banner = document.createElement("div");
+  banner.className = "human-input-recheck";
+  banner.style.cssText = `margin:.75rem 0;padding:.65rem .75rem;border-radius:8px;border:1px solid ${review.passed ? "#86efac" : "#fca5a5"};background:${review.passed ? "#f0fdf4" : "#fef2f2"}`;
+  banner.innerHTML = `
+    <div style="font-size:.78rem;font-weight:600;margin-bottom:.35rem">Reviewer · human input vs Analyst</div>
+    <div style="font-size:.74rem;margin-bottom:.35rem">${escapeHtml(review.summary || "")}</div>
+    ${failures.length ? `<div style="font-size:.72rem;color:#b91c1c;margin-bottom:.35rem">${failures.length} rejected — correct and resubmit.</div>` : ""}
+    <ul style="margin:0;padding-left:1.1rem">${rows}</ul>
+  `;
+  host.prepend(banner);
 }
 
 

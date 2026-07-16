@@ -151,6 +151,7 @@ const AGENT_GUIDELINES = {
           "Assess impact and regression risk",
           "List missing coverage and duplicate scenarios",
           "Flag tests written for unimplemented_rules (out of scope)",
+          "After human prerequisites: recheck each answer against Analyst asks; reject wrong/empty input with blame",
           "Recommend concrete fix or follow-up actions",
         ],
       },

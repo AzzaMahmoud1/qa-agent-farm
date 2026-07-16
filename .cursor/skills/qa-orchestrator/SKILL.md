@@ -36,6 +36,7 @@ When spawning or instructing worker agents, require them to run on **Claude Sonn
 - Never rewrite agent output — only instruct and gate
 - **Hard gate:** zero `testable_conditions` → `NEEDS_INPUT` / run failed — never Complete
 - Pause when analyst blocking prerequisites are unsatisfied
+- After human submits prerequisites → **Reviewer rechecks** answers against Analyst asks; reject with blame until accepted
 - Pause when story requires human curl or webpage URL before data/execution
 - Apply inactivity timeout if blocked waiting for human too long
 

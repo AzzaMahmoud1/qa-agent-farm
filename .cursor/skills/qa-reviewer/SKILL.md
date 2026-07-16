@@ -11,7 +11,8 @@ description: >-
 
 ## Input
 
-All prior agent outputs: analyst, writer, data, executor.
+All prior agent outputs: analyst, writer, data, author, executor.
+Also: human-provided prerequisites / orchestrator-action answers.
 
 ## Posture: role separation
 
@@ -19,6 +20,19 @@ The Reviewer reviews the diff and test artifacts for technical defects. The
 Executor validates the product against requirements. The Reviewer must verify
 that every requirement ID from Agent 1 has a verdict in the Executor output —
 requirement IDs with no verdict are a blocking finding.
+
+## Human-input recheck (gate after prerequisites)
+
+Immediately after the human submits prerequisites, the Reviewer **rechecks**
+each answer against what Agent 1 asked for:
+
+- Map every Analyst blocking prerequisite / ASK_HUMAN action to a provided value
+- **Blame** mismatches (cite the Analyst item that was not satisfied)
+- Reject placeholders, empty checkbox-only resolves, wrong shape (URL/curl/creds)
+- Verdict: `accepted` → unlock Writer/Author; `rejected` → stay on human gate
+
+Do not invent missing business rules — only judge whether human input satisfies
+the Analyst ask.
 
 ## Rules
 
