@@ -65,7 +65,7 @@ Analyst rules stay in **one place:** `src/prompts/agent1_requirement_analyst_v3.
 
 ## Hard gates (P0)
 
-**Analyst prompt + Validator is the readiness gate.** The orchestrator only executes `analyst_report.orchestrator_actions` — it does not invent HOLD/ASK or a second readiness story.
+**Analyst prompt owns readiness (MAIN GATE in the prompt).** The same contract is a **second gate** in Validator (+ Writer/Author/Reviewer refuse invalid readiness). Orchestrator executes only **validated** actions. Vague ASK / bad PROCEED → Validator reject → retry → escalate to human.
 
 ### 1. Zero-AC kill switch
 

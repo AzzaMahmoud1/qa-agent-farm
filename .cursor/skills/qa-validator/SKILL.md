@@ -17,15 +17,19 @@ Check worker output against **that agent's skill rules only**. Never rewrite age
 ## Attempt limit
 
 - Attempt 1 fail → orchestrator sends **one** corrective re-instruction
-- Attempt 2 fail → **brake** — abort entire QA run
+- Attempt 2 fail → **brake**
+  - **Analyst:** escalate to human (`NEEDS_INPUT`) — second opinion must not be ignored
+  - **Other agents:** abort run
 
 ## What to validate
 
 | Agent | Key checks |
 |-------|------------|
-| Analyst | Scratchpad A–E, structured ACs, no metadata as ACs, prerequisites categorized |
-| Writer | Given/When/Then, AC coverage, expected_evidence |
+| Analyst | Scratchpad A–E, structured ACs, no metadata as ACs, prerequisites categorized, **MAIN GATE second opinion** (`agents/analyst-contract.js`): non-empty actions, no PROCEED on empty ACs / missing blocking prereqs, no PROCEED+blocking mix, reject vague ASK_HUMAN |
+| Writer | Given/When/Then or outlines, AC coverage from Analyst conditions only, expected_evidence |
 | Data Extractor | Dataset per TC, test_oracle, human curl/web alignment, geo bounds |
+
+Analyst MAIN GATE source of truth for rules: `src/prompts/agent1_requirement_analyst_v3.md`. Validator re-enforces it — does not invent new readiness.
 
 ## Output
 

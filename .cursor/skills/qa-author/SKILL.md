@@ -23,9 +23,15 @@ app (or API) and record evidence.
 - Target environment URL and credentials (human-provided)
 - Optional datasets from Data Extractor
 
+## Second gate (Analyst readiness)
+
+- Run only on **Validator-approved** Analyst + approved Writer outlines
+- If `testable_conditions.length === 0` → `NEEDS_INPUT`; never invent steps
+- Do not treat Analyst PROCEED as a pass if ACs are empty or outlines are unapproved
+
 ## Rules
 
-- **Refuse empty ACs** — if `testable_conditions.length === 0`, return `NEEDS_INPUT`; never invent steps
+- **Refuse empty ACs** — never invent steps
 - **Refuse unapproved outlines** — status must be `approved` before building
 - **Plan → Act → Reflect** per step; replay earlier steps before advancing
 - **Retry once** on failure, then `NEEDS_INPUT` (never fabricate a pass)

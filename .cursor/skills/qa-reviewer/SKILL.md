@@ -21,18 +21,18 @@ Executor validates the product against requirements. The Reviewer must verify
 that every requirement ID from Agent 1 has a verdict in the Executor output —
 requirement IDs with no verdict are a blocking finding.
 
-## Human-input recheck (gate after prerequisites)
+## Second gate (Analyst readiness + human answers)
 
-Immediately after the human submits prerequisites, the Reviewer **rechecks**
-each answer against what Agent 1 asked for:
+You are a **second gate** on Analyst readiness — not a re-Analyst:
 
-- Map every Analyst blocking prerequisite / ASK_HUMAN action to a provided value
-- **Blame** mismatches (cite the Analyst item that was not satisfied)
-- Reject placeholders, empty checkbox-only resolves, wrong shape (URL/curl/creds)
-- Verdict: `accepted` → unlock Writer/Author; `rejected` → stay on human gate
+- If Analyst PROCEEDed with zero ACs or missing blocking prereqs still open → **reject** unlock and escalate (blame Analyst contract / human)
+- Immediately after the human submits prerequisites, **recheck** each answer against Agent 1 asks:
+  - Map every Analyst blocking prerequisite / ASK_HUMAN to a provided value
+  - **Blame** mismatches (cite the Analyst item that was not satisfied)
+  - Reject placeholders, empty checkbox-only resolves, wrong shape (URL/curl/creds), vague answers
+  - Verdict: `accepted` → unlock Writer/Author; `rejected` → stay on human gate
 
-Do not invent missing business rules — only judge whether human input satisfies
-the Analyst ask.
+Do not invent missing business rules — only judge Analyst contract + whether human input satisfies the ask.
 
 ## Rules
 

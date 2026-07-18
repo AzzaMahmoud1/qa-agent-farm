@@ -170,8 +170,72 @@ export function mem(story, extra) {
   }, extra || {});
 }
 
+/** After Analyst fails Validator twice — escalate to human (second opinion → human). */
+export function escalateAnalystToHumanEvents(story, validation) {
+  const fails = (validation?.failures || validation?.detail_failures || []).slice(0, 4);
+  const detail = fails.length
+    ? `Validator rejected Analyst readiness — fix or clarify: ${fails.join("; ")}`
+    : "Validator rejected Analyst readiness — clarify requirements, then re-run Agent 1";
+  const ask = {
+    action: "ASK_HUMAN",
+    target: "human",
+    detail,
+    blocking: true,
+    requires_value: true,
+    source: "validator_second_opinion",
+  };
+  return [
+    {
+      kind: "validator_brake",
+      phase: "gap_analysis",
+      role: "validator",
+      target_agent: "analyst",
+      message: `Validator second opinion — Analyst failed ${VALIDATOR_MAX_ATTEMPTS}/${VALIDATOR_MAX_ATTEMPTS} checks. Escalating to human.`,
+      validation,
+      attempt: VALIDATOR_MAX_ATTEMPTS,
+      pipeline_state: PIPELINE_STATE.NEEDS_INPUT,
+      orchestrator_actions: [ask],
+      orchestrator_memory: mem(story, { phase: "gap_analysis", awaiting: "human_after_validator", agent: "analyst" }),
+      agent_context: { brake: true, escalate_to_human: true, validation },
+      agent_returns: validation,
+      decision: "escalate to human — Validator rejected Analyst readiness",
+    },
+    {
+      kind: "prerequisite_input_request",
+      phase: "gap_analysis",
+      pipeline_state: PIPELINE_STATE.NEEDS_INPUT,
+      orchestrator_actions: [ask],
+      prerequisite_need: {
+        needed: true,
+        items: [],
+        summary: detail,
+        blocking: [],
+        non_blocking: [],
+      },
+      message: detail,
+      role: null,
+      orchestrator_memory: mem(story, {
+        phase: "gap_analysis",
+        pipeline_state: PIPELINE_STATE.NEEDS_INPUT,
+        awaiting: "human_validator_escalation",
+      }),
+      agent_context: {
+        pipeline_state: PIPELINE_STATE.NEEDS_INPUT,
+        orchestrator_actions: [ask],
+        source: "Validator second opinion on Analyst",
+      },
+      agent_returns: { success: false, reason: "validator_escalation" },
+      decision: "NEEDS_INPUT — human must clarify after Validator rejected Analyst",
+    },
+  ];
+}
+
 export function abortRunEvents(targetAgent, phase, story, validation) {
   const meta = AGENT_META[targetAgent];
+  // Analyst readiness failures escalate to human instead of hard abort.
+  if (targetAgent === "analyst") {
+    return escalateAnalystToHumanEvents(story, validation);
+  }
   return [
     {
       kind: "validator_brake",
@@ -927,7 +991,7 @@ export function buildEvents(story) {
       failValidation: analystQuality,
       failures2: analystQuality.failures || [],
       failRecommendation2: analystQuality.recommendation
-        || "Analyst output still invalid after retry — run will abort",
+        || "Analyst output still invalid after retry — escalate to human",
       failValidation2: analystQuality,
       retryInstructions,
       retryOutput: analystFeedback,

@@ -1,7 +1,10 @@
 /**
- * Analyst prompt MAIN GATE — readiness contract checks.
- * Orchestrator must execute Analyst actions; it must not invent readiness.
+ * Analyst MAIN GATE — Validator second-opinion checks.
+ * Orchestrator must not invent readiness; Validator rejects broken proposals
+ * so the human can be escalated to after retries.
  */
+
+const VAGUE_ASK_RE = /\b(need more info|more information|clarify|unclear|tbd|todo|n\/a|please clarify|not (enough|clear)|requirements?\s+unclear)\b/i;
 
 function missingBlocking(parsed) {
   return (parsed?.prerequisites_needed?.blocking || []).filter((b) => b && !b.satisfied_by_ticket);
@@ -9,6 +12,17 @@ function missingBlocking(parsed) {
 
 function actionsOf(parsed) {
   return parsed?.analyst_report?.orchestrator_actions || [];
+}
+
+function isVagueAskDetail(detail) {
+  const d = String(detail || "").trim();
+  if (d.length < 16) return true;
+  if (VAGUE_ASK_RE.test(d)) return true;
+  // Must name something a human can supply (artifact / access / decision).
+  if (!/\b(url|uri|credential|password|token|api|curl|env|environment|staging|uat|role|account|username|confirm|provide|supply|decision|ticket|id)\b/i.test(d)) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -29,7 +43,7 @@ export function checkAnalystPromptContract(parsed) {
   const conf = String(parsed.analyst_report?.confidence?.overall || "").toLowerCase();
 
   if (!Array.isArray(actions) || actions.length === 0) {
-    failures.push("MAIN GATE: orchestrator_actions must be non-empty (Analyst owns readiness)");
+    failures.push("MAIN GATE: orchestrator_actions must be non-empty (Analyst readiness proposal required)");
   }
 
   if (Array.isArray(conditions) && conditions.length === 0 && hasProceed) {
@@ -58,6 +72,13 @@ export function checkAnalystPromptContract(parsed) {
 
   if (conf === "low" && hasProceed && !blockingActs.some((a) => /ASK_HUMAN|HOLD/i.test(a.action || ""))) {
     failures.push("MAIN GATE: low confidence cannot PROCEED alone — need ASK_HUMAN or HOLD");
+  }
+
+  for (const a of actions) {
+    if (!a || !/^ASK_HUMAN$/i.test(a.action || "")) continue;
+    if (isVagueAskDetail(a.detail)) {
+      failures.push(`MAIN GATE: vague ASK_HUMAN rejected (escalate with a concrete artifact) — "${String(a.detail || "").slice(0, 80)}"`);
+    }
   }
 
   return { ok: failures.length === 0, failures };

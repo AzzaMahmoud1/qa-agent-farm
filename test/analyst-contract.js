@@ -41,7 +41,11 @@ assert.equal(checkAnalystPromptContract({
   ...base,
   ready_for_test_design: false,
   analyst_report: {
-    orchestrator_actions: [{ action: "ASK_HUMAN", blocking: true, detail: "need URL" }],
+    orchestrator_actions: [{
+      action: "ASK_HUMAN",
+      blocking: true,
+      detail: "Provide staging URL + admin credentials for the login flow",
+    }],
     confidence: { overall: "medium" },
   },
   prerequisites_needed: {
@@ -49,5 +53,18 @@ assert.equal(checkAnalystPromptContract({
     non_blocking: [],
   },
 }).ok, true);
+
+assert.equal(checkAnalystPromptContract({
+  ...base,
+  ready_for_test_design: false,
+  analyst_report: {
+    orchestrator_actions: [{ action: "ASK_HUMAN", blocking: true, detail: "need more info" }],
+    confidence: { overall: "medium" },
+  },
+  prerequisites_needed: {
+    blocking: [{ item: "unclear", satisfied_by_ticket: false }],
+    non_blocking: [],
+  },
+}).ok, false);
 
 console.log("analyst-contract tests: ok");
