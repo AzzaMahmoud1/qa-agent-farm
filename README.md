@@ -29,6 +29,8 @@ Trigger a run with `qa:`, `test:`, `ticket:`, or “write tests for” / “revi
 
 ## Hard gates (P0)
 
+**Analyst prompt + Validator is the readiness gate.** The orchestrator only executes `analyst_report.orchestrator_actions` — it does not invent HOLD/ASK or a second readiness story.
+
 ### 1. Zero-AC kill switch
 
 ```text

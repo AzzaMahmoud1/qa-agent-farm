@@ -13,6 +13,7 @@ import { getLiveRequirements } from "../lib/requirements.js";
 import { buildValidationResult, validateAnalystOutputLive, DATA_EXTRACTOR_API_CHECKS } from "./validator.js";
 import { analystReturnV1, buildAnalystReturnV2 } from "./demo-fixtures.js";
 import { isApprovableOutput } from "./dependency-gate.js";
+import { isLiveAnalystOutput } from "./analyst-contract.js";
 
 export {
   PIPELINE_DEPENDENCY,
@@ -47,58 +48,70 @@ export function hasTestableConditions(parsed) {
  *   message: string | null,
  * }}
  */
-const isHold = (a) => a && (/^HOLD$/i.test(a.action || "") || /did not clear the ticket/i.test(a.detail || ""));
-
-/** Convert uncleared / HOLD into a clarification ask the human can answer. */
-export function clarificationAskForUnclearedTicket(extra) {
-  return {
-    action: "ASK_HUMAN", target: "human", blocking: true, requires_value: true,
-    detail: `Provide clarification so Analyst can clear the ticket — missing rules, intent, or confirm assumptions${extra ? `. ${extra}` : ""}`,
-  };
-}
-
-const toAsk = (a) => (isHold(a)
-  ? clarificationAskForUnclearedTicket(a.detail && !/did not clear/i.test(a.detail) ? a.detail : null)
-  : { ...a, blocking: true, requires_value: a.requires_value !== false });
-
 const gate = (state, blocking_actions, message, writer_input = null) => ({
-  state, blocking_actions, proceed: state === PIPELINE_STATE.READY_FOR_WRITER, writer_input, message,
+  state,
+  blocking_actions,
+  proceed: state === PIPELINE_STATE.READY_FOR_WRITER,
+  writer_input,
+  message,
 });
 
+/**
+ * Thin gate: execute Analyst orchestrator_actions only.
+ * Do not invent clarification / HOLD rewrites — prompt + Validator own readiness.
+ */
 export function resolveAnalystOrchestratorGate(parsed) {
   const actions = parsed?.analyst_report?.orchestrator_actions || [];
   const blocking = actions.filter((a) => a?.blocking === true);
+  const hasProceed = actions.some((a) => a?.action === "PROCEED");
 
   if (!hasTestableConditions(parsed)) {
-    return gate(PIPELINE_STATE.NEEDS_INPUT,
-      blocking.length ? blocking.map(toAsk) : [clarificationAskForUnclearedTicket("zero validated ACs; Writer/Author blocked")],
-      "INVALID_REQUIREMENTS — zero testable conditions");
+    return gate(
+      PIPELINE_STATE.NEEDS_INPUT,
+      blocking,
+      "INVALID_REQUIREMENTS — zero testable conditions",
+    );
   }
 
   if (blocking.length) {
-    return gate(PIPELINE_STATE.WAITING_ON_HUMAN, blocking.map(toAsk),
-      blocking.some(isHold) ? "WAITING_ON_HUMAN — Analyst did not clear the ticket; provide clarification" : null);
+    return gate(PIPELINE_STATE.WAITING_ON_HUMAN, blocking, null);
   }
 
-  if (parsed?.ready_for_test_design === true && actions.some((a) => a?.action === "PROCEED")) {
+  if (parsed?.ready_for_test_design === true && hasProceed) {
     return gate(PIPELINE_STATE.READY_FOR_WRITER, [], null, {
       testable_conditions: parsed.testable_conditions || [],
       prerequisites_needed: parsed.prerequisites_needed || { blocking: [], non_blocking: [] },
     });
   }
 
-  return gate(PIPELINE_STATE.WAITING_ON_HUMAN,
-    [clarificationAskForUnclearedTicket("Analyst did not clear the ticket (ready_for_test_design is false or no PROCEED)")],
-    "WAITING_ON_HUMAN — Analyst did not clear the ticket; provide clarification");
+  // Contract incomplete — Validator should have failed; do not invent ASK_HUMAN.
+  return gate(
+    PIPELINE_STATE.NEEDS_INPUT,
+    actions,
+    "INVALID_REQUIREMENTS — Analyst MAIN GATE incomplete (no PROCEED / readiness false). Re-run Analyst.",
+  );
 }
 
 /**
- * Derive orchestrator_actions when the simulated analyst path has none (compat).
+ * Stub/demo only: derive orchestrator_actions when simulated Analyst omitted them.
+ * Live Cursor Analyst must emit actions — never silently invent a gate decision.
  */
 export function ensureAnalystReportActions(parsed) {
   if (!parsed || typeof parsed !== "object") return parsed;
   const report = parsed.analyst_report || {};
   if (Array.isArray(report.orchestrator_actions) && report.orchestrator_actions.length) {
+    return parsed;
+  }
+
+  if (isLiveAnalystOutput(parsed)) {
+    parsed.prompt_contract_broken = true;
+    parsed.analyst_report = {
+      what_i_did: report.what_i_did || [],
+      why: report.why || [],
+      assumptions_made: report.assumptions_made || [],
+      orchestrator_actions: [],
+      confidence: report.confidence || { overall: "low", reason: "live Analyst omitted orchestrator_actions" },
+    };
     return parsed;
   }
 
@@ -110,6 +123,7 @@ export function ensureAnalystReportActions(parsed) {
       target: "human",
       detail: "Provide testable acceptance criteria or clarified test intent — zero validated ACs; Writer/Author blocked",
       blocking: true,
+      requires_value: true,
     }];
   } else if (missingBlocking.length) {
     orchestrator_actions = missingBlocking.map((b) => ({
@@ -117,6 +131,7 @@ export function ensureAnalystReportActions(parsed) {
       target: "human",
       detail: b.item || "Provide missing prerequisite",
       blocking: true,
+      requires_value: true,
     }));
   } else if (parsed.ready_for_test_design === true) {
     orchestrator_actions = [{
@@ -126,7 +141,14 @@ export function ensureAnalystReportActions(parsed) {
       blocking: false,
     }];
   } else {
-    orchestrator_actions = [clarificationAskForUnclearedTicket("ready_for_test_design is false")];
+    // Stub path: ready false with no missing prereqs → ASK (prompt prefers ASK over vague HOLD)
+    orchestrator_actions = [{
+      action: "ASK_HUMAN",
+      target: "human",
+      detail: "Provide clarification — ready_for_test_design is false (stub Analyst)",
+      blocking: true,
+      requires_value: true,
+    }];
   }
 
   parsed.analyst_report = {

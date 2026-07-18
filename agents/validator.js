@@ -8,6 +8,7 @@ import { AGENT_GUIDELINES, AGENT_META, VALIDATOR_MAX_ATTEMPTS } from "./registry
 import { buildRequirementsFromStory } from "../lib/requirements.js";
 import { inferRequirementSignals, inferApiFields } from "../lib/test-data.js";
 import { isLatitudeKey, isLongitudeKey, parseCoordNumber, isValidLatitude, isValidLongitude, isBoundaryLatitude, isBoundaryLongitude } from "../lib/geo.js";
+import { checkAnalystPromptContract } from "./analyst-contract.js";
 
 export const DATA_EXTRACTOR_API_CHECKS = [
   "For API stories: derive datasets from human-provided curl (URL, method, headers, body)",
@@ -43,20 +44,32 @@ export function buildValidationResult(targetAgent, passed, failureMessages, reco
 }
 
 export function validateAnalystOutputLive(story, analystOutput) {
+  const contract = checkAnalystPromptContract(analystOutput);
+
   if (typeof farmCtx.prerequisites.validateAnalystOutput !== "function") {
-    return buildValidationResult("analyst", true);
+    const passed = contract.ok;
+    const base = buildValidationResult("analyst", passed, contract.failures, passed
+      ? null
+      : "Analyst MAIN GATE contract failed — fix orchestrator_actions / readiness");
+    return { ...base, detail_failures: contract.failures, ac_quality: { failed_rules: ["MAIN GATE"] } };
   }
+
   const live = farmCtx.prerequisites.validateAnalystOutput(story, analystOutput);
-  const base = buildValidationResult("analyst", live.passed, live.failures, live.passed
+  const failures = [...(live.failures || [])];
+  for (const f of contract.failures) {
+    if (!failures.includes(f)) failures.push(f);
+  }
+  const passed = live.passed && contract.ok;
+  const base = buildValidationResult("analyst", passed, failures, passed
     ? null
-    : "Exclude ticket metadata from AC mapping; map only testable behaviour to test actions");
+    : "Exclude ticket metadata from AC mapping; obey Analyst MAIN GATE (prompt readiness contract)");
   return {
     ...base,
-    detail_failures: live.failures,
+    detail_failures: failures,
     ac_quality: {
       valid_ac_count: live.valid_ac_count,
       rejected_ac_count: live.rejected_ac_count,
-      failed_rules: live.failedRules,
+      failed_rules: [...(live.failedRules || []), ...(contract.ok ? [] : ["MAIN GATE"])],
     },
   };
 }

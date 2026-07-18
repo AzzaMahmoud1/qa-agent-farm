@@ -1,10 +1,11 @@
 /**
- * Unit tests for Agent 1 extractFinalJson + validateAnalystOutput + orchestrator gate.
+ * Unit tests for Agent 1 extractFinalJson + validateAnalystOutput + thin orchestrator gate.
  * Run: node test/agent1-analyst.js
  */
 import assert from "node:assert/strict";
 import { extractFinalJson } from "../src/agents/utils/extractFinalJson.js";
 import { validateAnalystOutput } from "../src/agents/requirementAnalyst.js";
+import { checkAnalystPromptContract } from "../agents/analyst-contract.js";
 import {
   resolveAnalystOrchestratorGate,
   ensureAnalystReportActions,
@@ -23,6 +24,7 @@ function validParsed(overrides = {}) {
       orchestrator_actions: [
         { action: "PROCEED", target: "writer", detail: "go", blocking: false },
       ],
+      confidence: { overall: "high", reason: "ok" },
     },
     ready_for_test_design: true,
     summary: "1 condition",
@@ -50,7 +52,7 @@ function validParsed(overrides = {}) {
   );
 }
 
-// --- validateAnalystOutput ---
+// --- validateAnalystOutput + MAIN GATE ---
 {
   assert.equal(validateAnalystOutput(validParsed()), true);
   assert.throws(() => validateAnalystOutput({ success: true }), /missing required keys/);
@@ -58,9 +60,29 @@ function validParsed(overrides = {}) {
     () => validateAnalystOutput(validParsed({ prerequisites_needed: {} })),
     /blocking must be an array/,
   );
+  assert.throws(
+    () => validateAnalystOutput(validParsed({
+      testable_conditions: [],
+      ready_for_test_design: true,
+    })),
+    /MAIN GATE|PROCEED forbidden|ready_for_test_design/i,
+  );
 }
 
-// --- orchestrator gate ---
+{
+  const bad = checkAnalystPromptContract(validParsed({
+    ready_for_test_design: true,
+    analyst_report: {
+      what_i_did: [],
+      why: [],
+      orchestrator_actions: [],
+    },
+  }));
+  assert.equal(bad.ok, false);
+  assert.ok(bad.failures.some((f) => /non-empty|PROCEED/i.test(f)));
+}
+
+// --- thin orchestrator gate (executes Analyst actions only) ---
 {
   const hold = resolveAnalystOrchestratorGate(validParsed({
     ready_for_test_design: false,
@@ -74,7 +96,7 @@ function validParsed(overrides = {}) {
   }));
   assert.equal(hold.state, PIPELINE_STATE.WAITING_ON_HUMAN);
   assert.equal(hold.proceed, false);
-  assert.equal(hold.blocking_actions.length, 1);
+  assert.equal(hold.blocking_actions[0].action, "ASK_HUMAN");
 }
 
 {
@@ -85,55 +107,48 @@ function validParsed(overrides = {}) {
 }
 
 {
+  // Empty actions → contract incomplete (NEEDS_INPUT), not invented clarification.
   const unclear = resolveAnalystOrchestratorGate(validParsed({
     ready_for_test_design: false,
     analyst_report: { what_i_did: [], why: [], orchestrator_actions: [] },
   }));
-  // Uncleared ticket asks human for clarification (not a dead-end hard block).
-  assert.equal(unclear.state, PIPELINE_STATE.WAITING_ON_HUMAN);
+  assert.equal(unclear.state, PIPELINE_STATE.NEEDS_INPUT);
   assert.equal(unclear.proceed, false);
-  assert.equal(unclear.blocking_actions[0].action, "ASK_HUMAN");
-  assert.match(unclear.blocking_actions[0].detail, /clarif/i);
+  assert.match(unclear.message || "", /MAIN GATE|incomplete/i);
 }
 
 {
-  // Legacy HOLD is rewritten to ASK_HUMAN clarification.
-  const holdAsk = resolveAnalystOrchestratorGate(validParsed({
+  // HOLD is passed through — not rewritten to ASK_HUMAN.
+  const holdPass = resolveAnalystOrchestratorGate(validParsed({
     ready_for_test_design: false,
     analyst_report: {
       what_i_did: [],
       why: [],
       orchestrator_actions: [
-        { action: "HOLD", target: "human", detail: "Analyst did not clear the ticket", blocking: true },
+        { action: "HOLD", target: "human", detail: "waiting on product decision", blocking: true },
       ],
     },
   }));
-  assert.equal(holdAsk.state, PIPELINE_STATE.WAITING_ON_HUMAN);
-  assert.equal(holdAsk.blocking_actions[0].action, "ASK_HUMAN");
-  assert.equal(holdAsk.blocking_actions[0].requires_value, true);
+  assert.equal(holdPass.state, PIPELINE_STATE.WAITING_ON_HUMAN);
+  assert.equal(holdPass.blocking_actions[0].action, "HOLD");
 }
 
 {
-  const derivedUncleared = ensureAnalystReportActions({
+  // Live path: do not invent actions when omitted.
+  const live = ensureAnalystReportActions({
     success: true,
+    runner: "cursor_agent_cli",
     ready_for_test_design: false,
-    testable_conditions: [{ id: "AC-1", text: "x", source: "ac" }],
+    testable_conditions: [{ id: "AC-1" }],
     prerequisites_needed: { blocking: [], non_blocking: [] },
+    analyst_report: { what_i_did: [], why: [] },
   });
-  assert.equal(derivedUncleared.analyst_report.orchestrator_actions[0].action, "ASK_HUMAN");
-  assert.match(derivedUncleared.analyst_report.orchestrator_actions[0].detail, /clarif/i);
+  assert.equal(live.prompt_contract_broken, true);
+  assert.deepEqual(live.analyst_report.orchestrator_actions, []);
 }
 
 {
-  const emptyAc = resolveAnalystOrchestratorGate(validParsed({
-    testable_conditions: [],
-    ready_for_test_design: true,
-  }));
-  assert.equal(emptyAc.state, PIPELINE_STATE.NEEDS_INPUT);
-  assert.equal(emptyAc.proceed, false);
-}
-
-{
+  // Stub path may still derive ASK for missing prereqs.
   const derived = ensureAnalystReportActions({
     success: true,
     ready_for_test_design: false,
@@ -144,6 +159,15 @@ function validParsed(overrides = {}) {
   });
   assert.equal(derived.analyst_report.orchestrator_actions[0].action, "ASK_HUMAN");
   assert.equal(derived.analyst_report.orchestrator_actions[0].blocking, true);
+}
+
+{
+  const emptyAc = resolveAnalystOrchestratorGate(validParsed({
+    testable_conditions: [],
+    ready_for_test_design: true,
+  }));
+  assert.equal(emptyAc.state, PIPELINE_STATE.NEEDS_INPUT);
+  assert.equal(emptyAc.proceed, false);
 }
 
 console.log("agent1-analyst tests: ok");

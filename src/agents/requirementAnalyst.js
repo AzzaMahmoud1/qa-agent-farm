@@ -17,6 +17,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { extractFinalJson } from "./utils/extractFinalJson.js";
+import { checkAnalystPromptContract } from "../../agents/analyst-contract.js";
 
 const PROMPT_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -117,6 +118,11 @@ export function validateAnalystOutput(parsed) {
   }
   if (!Array.isArray(report.orchestrator_actions)) {
     throw new Error("analyst_report.orchestrator_actions must be an array");
+  }
+
+  const contract = checkAnalystPromptContract(parsed);
+  if (!contract.ok) {
+    throw new Error(contract.failures.join("; "));
   }
 
   return true;
