@@ -89,8 +89,26 @@ function validParsed(overrides = {}) {
     ready_for_test_design: false,
     analyst_report: { what_i_did: [], why: [], orchestrator_actions: [] },
   }));
-  assert.equal(unclear.state, PIPELINE_STATE.WAITING_ON_HUMAN);
+  // Uncleared ticket is a hard block (NEEDS_INPUT), not a checkbox-continue wait.
+  assert.equal(unclear.state, PIPELINE_STATE.NEEDS_INPUT);
+  assert.equal(unclear.proceed, false);
   assert.match(unclear.message || unclear.blocking_actions[0].detail, /did not clear/i);
+}
+
+{
+  // Derived HOLD (blocking:true) must hard-block — not WAITING_ON_HUMAN checkbox-continue.
+  const holdHard = resolveAnalystOrchestratorGate(validParsed({
+    ready_for_test_design: false,
+    analyst_report: {
+      what_i_did: [],
+      why: [],
+      orchestrator_actions: [
+        { action: "HOLD", target: "human", detail: "Analyst did not clear the ticket", blocking: true },
+      ],
+    },
+  }));
+  assert.equal(holdHard.state, PIPELINE_STATE.NEEDS_INPUT);
+  assert.equal(holdHard.proceed, false);
 }
 
 {

@@ -2847,6 +2847,22 @@ function submitPrerequisites() {
     return false;
   }
 
+  // HOLD / uncleared-ticket actions cannot be dismissed by checkbox — ticket stays blocked.
+  const holdBlocks = blockingOrchestratorActions.filter((a) =>
+    a.blocking && (/^HOLD$/i.test(String(a.action || "")) || /did not clear the ticket/i.test(String(a.detail || "")))
+  );
+  if (holdBlocks.length || (pipelineState === "NEEDS_INPUT" && storyOutputs?.analyst?.ready_for_test_design === false)) {
+    const status = el("prerequisites-status");
+    if (status) {
+      status.className = "jira-status err";
+      status.textContent = "Blocked — Analyst did not clear the ticket. Fix requirements / blocking gaps, then re-run Agent 1.";
+    }
+    if (el("event-message")) {
+      el("event-message").textContent = "INVALID_REQUIREMENTS — HOLD cannot unlock Writer. Re-run Analyst after clearing the ticket.";
+    }
+    return false;
+  }
+
   // Reviewer recheck: blame human answers against Analyst asks before unlocking Writer.
   const check = cachedPrerequisiteCheck || getPrerequisiteCheck(currentStory);
   const humanReview = reviewHumanInputAgainstAnalyst(storyOutputs?.analyst, {
@@ -3209,10 +3225,17 @@ function updatePrerequisitesPanel(story, options = {}) {
   const satisfiedEl = el("prerequisites-satisfied");
   const submitBtn = el("btn-submit-prerequisites");
 
+  const holdUncleared = actions.some((a) =>
+    /^HOLD$/i.test(String(a.action || "")) || /did not clear the ticket/i.test(String(a.detail || ""))
+  ) || /did not clear/i.test(String(check.summary || ""));
+
   if (desc) {
     desc.textContent = waitingAtStep
       ? (state === "NEEDS_INPUT"
-        ? (check.summary || "INVALID_REQUIREMENTS — zero testable ACs. Re-paste requirements with Business Rules / Alt / Exception flows and re-run Agent 1.")
+        ? (check.summary
+          || (holdUncleared
+            ? "INVALID_REQUIREMENTS — Analyst did not clear the ticket. Fix requirements / gaps, then re-run Agent 1."
+            : "INVALID_REQUIREMENTS — zero testable ACs. Re-paste requirements with Business Rules / Alt / Exception flows and re-run Agent 1."))
         : state === "WAITING_ON_HUMAN"
           ? (check.summary || "Analyst set WAITING_ON_HUMAN — resolve blocking orchestrator actions, then continue to Agent 2.")
           : (check.summary || "Story analysis complete."))
@@ -3221,7 +3244,9 @@ function updatePrerequisitesPanel(story, options = {}) {
 
   if (submitBtn) {
     submitBtn.innerHTML = state === "NEEDS_INPUT"
-      ? `<i class="ti ti-ban"></i> Blocked — need testable ACs`
+      ? (holdUncleared
+        ? `<i class="ti ti-ban"></i> Blocked — Analyst did not clear ticket`
+        : `<i class="ti ti-ban"></i> Blocked — need testable ACs`)
       : state === "WAITING_ON_HUMAN"
         ? `<i class="ti ti-player-play"></i> Resolved — continue pipeline`
         : `<i class="ti ti-check"></i> Confirm prerequisites`;

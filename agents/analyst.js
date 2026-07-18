@@ -104,10 +104,8 @@ export function buildAnalystOutputPayload(story) {
   const { gaps, compliance_evidence } = mergeNcaGapsIntoCoverage(out.coverage_gaps || [], detected);
   out.coverage_gaps = gaps;
   out.compliance_evidence = compliance_evidence;
-  if (compliance_evidence?.release_gate === "blocked") {
-    out.ready_for_test_design = false;
-    out.summary = `${out.summary || ""} NCA/ECC security evidence required before release.`.trim();
-  }
+  // NCA gaps are coverage signals only — do NOT flip ready_for_test_design false
+  // (that produced a fake HOLD "Analyst did not clear the ticket" while still allowing continue).
   return out;
 }
 

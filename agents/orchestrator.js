@@ -47,6 +47,12 @@ export function hasTestableConditions(parsed) {
  *   message: string | null,
  * }}
  */
+function isHoldAction(a) {
+  if (!a) return false;
+  return /^HOLD$/i.test(String(a.action || ""))
+    || /did not clear the ticket/i.test(String(a.detail || ""));
+}
+
 export function resolveAnalystOrchestratorGate(parsed) {
   const actions = parsed?.analyst_report?.orchestrator_actions || [];
   const blocking = actions.filter((a) => a && a.blocking === true);
@@ -70,10 +76,13 @@ export function resolveAnalystOrchestratorGate(parsed) {
     };
   }
 
-  if (blocking.length) {
+  // Human-resolvable asks (URL, credentials, etc.) — soft wait with continue after input.
+  // HOLD / "did not clear" is NOT included here (hard block below).
+  const blockingAsks = blocking.filter((a) => !isHoldAction(a));
+  if (blockingAsks.length) {
     return {
       state: PIPELINE_STATE.WAITING_ON_HUMAN,
-      blocking_actions: blocking,
+      blocking_actions: blockingAsks,
       proceed: false,
       writer_input: null,
       message: null,
@@ -94,19 +103,22 @@ export function resolveAnalystOrchestratorGate(parsed) {
     };
   }
 
+  // Uncleared ticket (HOLD / ready_for_test_design false / no PROCEED) — hard block.
+  // Checkbox "continue" must not unlock Writer (same class as zero-AC).
+  const holdActions = actions.filter(isHoldAction).length
+    ? actions.filter(isHoldAction).map((a) => ({ ...a, blocking: true }))
+    : [{
+      action: "HOLD",
+      target: "human",
+      detail: "Analyst did not clear the ticket",
+      blocking: true,
+    }];
   return {
-    state: PIPELINE_STATE.WAITING_ON_HUMAN,
-    blocking_actions: actions.length
-      ? actions
-      : [{
-        action: "HOLD",
-        target: "human",
-        detail: "Analyst did not clear the ticket",
-        blocking: true,
-      }],
+    state: PIPELINE_STATE.NEEDS_INPUT,
+    blocking_actions: holdActions,
     proceed: false,
     writer_input: null,
-    message: "Analyst did not clear the ticket",
+    message: "INVALID_REQUIREMENTS — Analyst did not clear the ticket (ready_for_test_design is false or no PROCEED)",
   };
 }
 
@@ -478,8 +490,9 @@ export function buildPrerequisiteInputEvents(story, analystParsed) {
   const gate = resolveAnalystOrchestratorGate(parsed);
   const check = buildAnalystPrerequisitePayload(story);
 
-  // Zero ACs: hold for clarified requirements — do NOT emit a "received → proceed" event.
+  // Hard block (zero ACs or uncleared HOLD) — do NOT emit a "received → proceed" event.
   if (gate.state === PIPELINE_STATE.NEEDS_INPUT || !hasTestableConditions(parsed)) {
+    const zeroAc = !hasTestableConditions(parsed);
     return [
       {
         kind: "prerequisite_input_request",
@@ -491,7 +504,10 @@ export function buildPrerequisiteInputEvents(story, analystParsed) {
           items: check.needed ? (check.items || []) : [],
           already_satisfied: check.already_satisfied || [],
           not_applicable: check.not_applicable || [],
-          summary: gate.message || "INVALID_REQUIREMENTS — zero testable conditions",
+          summary: gate.message
+            || (zeroAc
+              ? "INVALID_REQUIREMENTS — zero testable conditions"
+              : "INVALID_REQUIREMENTS — Analyst did not clear the ticket"),
           blocking: parsed.prerequisites_needed?.blocking || [],
           non_blocking: parsed.prerequisites_needed?.non_blocking || [],
           reasoning: check.reasoning || "",
@@ -499,21 +515,31 @@ export function buildPrerequisiteInputEvents(story, analystParsed) {
           story_analysis: check.story_analysis,
         },
         message: gate.message
-          || "INVALID_REQUIREMENTS — zero validated testable conditions. Provide acceptance criteria before Writer/Author.",
+          || (zeroAc
+            ? "INVALID_REQUIREMENTS — zero validated testable conditions. Provide acceptance criteria before Writer/Author."
+            : "INVALID_REQUIREMENTS — Analyst did not clear the ticket. Re-run Agent 1 after fixing requirements."),
         role: null,
         orchestrator_memory: mem(story, {
           phase: "gap_analysis",
           pipeline_state: PIPELINE_STATE.NEEDS_INPUT,
           blocking_actions: String(gate.blocking_actions.length),
-          awaiting: "testable_acceptance_criteria",
+          awaiting: zeroAc ? "testable_acceptance_criteria" : "analyst_clear_ticket",
         }),
         agent_context: {
           pipeline_state: PIPELINE_STATE.NEEDS_INPUT,
           orchestrator_actions: gate.blocking_actions,
-          source: "Requirement Analyst — zero testable_conditions",
+          source: zeroAc
+            ? "Requirement Analyst — zero testable_conditions"
+            : "Requirement Analyst — ticket not cleared (HOLD)",
         },
-        agent_returns: { success: false, reason: "invalid_requirements", testable_conditions: 0 },
-        decision: "NEEDS_INPUT — Writer/Author blocked until testable ACs exist",
+        agent_returns: {
+          success: false,
+          reason: zeroAc ? "invalid_requirements" : "ticket_not_cleared",
+          testable_conditions: (parsed.testable_conditions || []).length,
+        },
+        decision: zeroAc
+          ? "NEEDS_INPUT — Writer/Author blocked until testable ACs exist"
+          : "NEEDS_INPUT — Writer/Author blocked until Analyst clears the ticket",
       },
     ];
   }
