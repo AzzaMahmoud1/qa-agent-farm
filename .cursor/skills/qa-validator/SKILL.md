@@ -25,7 +25,7 @@ Check worker output against **that agent's skill rules only**. Never rewrite age
 
 | Agent | Key checks |
 |-------|------------|
-| Analyst | Scratchpad A–E, structured ACs, no metadata as ACs, prerequisites categorized, **MAIN GATE second opinion** (`agents/analyst-contract.js`): non-empty actions, no PROCEED on empty ACs / missing blocking prereqs, no PROCEED+blocking mix, reject vague ASK_HUMAN |
+| Analyst | Structured ACs only from allowed sections, prerequisites categorized, `analysis_complete` vs `ready_for_test_design`, **MAIN GATE second opinion** (`agents/analyst-contract.js`): non-empty actions, no PROCEED on empty ACs / design-blocking gaps, access/env do not alone block design PROCEED, reject vague ASK_HUMAN |
 | Writer | Given/When/Then or outlines, AC coverage from Analyst conditions only, expected_evidence |
 | Data Extractor | Dataset per TC, test_oracle, human curl/web alignment, geo bounds |
 

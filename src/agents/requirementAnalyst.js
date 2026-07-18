@@ -59,6 +59,7 @@ const REQUIRED_TOP_KEYS = [
   "prerequisites_needed",
   "coverage_gaps",
   "analyst_report",
+  "analysis_complete",
   "ready_for_test_design",
   "summary",
 ];
@@ -82,6 +83,9 @@ export function validateAnalystOutput(parsed) {
   }
   if (!Array.isArray(parsed.coverage_gaps)) {
     throw new Error("coverage_gaps must be an array");
+  }
+  if (typeof parsed.analysis_complete !== "boolean") {
+    throw new Error("analysis_complete must be a boolean");
   }
   if (typeof parsed.ready_for_test_design !== "boolean") {
     throw new Error("ready_for_test_design must be a boolean");

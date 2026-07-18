@@ -4,6 +4,7 @@ import { checkAnalystPromptContract } from "../agents/analyst-contract.js";
 
 const base = {
   testable_conditions: [{ id: "AC-1" }],
+  analysis_complete: true,
   ready_for_test_design: true,
   prerequisites_needed: { blocking: [], non_blocking: [] },
   analyst_report: {
@@ -19,13 +20,23 @@ assert.equal(checkAnalystPromptContract({
   testable_conditions: [],
 }).ok, false);
 
+// Design-blocking (no category / data) + PROCEED → fail
 assert.equal(checkAnalystPromptContract({
   ...base,
   prerequisites_needed: {
-    blocking: [{ item: "URL", satisfied_by_ticket: false }],
+    blocking: [{ item: "Product decision on role X", category: "knowledge", satisfied_by_ticket: false }],
     non_blocking: [],
   },
 }).ok, false);
+
+// Access-only missing does not block PROCEED / ready_for_test_design
+assert.equal(checkAnalystPromptContract({
+  ...base,
+  prerequisites_needed: {
+    blocking: [{ item: "Staging URL", category: "access", satisfied_by_ticket: false }],
+    non_blocking: [],
+  },
+}).ok, true);
 
 assert.equal(checkAnalystPromptContract({
   ...base,
@@ -49,7 +60,7 @@ assert.equal(checkAnalystPromptContract({
     confidence: { overall: "medium" },
   },
   prerequisites_needed: {
-    blocking: [{ item: "URL", satisfied_by_ticket: false }],
+    blocking: [{ item: "URL", category: "access", satisfied_by_ticket: false }],
     non_blocking: [],
   },
 }).ok, true);
@@ -65,6 +76,11 @@ assert.equal(checkAnalystPromptContract({
     blocking: [{ item: "unclear", satisfied_by_ticket: false }],
     non_blocking: [],
   },
+}).ok, false);
+
+assert.equal(checkAnalystPromptContract({
+  ...base,
+  analysis_complete: false,
 }).ok, false);
 
 console.log("analyst-contract tests: ok");

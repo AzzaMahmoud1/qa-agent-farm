@@ -116,6 +116,11 @@ export function ensureAnalystReportActions(parsed) {
   }
 
   const missingBlocking = (parsed.prerequisites_needed?.blocking || []).filter((b) => !b.satisfied_by_ticket);
+  // Access/env usually block execution, not AC design (prompt two-signal readiness).
+  const designMissing = missingBlocking.filter((b) => {
+    const cat = String(b.category || "").toLowerCase();
+    return cat !== "access" && cat !== "environment";
+  });
   let orchestrator_actions;
   if (!hasTestableConditions(parsed)) {
     orchestrator_actions = [{
@@ -125,15 +130,15 @@ export function ensureAnalystReportActions(parsed) {
       blocking: true,
       requires_value: true,
     }];
-  } else if (missingBlocking.length) {
-    orchestrator_actions = missingBlocking.map((b) => ({
+  } else if (designMissing.length) {
+    orchestrator_actions = designMissing.map((b) => ({
       action: "ASK_HUMAN",
       target: "human",
-      detail: b.item || "Provide missing prerequisite",
+      detail: `Provide ${b.item || "missing prerequisite"} (account/credentials or concrete data) for test design — ${b.if_not_satisfied || "required by ticket"}`,
       blocking: true,
       requires_value: true,
     }));
-  } else if (parsed.ready_for_test_design === true) {
+  } else if (parsed.ready_for_test_design !== false) {
     orchestrator_actions = [{
       action: "PROCEED",
       target: "writer",
@@ -141,7 +146,7 @@ export function ensureAnalystReportActions(parsed) {
       blocking: false,
     }];
   } else {
-    // Stub path: ready false with no missing prereqs → ASK (prompt prefers ASK over vague HOLD)
+    // Stub path: ready false with no design-blocking prereqs → ASK
     orchestrator_actions = [{
       action: "ASK_HUMAN",
       target: "human",
@@ -398,8 +403,8 @@ export function buildRequirementsFailureDemo(story) {
   const acPreview = acList.slice(0, 2).join("; ") || story.acceptance_criteria + " criteria";
 
   const analystInstructions = {
-    target_agent: "Requirement Analyst (L2 — Forced Scratchpad Mode)",
-    task: "Analyze JIRA ticket — scratchpad A–E then structured JSON",
+    target_agent: "Requirement Analyst (L2)",
+    task: "Analyze JIRA ticket — dispositions then structured JSON with readiness signals",
     ticket: s + " · " + story.title,
     acceptance_criteria: acList.length ? acList : [acPreview],
     constraints: "Only use ticket context — do not assume unlisted behavior",
@@ -414,7 +419,7 @@ export function buildRequirementsFailureDemo(story) {
     validator_feedback: "Multiple L2 guideline failures on attempt 1",
     corrections: [
       "Map every acceptance criterion to a testable condition ID",
-      "Add related_files with controller, service, and spec paths",
+      "Emit analysis_complete, ready_for_test_design, and concrete orchestrator_actions",
       "Split coverage gaps into blocking vs non-blocking",
     ],
   };
@@ -423,13 +428,13 @@ export function buildRequirementsFailureDemo(story) {
     "Map every acceptance criterion to a testable condition",
     "Distinguish blocking vs non-blocking coverage gaps",
     "List affected components from the JIRA ticket",
-    "Include related source and test file paths",
-  ], "Complete all four L2 deliverables before re-submitting");
+    "Emit analysis_complete and ready_for_test_design with orchestrator_actions",
+  ], "Complete L2 readiness deliverables before re-submitting");
 
   const failValidation2 = buildValidationResult("analyst", false, [
     "Map every acceptance criterion to a testable condition",
-    "Include related source and test file paths",
-  ], "related_files still missing after retry — validator brake will abort run");
+    "Emit analysis_complete and ready_for_test_design with orchestrator_actions",
+  ], "readiness signals still missing after retry — validator brake will abort run");
 
   const analystGate = validationGateEvents("analyst", "gap_analysis", story, analystReturnV1, {
     failAttempts: [1, 2],
@@ -460,7 +465,7 @@ export function buildRequirementsFailureDemo(story) {
         changes_made: [
           "Added affected_components from ticket",
           "Improved coverage_gaps summary",
-          "Still missing related_files and per-AC condition IDs",
+          "Still missing per-AC condition IDs and readiness actions",
         ],
         orchestrator_memory: mem(story, { phase: "gap_analysis", demo: "requirements", analyst_status: "retry_still_failing" }),
         agent_context: {},
@@ -802,7 +807,7 @@ export function enrichEventForDisplay(e) {
   if (e.kind === "validator_assign" && e.target_agent === "analyst" && farmCtx.currentStory) {
     return {
       ...e,
-      message: `Validator check ${e.attempt}/${VALIDATOR_MAX_ATTEMPTS} — verify analyst AC quality, test-action mapping, and related_files`,
+      message: `Validator check ${e.attempt}/${VALIDATOR_MAX_ATTEMPTS} — verify analyst AC quality, readiness signals, and MAIN GATE actions`,
       agent_context: {
         ...e.agent_context,
         ac_quality_rules: [
@@ -927,7 +932,7 @@ export function buildEvents(story) {
 
   const analystInstructions = {
     target_agent: "Agent 1 — Requirement Analyst (L3 — Cursor Agent · Sonnet 5 high)",
-    task: "Analyze ticket — produce scratchpad Activities A–E, then final JSON with analyst_report",
+    task: "Analyze ticket — dispositions, then final JSON with analysis_complete / ready_for_test_design",
     ticket: s + " · " + story.title,
     acceptance_criteria: acList.length ? acList : [acPreview],
     constraints: "Never extract ACs from Pre-conditions, Basic Flow, Post-conditions, or metadata",
@@ -950,6 +955,7 @@ export function buildEvents(story) {
     related_files: analystWithActions.related_files,
     prerequisites_needed: { ...analystPrereqPayload, blocking: analystWithActions.prerequisites_needed?.blocking || [], non_blocking: analystWithActions.prerequisites_needed?.non_blocking || [] },
     analyst_report: analystWithActions.analyst_report,
+    analysis_complete: analystWithActions.analysis_complete,
     ready_for_test_design: analystWithActions.ready_for_test_design,
     summary: analystWithActions.summary,
     pipeline_state: analystGateDecision.state,
@@ -980,7 +986,7 @@ export function buildEvents(story) {
       validator_feedback: (analystQuality.failures || []).join("; ") || "L2 guideline failures",
       corrections: corrections.length
         ? corrections
-        : ["Re-run scratchpad A–E and resubmit full structured JSON"],
+        : ["Re-run dispositions and resubmit full structured JSON with readiness signals"],
     };
     analystGateOpts = {
       ...analystGateBase,

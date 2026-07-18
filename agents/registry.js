@@ -83,15 +83,15 @@ const AGENT_META = {
 const AGENT_GUIDELINES = {
       analyst: {
         level: "L2",
-        required_deliverables: ["scratchpad", "testable_conditions", "coverage_gaps", "affected_components", "related_files", "prerequisites_needed", "analyst_reasoning"],
+        required_deliverables: ["testable_conditions", "coverage_gaps", "prerequisites_needed", "analyst_reasoning", "analysis_complete", "ready_for_test_design", "analyst_report"],
         rules: [
-          "Complete scratchpad steps A–E before final JSON (ambiguity, sections, ACs, prerequisites, gaps)",
+          "Disposition every Business Rules / Alternative / Exception line; never silent-drop",
           "Reject ticket metadata and wrong sections — never map Basic Flow / Pre-conditions as ACs",
           "Extract ACs only from Business Rules, Alternative Flow, Exception Flow",
           "Map every acceptance criterion to a structured testable condition",
-          "Categorize prerequisites as data/environment/dependency/knowledge with blocking/non-blocking",
-          "Distinguish blocking vs non-blocking coverage gaps by category",
-          "Include related source and test file paths with reasons",
+          "Categorize prerequisites as data/environment/dependency/knowledge/access with blocking/non-blocking",
+          "Keep analysis_complete separate from ready_for_test_design (access usually blocks execution, not design)",
+          "Emit non-empty orchestrator_actions — PROCEED alone when ready, else blocking ASK/HOLD",
         ],
       },
       writer: {

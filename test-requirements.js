@@ -83,24 +83,23 @@ test("prerequisites exclude section headers", () => {
   assert(!labels.some((l) => /Post-conditions|Basic Flow|Alternative Flow|Pre-conditions/i.test(l)), labels.join(", "));
 });
 
-test("analyst output includes scratchpad steps A–E", () => {
+test("analyst stub emits analysis_complete and readiness actions", () => {
   const out = buildAnalystOutput(story);
-  assert(out.scratchpad?.step_a_ambiguity_scan, "missing step A");
-  assert(out.scratchpad?.step_b_section_classification, "missing step B");
-  assert(out.scratchpad?.step_c_testable_conditions, "missing step C");
-  assert(out.scratchpad?.step_d_prerequisites, "missing step D");
-  assert(out.scratchpad?.step_e_coverage_gaps, "missing step E");
-  assert(out.scratchpad.rendered.includes("SCRATCHPAD STEP A"), "missing rendered scratchpad");
+  assert(out.analysis_complete === true, "analysis_complete");
+  assert(typeof out.ready_for_test_design === "boolean", "ready_for_test_design");
+  assert(Array.isArray(out.analyst_report?.orchestrator_actions), "orchestrator_actions");
+  assert(out.analyst_report.orchestrator_actions.length > 0, "non-empty actions");
+  assert(out.scratchpad?.rendered, "optional stub scratchpad still rendered");
 });
 
 test("structured testable_conditions and prerequisites", () => {
   const out = buildAnalystOutput(story);
   assert(out.testable_conditions.length >= 2, "expected testable conditions");
   assert(out.testable_conditions[0].id && out.testable_conditions[0].source, "structured TC");
+  assert(out.testable_conditions[0].delta_or_regression, "delta_or_regression");
   assert(Array.isArray(out.prerequisites_needed.blocking), "blocking array");
   assert(Array.isArray(out.prerequisites_needed.non_blocking), "non_blocking array");
-  assert(out.coverage_gaps.every((g) => g.category && g.severity), "structured gaps");
-  assert(out.related_files[0].path && out.related_files[0].reason, "related_files objects");
+  assert(Array.isArray(out.coverage_gaps), "coverage_gaps array");
 });
 
 test("login user gap when no credentials", () => {
@@ -111,15 +110,9 @@ test("login user gap when no credentials", () => {
 
 test("validator fails metadata mapped as AC", () => {
   const bad = {
-    scratchpad: {
-      step_a_ambiguity_scan: "AMBIGUITY SCAN:\n- [CLEAN]",
-      step_b_section_classification: "SECTION CLASSIFICATION:\n- ok",
-      step_c_testable_conditions: "EXTRACTED",
-      step_d_prerequisites: "PREREQUISITES:",
-      step_e_coverage_gaps: "COVERAGE GAPS:\nBOUNDARY: NONE",
-    },
     analyst_reasoning: { ticket_read: "bad", rejected_as_non_ac: [] },
-    related_files: [{ path: "a.ts", reason: "test" }],
+    analysis_complete: true,
+    ready_for_test_design: true,
     testable_conditions: [{
       id: "AC-1",
       source: "Business Rules",
@@ -130,7 +123,13 @@ test("validator fails metadata mapped as AC", () => {
       fail_evidence: "fail",
     }],
     prerequisites_needed: { blocking: [], non_blocking: [] },
-    coverage_gaps: [{ gap: "x", category: "negative", severity: "non-blocking", suggested_test: "t" }],
+    coverage_gaps: [],
+    analyst_report: {
+      what_i_did: [],
+      why: [],
+      orchestrator_actions: [{ action: "PROCEED", target: "writer", blocking: false }],
+      confidence: { overall: "high" },
+    },
   };
   assert(!validateAnalystOutput(story, bad).passed, "should fail");
 });
@@ -167,7 +166,7 @@ test("JIRA-style title+description uses section-aware analyst output", () => {
     labels: [],
   };
   const out = buildAnalystOutput(jiraStory);
-  assert(out.scratchpad?.rendered?.includes("SCRATCHPAD STEP B"), "missing scratchpad B");
+  assert(out.analysis_complete === true, "analysis_complete");
   assert(out.testable_conditions.length === 3, "expected 3 structured ACs from JIRA path");
   assert(out.testable_conditions.some((c) => c.source === "Alternative Flow"), "missing alt flow source");
   assert(out.analyst_reasoning?.rejected_as_non_ac?.length > 0, "missing rejected lines");

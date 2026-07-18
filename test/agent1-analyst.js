@@ -26,6 +26,7 @@ function validParsed(overrides = {}) {
       ],
       confidence: { overall: "high", reason: "ok" },
     },
+    analysis_complete: true,
     ready_for_test_design: true,
     summary: "1 condition",
     ...overrides,
@@ -148,17 +149,35 @@ function validParsed(overrides = {}) {
 }
 
 {
-  // Stub path may still derive ASK for missing prereqs.
+  // Stub: access-only missing → PROCEED (blocks execution later, not design).
   const derived = ensureAnalystReportActions({
     success: true,
-    ready_for_test_design: false,
+    analysis_complete: true,
+    ready_for_test_design: true,
+    testable_conditions: [{ id: "AC-1" }],
     prerequisites_needed: {
       blocking: [{ item: "Staging URL", category: "access", satisfied_by_ticket: false }],
       non_blocking: [],
     },
   });
-  assert.equal(derived.analyst_report.orchestrator_actions[0].action, "ASK_HUMAN");
-  assert.equal(derived.analyst_report.orchestrator_actions[0].blocking, true);
+  assert.equal(derived.analyst_report.orchestrator_actions[0].action, "PROCEED");
+  assert.equal(derived.analyst_report.orchestrator_actions[0].blocking, false);
+}
+
+{
+  // Stub: design-blocking knowledge gap → ASK_HUMAN.
+  const ask = ensureAnalystReportActions({
+    success: true,
+    analysis_complete: true,
+    ready_for_test_design: false,
+    testable_conditions: [{ id: "AC-1" }],
+    prerequisites_needed: {
+      blocking: [{ item: "Confirm role mapping for AC-1", category: "knowledge", satisfied_by_ticket: false }],
+      non_blocking: [],
+    },
+  });
+  assert.equal(ask.analyst_report.orchestrator_actions[0].action, "ASK_HUMAN");
+  assert.equal(ask.analyst_report.orchestrator_actions[0].blocking, true);
 }
 
 {

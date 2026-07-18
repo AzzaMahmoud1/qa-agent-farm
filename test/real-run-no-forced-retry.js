@@ -87,9 +87,9 @@ if (analystValidatorAssigns.length === 1) {
 } else {
   // Live quality failed — retry is allowed, but must not use the old incomplete stub.
   assert.ok(analystValidatorAssigns.length <= 2);
-  assert.notMatch(
-    String(firstAnalystReturn.message || ""),
-    /incomplete for L2 guidelines/i,
+  assert.ok(
+    !/incomplete for L2 guidelines/i.test(String(firstAnalystReturn.message || "")),
+    "must not use the old incomplete-stub message",
   );
 }
 
