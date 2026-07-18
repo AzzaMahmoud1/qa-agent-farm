@@ -15,10 +15,8 @@ jobs:
         with:
           node-version: "20"
       - name: Doctor
-        run: node scripts/doctor.js
+        run: npm run doctor
       - name: Module parse check
-        run: node scripts/check-modules.js
-      - name: Requirements tests
-        run: node test-requirements.js
-      - name: Evaluation fix tests
-        run: node test/eval-fixes.js
+        run: npm run check:modules
+      - name: Full test suite (incl. P0 hard gates)
+        run: npm test

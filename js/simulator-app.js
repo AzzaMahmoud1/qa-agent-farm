@@ -124,7 +124,7 @@ const {
   buildEventsAfterHumanPrerequisites, buildEventsAfterHumanApiInput,
   assertCanAssign, deriveValidatedRolesFromEvents,
   buildTestExecutorOutput, buildReviewerOutput, reviewHumanInputAgainstAnalyst,
-  buildReporterOutput, buildTestDataExtractorOutput,
+  buildReporterOutput, buildTestDataExtractorOutput, buildAuthorOutput,
 } = farm;
 
 // ctx helpers wired after function declarations (hoisted)
@@ -644,9 +644,23 @@ function isHumanInputSatisfied(need) {
 }
 
 
+function actionNeedsTypedValue(a) {
+  if (!a) return false;
+  if (a.requires_value === true) return true;
+  const detail = String(a.detail || "");
+  return a.action === "ASK_HUMAN"
+    || a.action === "FETCH_DEPENDENCY"
+    || /\b(provide|supply|seed|url|credential|password|token|curl|confirm|clarif)\b/i.test(detail);
+}
+
 function isPrerequisitesSatisfied() {
+  // Checkbox alone is not enough when Analyst asked for a typed clarification / value.
   const actionsOk = !blockingOrchestratorActions.length
-    || blockingOrchestratorActions.every((a) => a.resolved);
+    || blockingOrchestratorActions.every((a) => {
+      const value = (a.provided_value || "").trim();
+      if (actionNeedsTypedValue(a)) return value.length > 0;
+      return !!a.resolved || value.length > 0;
+    });
   // When the panel surfaces the curl/webpage fields, the human must fill them here.
   const apiOk = !prereqShowsApi || humanApiInput.ok;
   const webOk = !prereqShowsWeb || humanWebpageInput.ok;
@@ -1356,8 +1370,8 @@ function renderActiveOutputTab() {
   }
 
   let content = "";
-  if (activeOutputTab === "writer" && data?.test_cases) {
-    content = renderTestCases(data.test_cases);
+  if (activeOutputTab === "writer" && data) {
+    content = renderWriterOutput(data);
   } else if (activeOutputTab === "test_data_extractor" && data) {
     content = renderTestDataOutput(data);
   } else if (activeOutputTab === "author" && data) {
@@ -1377,11 +1391,16 @@ function renderActiveOutputTab() {
   body.innerHTML = `
     <div class="output-header">
       <h3>${meta.icon} ${meta.label} <span style="color:var(--muted);font-weight:400;font-size:.75rem">${meta.level}</span></h3>
-      <span class="output-status ${status}">${status}</span>
+      <span style="display:flex;gap:.4rem;align-items:center">
+        ${renderRunnerBadge(data)}
+        <span class="output-status ${status}">${status}</span>
+      </span>
     </div>
     ${renderAgentChangesBlock(activeOutputTab)}
     ${content}
     ${status === "done" && activeOutputTab !== "reporter" ? `<details style="margin-top:.75rem"><summary style="cursor:pointer;font-size:.72rem;color:var(--muted)">Raw JSON</summary><pre class="output-json" style="margin-top:.5rem">${escapeHtml(JSON.stringify(data, null, 2))}</pre></details>` : ""}`;
+
+  bindOutlineApprovalButtons(body);
 }
 
 
@@ -1937,25 +1956,100 @@ function renderStructuredAnalystOutput(data) {
 }
 
 
+function renderRunnerBadge(data) {
+  const live = /cursor_agent|live/i.test(data?.runner || "")
+    || (activeOutputTab === "analyst" && currentStory?.live_analyst_output);
+  return `<span title="${live ? "Cursor Agent CLI" : "Simulated stub"}" style="background:${live ? "#166534" : "#57534e"};color:#fff;border-radius:4px;padding:.1rem .4rem;font-size:.62rem;font-weight:700">${live ? "LIVE" : "STUB"}</span>`;
+}
+
+function kv(key, val, border) {
+  return `<div class="output-kv-item validator" style="margin-bottom:.65rem${border ? `;border-color:${border}` : ""}"><div class="output-kv-key">${key}</div><div class="output-kv-val">${val}</div></div>`;
+}
+
+function renderWriterOutput(data) {
+  if (!data) return "";
+  if (data.blocked) return kv("Blocked", `<span class="validation-fail">${escapeHtml(data.blocked_reason || "Writer blocked")}</span>`, "#fca5a5");
+  const outlines = data.test_outlines || [];
+  return [
+    data.summary ? `<p style="font-size:.8rem;margin:0 0 .65rem;color:var(--text-secondary)">${escapeHtml(data.summary)}</p>` : "",
+    outlines.length
+      ? `<div class="prereq-section-title" style="margin-top:0">Test outlines — approve before Author</div>${renderTestOutlines(outlines)}`
+      : `<div class="output-empty">No outlines yet.</div>`,
+    data.test_cases?.length
+      ? `<details style="margin-top:.75rem"><summary style="cursor:pointer;font-size:.72rem;color:var(--muted)">GWT docs (${data.test_cases.length})</summary>${renderTestCases(data.test_cases)}</details>`
+      : "",
+  ].join("");
+}
+
+function renderTestOutlines(outlines) {
+  const color = { approved: "var(--success)", rejected: "#b91c1c", draft: "#a16207" };
+  return (outlines || []).map((o) => {
+    const st = o.status || "draft";
+    const btns = st === "approved"
+      ? `<button type="button" class="btn btn-outline-reject" data-outline-id="${escapeHtml(o.id)}" style="font-size:.72rem;padding:.25rem .55rem;margin-top:.4rem">Revoke</button>`
+      : `<span style="display:flex;gap:.35rem;margin-top:.4rem">
+          <button type="button" class="btn btn-outline-approve" data-outline-id="${escapeHtml(o.id)}" style="font-size:.72rem;padding:.25rem .55rem">Approve</button>
+          <button type="button" class="btn btn-outline-reject" data-outline-id="${escapeHtml(o.id)}" style="font-size:.72rem;padding:.25rem .55rem">Reject</button>
+        </span>`;
+    return `<div class="tc-row">
+      <div class="tc-row-head">
+        <span class="tc-row-id">${escapeHtml(o.id)}</span>
+        <span style="color:${color[st] || color.draft};font-size:.68rem;font-weight:700;text-transform:uppercase">${escapeHtml(st)}</span>
+        <strong style="font-size:.8rem">${escapeHtml(o.title || "")}</strong>
+      </div>
+      <div style="font-size:.74rem;color:var(--muted)">ACs: ${escapeHtml((o.mapped_acs || []).join(", ") || "—")} · ${escapeHtml(String(o.intent || ""))}${btns}</div>
+    </div>`;
+  }).join("");
+}
+
+function bindOutlineApprovalButtons(root) {
+  root?.querySelectorAll(".btn-outline-approve, .btn-outline-reject").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-outline-id");
+      const cur = storyOutputs?.writer?.test_outlines?.find((o) => o.id === id);
+      const next = btn.classList.contains("btn-outline-approve")
+        ? "approved"
+        : (cur?.status === "approved" ? "draft" : "rejected");
+      setOutlineStatus(id, next);
+    });
+  });
+}
+
+function setOutlineStatus(outlineId, status) {
+  const outlines = storyOutputs?.writer?.test_outlines;
+  const o = outlines?.find((x) => x.id === outlineId);
+  if (!o) return;
+  o.status = status;
+  const n = outlines.filter((x) => x.status === "approved").length;
+  storyOutputs.writer.summary = `${n}/${outlines.length} outline(s) approved`;
+  publishAgentOutputForHuman("writer", storyOutputs.writer, "done");
+  const authorOut = buildAuthorOutput(
+    currentStory, storyOutputs.writer, storyOutputs.analyst,
+    humanWebpageInput?.ok ? humanWebpageInput : null,
+  );
+  publishAgentOutputForHuman("author", authorOut, "done");
+  if (el("event-message")) el("event-message").textContent = authorOut.summary || `${outlineId} → ${status}`;
+  activeOutputTab = "writer";
+  renderOutputTabs();
+  renderActiveOutputTab();
+}
+
 function renderAuthorOutput(data) {
   if (!data) return "";
   const tone = data.blocked || data.status === "NEEDS_INPUT" || data.status === "FAILED"
-    ? "#b91c1c"
-    : data.status === "REVIEW" ? "var(--success)" : "var(--text)";
-  const verdicts = data.requirement_verdicts
-    ? Object.entries(data.requirement_verdicts).map(([id, v]) =>
-      `<li style="font-size:.74rem"><strong>${escapeHtml(id)}</strong> — ${escapeHtml(v.verdict || "—")}${v.evidence ? `: ${escapeHtml(v.evidence)}` : ""}</li>`
-    ).join("")
-    : "";
-  return `
-    <div class="output-kv-item validator" style="margin-bottom:.65rem;border-color:${data.blocked ? "#fca5a5" : "var(--border)"}">
-      <div class="output-kv-key">Author session</div>
-      <div class="output-kv-val" style="color:${tone};font-weight:600">${escapeHtml(data.status || "—")}${data.session_id ? ` · ${escapeHtml(data.session_id)}` : ""}</div>
-    </div>
-    ${data.blocked_reason ? `<div class="output-kv-item validator" style="margin-bottom:.65rem;border-color:#fca5a5"><div class="output-kv-key">Blocked</div><div class="output-kv-val validation-fail">${escapeHtml(data.blocked_reason)}</div></div>` : ""}
-    ${data.summary ? `<div class="output-kv-item"><div class="output-kv-key">Summary</div><div class="output-kv-val">${escapeHtml(data.summary)}</div></div>` : ""}
-    ${verdicts ? `<div class="output-kv-item"><div class="output-kv-key">Requirement verdicts</div><div class="output-kv-val"><ul style="margin:0;padding-left:1.1rem">${verdicts}</ul></div></div>` : ""}
-  `;
+    ? "#b91c1c" : data.status === "REVIEW" ? "var(--success)" : "var(--text)";
+  const warn = (msg) => kv("Note", `<span style="font-weight:600;color:#a16207">${msg}</span>`, "#fcd34d");
+  return [
+    data.blocked && (data.status === "BUILDING" || /S2|Playwright/i.test(data.blocked_reason || ""))
+      ? warn("Author is a STUB — Executor / COMPLETE blocked until Playwright S2.") : "",
+    kv("Author session",
+      `<span style="color:${tone};font-weight:600">${escapeHtml(data.status || "—")}${data.session_id ? ` · ${escapeHtml(data.session_id)}` : ""}</span>`,
+      data.blocked ? "#fca5a5" : null),
+    data.blocked_reason ? kv("Blocked", `<span class="validation-fail">${escapeHtml(data.blocked_reason)}</span>`, "#fca5a5") : "",
+    data.summary ? kv("Summary", escapeHtml(data.summary)) : "",
+    data.status === "PLAN_READY" && data.outlines?.length
+      ? warn("Approve outlines (Writer tab or below).") + renderTestOutlines(data.outlines) : "",
+  ].join("");
 }
 
 function renderReviewerOutput(data) {
@@ -2847,22 +2941,6 @@ function submitPrerequisites() {
     return false;
   }
 
-  // HOLD / uncleared-ticket actions cannot be dismissed by checkbox — ticket stays blocked.
-  const holdBlocks = blockingOrchestratorActions.filter((a) =>
-    a.blocking && (/^HOLD$/i.test(String(a.action || "")) || /did not clear the ticket/i.test(String(a.detail || "")))
-  );
-  if (holdBlocks.length || (pipelineState === "NEEDS_INPUT" && storyOutputs?.analyst?.ready_for_test_design === false)) {
-    const status = el("prerequisites-status");
-    if (status) {
-      status.className = "jira-status err";
-      status.textContent = "Blocked — Analyst did not clear the ticket. Fix requirements / blocking gaps, then re-run Agent 1.";
-    }
-    if (el("event-message")) {
-      el("event-message").textContent = "INVALID_REQUIREMENTS — HOLD cannot unlock Writer. Re-run Analyst after clearing the ticket.";
-    }
-    return false;
-  }
-
   // Reviewer recheck: blame human answers against Analyst asks before unlocking Writer.
   const check = cachedPrerequisiteCheck || getPrerequisiteCheck(currentStory);
   const humanReview = reviewHumanInputAgainstAnalyst(storyOutputs?.analyst, {
@@ -3225,28 +3303,19 @@ function updatePrerequisitesPanel(story, options = {}) {
   const satisfiedEl = el("prerequisites-satisfied");
   const submitBtn = el("btn-submit-prerequisites");
 
-  const holdUncleared = actions.some((a) =>
-    /^HOLD$/i.test(String(a.action || "")) || /did not clear the ticket/i.test(String(a.detail || ""))
-  ) || /did not clear/i.test(String(check.summary || ""));
-
   if (desc) {
     desc.textContent = waitingAtStep
       ? (state === "NEEDS_INPUT"
-        ? (check.summary
-          || (holdUncleared
-            ? "INVALID_REQUIREMENTS — Analyst did not clear the ticket. Fix requirements / gaps, then re-run Agent 1."
-            : "INVALID_REQUIREMENTS — zero testable ACs. Re-paste requirements with Business Rules / Alt / Exception flows and re-run Agent 1."))
+        ? (check.summary || "INVALID_REQUIREMENTS — zero testable ACs. Re-paste requirements with Business Rules / Alt / Exception flows and re-run Agent 1.")
         : state === "WAITING_ON_HUMAN"
-          ? (check.summary || "Analyst set WAITING_ON_HUMAN — resolve blocking orchestrator actions, then continue to Agent 2.")
+          ? (check.summary || "Analyst needs clarification — type answers for blocking asks, then continue to Agent 2.")
           : (check.summary || "Story analysis complete."))
       : (check.summary || "");
   }
 
   if (submitBtn) {
     submitBtn.innerHTML = state === "NEEDS_INPUT"
-      ? (holdUncleared
-        ? `<i class="ti ti-ban"></i> Blocked — Analyst did not clear ticket`
-        : `<i class="ti ti-ban"></i> Blocked — need testable ACs`)
+      ? `<i class="ti ti-ban"></i> Blocked — need testable ACs`
       : state === "WAITING_ON_HUMAN"
         ? `<i class="ti ti-player-play"></i> Resolved — continue pipeline`
         : `<i class="ti ti-check"></i> Confirm prerequisites`;
@@ -3305,7 +3374,11 @@ function updatePrerequisitesPanel(story, options = {}) {
             <strong>${escapeHtml(a.target || "—")}</strong> — ${escapeHtml(a.detail || "")}
           </span>
         </label>
-        <input class="input orch-action-input" data-idx="${i}" placeholder="Provide value (URL, credentials, ticket ID…) — optional if handled externally" value="${escapeHtml(a.provided_value || "")}" style="margin-top:.4rem" />
+        <input class="input orch-action-input" data-idx="${i}" placeholder="${escapeHtml(
+          a.requires_value || /clarif/i.test(String(a.detail || "")) || a.action === "ASK_HUMAN"
+            ? "Type clarification or value (required — checkbox alone is not enough)"
+            : "Provide value (URL, credentials, ticket ID…) — optional if handled externally"
+        )}" value="${escapeHtml(a.provided_value || "")}" style="margin-top:.4rem" />
       </div>`).join("")
       : "";
 

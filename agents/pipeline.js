@@ -15,8 +15,6 @@ import { ensureAnalystReportActions, resolveAnalystOrchestratorGate } from "./or
 export function buildAgentOutputs(story) {
   const s = story.id;
   const tcIds = story.test_cases;
-  const test_cases = buildWriterTestCases(story);
-
   const analystOutput = (() => {
     const full = buildAnalystOutputPayload(story);
     const prereqLegacy = buildAnalystPrerequisitePayload(story);
@@ -51,60 +49,53 @@ export function buildAgentOutputs(story) {
   const api = farmCtx.humanApiInput.ok ? farmCtx.humanApiInput : null;
   const web = farmCtx.humanWebpageInput.ok ? farmCtx.humanWebpageInput : null;
   const writerOutput = buildWriterOutput(story, analystOutput);
-  const writerCases = writerOutput.test_cases?.length ? writerOutput.test_cases : test_cases;
+  const writerCases = writerOutput.test_cases?.length
+    ? writerOutput.test_cases
+    : buildWriterTestCases(story, analystOutput);
   const dataOut = buildTestDataExtractorOutput(story, api, writerCases, analystOutput, web);
   const authorOut = buildAuthorOutput(story, writerOutput, analystOutput, web);
   const executorOut = buildTestExecutorOutput(story, api, web, farmCtx.executionResult, authorOut);
   const reviewerOut = buildReviewerOutput(story, tcIds, executorOut);
   const reporterOut = buildReporterOutput(story, writerCases, executorOut, reviewerOut);
 
+  const live = !!story.live_analyst_output;
+  const stamp = (o, runner = "stub") => ({ ...o, runner: o.runner || runner });
   return {
     orchestrator: {
-      role: "orchestrator",
-      model: MODEL_ORCHESTRATOR,
+      role: "orchestrator", model: MODEL_ORCHESTRATOR, runner: "stub",
       ticket: `${s} — ${story.title}`,
       source: story.from_jira ? "JIRA live" : story.from_requirements ? "Requirements (pasted)" : "mock",
       stage: "1 — Orchestrator leads the pipeline",
-      orchestration_mode: story.live_analyst_output ? "agent1_cursor_agent" : "simulated_pipeline",
-      orchestration_note: story.live_analyst_output
-        ? "Agent 1 (Requirement Analyst) runs via the Cursor Agent CLI on Sonnet 5 (high effort). Downstream agents remain simulated until replaced."
-        : "Agent/validator loop is a deterministic simulator except where live Agent 1 output is attached.",
+      orchestration_mode: live ? "agent1_cursor_agent" : "simulated_pipeline",
+      orchestration_note: live
+        ? "Agent 1 live via Cursor CLI; downstream stubs — Author blocks COMPLETE until S2."
+        : "Simulated pipeline; Author stub blocks COMPLETE/Executor.",
       model_routing: {
-        orchestrator: MODEL_ORCHESTRATOR,
-        workers: MODEL_WORKER,
-        analyst: story.live_analyst_output ? "claude-sonnet-5 (high)" : MODEL_WORKER,
-        by_role: { ...AGENT_MODEL_ROUTING, analyst: story.live_analyst_output ? "claude-sonnet-5 (high)" : MODEL_WORKER },
+        orchestrator: MODEL_ORCHESTRATOR, workers: MODEL_WORKER,
+        analyst: live ? "claude-sonnet-5 (high)" : MODEL_WORKER,
+        by_role: { ...AGENT_MODEL_ROUTING, analyst: live ? "claude-sonnet-5 (high)" : MODEL_WORKER },
       },
       pipeline_plan: [
-        "① Orchestrator assigns ticket → Agent 1 Requirement Analyst (Cursor Agent · Sonnet 5 high)",
-        "② Agent 1 extracts conditions + prerequisites + orchestrator_actions",
-        "③ If zero testable ACs → NEEDS_INPUT / fail (never Complete)",
-        "④ Each agent runs only after upstream output is Validator-approved",
-        "⑤ Writer → Human input if needed → Data → Author → Executor → Reviewer → Reporter",
+        "① Analyst → ② human gate → ③ Writer outlines (approve) → ④ Data → ⑤ Author(S2) → Executor → Reviewer → Reporter",
       ],
       agents_in_pipeline: AGENT_ROLES.map((r) => ({ role: r, model: getModelForAgent(r) })),
       acceptance_criteria_count: story.acceptance_criteria,
-      priority: story.priority,
-      jira_status: story.status,
+      priority: story.priority, jira_status: story.status,
     },
-    analyst: analystOutput,
-    writer: writerOutput,
-    test_data_extractor: dataOut,
-    author: authorOut,
-    test_executor: executorOut,
-    reviewer: reviewerOut,
-    reporter: reporterOut,
+    analyst: stamp(analystOutput, live ? "cursor_agent_cli" : "stub"),
+    writer: stamp(writerOutput),
+    test_data_extractor: stamp(dataOut),
+    author: stamp(authorOut),
+    test_executor: stamp(executorOut),
+    reviewer: stamp(reviewerOut),
+    reporter: stamp(reporterOut),
     validator: {
-      role: "Output Validator",
-      model: MODEL_WORKER,
-      level: "L2",
+      role: "Output Validator", model: MODEL_WORKER, runner: "stub", level: "L2",
       mode: "simulated_guideline_checks",
       purpose: "Check worker outputs against role guidelines — never infinite retry",
       own_guidelines: VALIDATOR_GUIDELINES.rules,
       max_attempts_per_agent: VALIDATOR_MAX_ATTEMPTS,
-      guidelines_enforced: Object.fromEntries(
-        AGENT_ROLES.map((r) => [r, AGENT_GUIDELINES[r].rules]),
-      ),
+      guidelines_enforced: Object.fromEntries(AGENT_ROLES.map((r) => [r, AGENT_GUIDELINES[r].rules])),
       validations: [],
     },
   };

@@ -116,7 +116,8 @@ export function reviewHumanInputAgainstAnalyst(analystOutput, humanBundle = {}) 
     const shape = inferExpectedShape(detail);
     const value = (a.provided_value || "").trim();
     // Checkbox-only without a value is not enough when Analyst asked to provide something.
-    const needsValue = /\b(provide|supply|seed|url|credential|password|token|curl|confirm)\b/i.test(detail)
+    const needsValue = a.requires_value === true
+      || /\b(provide|supply|seed|url|credential|password|token|curl|confirm|clarif)\b/i.test(detail)
       || a.action === "ASK_HUMAN"
       || a.action === "FETCH_DEPENDENCY";
     if (needsValue) {

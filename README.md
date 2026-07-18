@@ -7,18 +7,18 @@ Inspired by mabl-style **Plan → Approve → Author (Plan→Act→Reflect)** �
 ## Target pipeline
 
 ```text
-Analyst → (human gate) → Writer(Outline) → (approve) → Author → Executor → Reviewer → Reporter
-                              │
-                              └─ Data Extractor only if datasets needed for Author
+Analyst → (human gate) → Writer(outlines) → (approve) → Data Extractor → Author → Executor → Reviewer → Reporter
+                                                              │
+                                                              └─ always runs; source = human curl/URL or story context
 ```
 
 | Agent | Role |
 |-------|------|
 | **Orchestrator** | Only entry point; assigns workers, pauses on gates, aborts on validator failure |
 | **Analyst** | Extracts testable conditions, coverage gaps, blocking prerequisites |
-| **Writer** | Produces an **approved test outline** (primary) — not offline GWT alone |
-| **Data Extractor** | Builds datasets / oracles when Author needs them |
-| **Author** | Builds executable steps against a live URL with Plan→Act→Reflect (scaffold today) |
+| **Writer** | Emits `test_outlines` (primary) + GWT docs; human Approve/Reject before Author |
+| **Data Extractor** | Always runs; builds datasets / oracles from human input or story context |
+| **Author** | Builds executable steps from **approved** outlines (Playwright stub — cannot COMPLETE yet) |
 | **Executor** | Transport / evidence observation (honest HTTP / pending browser) |
 | **Reviewer** | Coverage + evidence review; also **rechecks human input vs Analyst asks** |
 | **Reporter** | SEHA-style summary from real artifacts |
@@ -110,7 +110,7 @@ replay prefix steps before advancing (stability check)
 
 Author is **scaffolded** (`agents/author.js`, `.cursor/skills/qa-author/`) — refuses empty ACs / unapproved outlines; Playwright MVP is Sprint S2.
 
-## Writer outline contract (S1 target)
+## Writer outline contract (S1)
 
 Primary Writer artifact:
 
@@ -145,7 +145,8 @@ Rules:
 | **S0+** | Reviewer human-input recheck vs Analyst (blame + accept/reject) | Done |
 | **S0+** | `qa-author` scaffold in pipeline | Done (stub) |
 | **S0+** | Upstream validated-output dependency gate | Done |
-| **S1** | Writer emits `test_outlines` + approval UI | Next |
+| **S1** | Writer emits `test_outlines` + approval UI | Done |
+| **S1+** | Stub/LIVE runner badges + honest Author COMPLETE block messaging | Done |
 | **S2** | Author MVP (Playwright) for 1 happy-path outline | Planned |
 | **S3** | Persist run state + rehydrate simulator | Planned |
 | **S4** | Failure classification + recovery proposals | Planned |

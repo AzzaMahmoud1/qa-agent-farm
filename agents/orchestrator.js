@@ -6,7 +6,7 @@ export const SKILL_FOLDER = ".cursor/skills/qa-orchestrator";
 import { farmCtx } from "./ctx-bridge.js";
 import { AGENT_META, AGENT_ROLES, AGENT_GUIDELINES, VALIDATOR_MAX_ATTEMPTS, ORCHESTRATOR_INACTIVITY_TIMEOUT_MS, VALIDATOR_GUIDELINES } from "./registry.js";
 import { buildAnalystOutputPayload, buildAnalystPrerequisitePayload } from "./analyst.js";
-import { inferTcType, buildWriterTestCases } from "./writer.js";
+import { inferTcType, buildWriterTestCases, buildWriterOutput } from "./writer.js";
 import { buildAuthorOutput } from "./author.js";
 import { inferHumanInputNeeds } from "../lib/human-input.js";
 import { getLiveRequirements } from "../lib/requirements.js";
@@ -47,79 +47,49 @@ export function hasTestableConditions(parsed) {
  *   message: string | null,
  * }}
  */
-function isHoldAction(a) {
-  if (!a) return false;
-  return /^HOLD$/i.test(String(a.action || ""))
-    || /did not clear the ticket/i.test(String(a.detail || ""));
+const isHold = (a) => a && (/^HOLD$/i.test(a.action || "") || /did not clear the ticket/i.test(a.detail || ""));
+
+/** Convert uncleared / HOLD into a clarification ask the human can answer. */
+export function clarificationAskForUnclearedTicket(extra) {
+  return {
+    action: "ASK_HUMAN", target: "human", blocking: true, requires_value: true,
+    detail: `Provide clarification so Analyst can clear the ticket — missing rules, intent, or confirm assumptions${extra ? `. ${extra}` : ""}`,
+  };
 }
+
+const toAsk = (a) => (isHold(a)
+  ? clarificationAskForUnclearedTicket(a.detail && !/did not clear/i.test(a.detail) ? a.detail : null)
+  : { ...a, blocking: true, requires_value: a.requires_value !== false });
+
+const gate = (state, blocking_actions, message, writer_input = null) => ({
+  state, blocking_actions, proceed: state === PIPELINE_STATE.READY_FOR_WRITER, writer_input, message,
+});
 
 export function resolveAnalystOrchestratorGate(parsed) {
   const actions = parsed?.analyst_report?.orchestrator_actions || [];
-  const blocking = actions.filter((a) => a && a.blocking === true);
+  const blocking = actions.filter((a) => a?.blocking === true);
 
-  // Hard gate: zero validated ACs → never proceed to Writer/Author.
   if (!hasTestableConditions(parsed)) {
-    const acAsk = blocking.length
-      ? blocking
-      : [{
-        action: "ASK_HUMAN",
-        target: "human",
-        detail: "Provide testable acceptance criteria or clarified test intent — zero validated ACs; Writer/Author blocked",
-        blocking: true,
-      }];
-    return {
-      state: PIPELINE_STATE.NEEDS_INPUT,
-      blocking_actions: acAsk,
-      proceed: false,
-      writer_input: null,
-      message: "INVALID_REQUIREMENTS — zero testable conditions",
-    };
+    return gate(PIPELINE_STATE.NEEDS_INPUT,
+      blocking.length ? blocking.map(toAsk) : [clarificationAskForUnclearedTicket("zero validated ACs; Writer/Author blocked")],
+      "INVALID_REQUIREMENTS — zero testable conditions");
   }
 
-  // Human-resolvable asks (URL, credentials, etc.) — soft wait with continue after input.
-  // HOLD / "did not clear" is NOT included here (hard block below).
-  const blockingAsks = blocking.filter((a) => !isHoldAction(a));
-  if (blockingAsks.length) {
-    return {
-      state: PIPELINE_STATE.WAITING_ON_HUMAN,
-      blocking_actions: blockingAsks,
-      proceed: false,
-      writer_input: null,
-      message: null,
-    };
+  if (blocking.length) {
+    return gate(PIPELINE_STATE.WAITING_ON_HUMAN, blocking.map(toAsk),
+      blocking.some(isHold) ? "WAITING_ON_HUMAN — Analyst did not clear the ticket; provide clarification" : null);
   }
 
-  const hasProceed = actions.some((a) => a && a.action === "PROCEED");
-  if (parsed?.ready_for_test_design === true && hasProceed) {
-    return {
-      state: PIPELINE_STATE.READY_FOR_WRITER,
-      blocking_actions: [],
-      proceed: true,
-      writer_input: {
-        testable_conditions: parsed.testable_conditions || [],
-        prerequisites_needed: parsed.prerequisites_needed || { blocking: [], non_blocking: [] },
-      },
-      message: null,
-    };
+  if (parsed?.ready_for_test_design === true && actions.some((a) => a?.action === "PROCEED")) {
+    return gate(PIPELINE_STATE.READY_FOR_WRITER, [], null, {
+      testable_conditions: parsed.testable_conditions || [],
+      prerequisites_needed: parsed.prerequisites_needed || { blocking: [], non_blocking: [] },
+    });
   }
 
-  // Uncleared ticket (HOLD / ready_for_test_design false / no PROCEED) — hard block.
-  // Checkbox "continue" must not unlock Writer (same class as zero-AC).
-  const holdActions = actions.filter(isHoldAction).length
-    ? actions.filter(isHoldAction).map((a) => ({ ...a, blocking: true }))
-    : [{
-      action: "HOLD",
-      target: "human",
-      detail: "Analyst did not clear the ticket",
-      blocking: true,
-    }];
-  return {
-    state: PIPELINE_STATE.NEEDS_INPUT,
-    blocking_actions: holdActions,
-    proceed: false,
-    writer_input: null,
-    message: "INVALID_REQUIREMENTS — Analyst did not clear the ticket (ready_for_test_design is false or no PROCEED)",
-  };
+  return gate(PIPELINE_STATE.WAITING_ON_HUMAN,
+    [clarificationAskForUnclearedTicket("Analyst did not clear the ticket (ready_for_test_design is false or no PROCEED)")],
+    "WAITING_ON_HUMAN — Analyst did not clear the ticket; provide clarification");
 }
 
 /**
@@ -156,12 +126,7 @@ export function ensureAnalystReportActions(parsed) {
       blocking: false,
     }];
   } else {
-    orchestrator_actions = [{
-      action: "HOLD",
-      target: "human",
-      detail: "Analyst did not clear the ticket",
-      blocking: true,
-    }];
+    orchestrator_actions = [clarificationAskForUnclearedTicket("ready_for_test_design is false")];
   }
 
   parsed.analyst_report = {
@@ -490,9 +455,8 @@ export function buildPrerequisiteInputEvents(story, analystParsed) {
   const gate = resolveAnalystOrchestratorGate(parsed);
   const check = buildAnalystPrerequisitePayload(story);
 
-  // Hard block (zero ACs or uncleared HOLD) — do NOT emit a "received → proceed" event.
+  // Zero ACs: hard block — do NOT emit a "received → proceed" event.
   if (gate.state === PIPELINE_STATE.NEEDS_INPUT || !hasTestableConditions(parsed)) {
-    const zeroAc = !hasTestableConditions(parsed);
     return [
       {
         kind: "prerequisite_input_request",
@@ -504,10 +468,7 @@ export function buildPrerequisiteInputEvents(story, analystParsed) {
           items: check.needed ? (check.items || []) : [],
           already_satisfied: check.already_satisfied || [],
           not_applicable: check.not_applicable || [],
-          summary: gate.message
-            || (zeroAc
-              ? "INVALID_REQUIREMENTS — zero testable conditions"
-              : "INVALID_REQUIREMENTS — Analyst did not clear the ticket"),
+          summary: gate.message || "INVALID_REQUIREMENTS — zero testable conditions",
           blocking: parsed.prerequisites_needed?.blocking || [],
           non_blocking: parsed.prerequisites_needed?.non_blocking || [],
           reasoning: check.reasoning || "",
@@ -515,31 +476,21 @@ export function buildPrerequisiteInputEvents(story, analystParsed) {
           story_analysis: check.story_analysis,
         },
         message: gate.message
-          || (zeroAc
-            ? "INVALID_REQUIREMENTS — zero validated testable conditions. Provide acceptance criteria before Writer/Author."
-            : "INVALID_REQUIREMENTS — Analyst did not clear the ticket. Re-run Agent 1 after fixing requirements."),
+          || "INVALID_REQUIREMENTS — zero validated testable conditions. Provide acceptance criteria before Writer/Author.",
         role: null,
         orchestrator_memory: mem(story, {
           phase: "gap_analysis",
           pipeline_state: PIPELINE_STATE.NEEDS_INPUT,
           blocking_actions: String(gate.blocking_actions.length),
-          awaiting: zeroAc ? "testable_acceptance_criteria" : "analyst_clear_ticket",
+          awaiting: "testable_acceptance_criteria",
         }),
         agent_context: {
           pipeline_state: PIPELINE_STATE.NEEDS_INPUT,
           orchestrator_actions: gate.blocking_actions,
-          source: zeroAc
-            ? "Requirement Analyst — zero testable_conditions"
-            : "Requirement Analyst — ticket not cleared (HOLD)",
+          source: "Requirement Analyst — zero testable_conditions",
         },
-        agent_returns: {
-          success: false,
-          reason: zeroAc ? "invalid_requirements" : "ticket_not_cleared",
-          testable_conditions: (parsed.testable_conditions || []).length,
-        },
-        decision: zeroAc
-          ? "NEEDS_INPUT — Writer/Author blocked until testable ACs exist"
-          : "NEEDS_INPUT — Writer/Author blocked until Analyst clears the ticket",
+        agent_returns: { success: false, reason: "invalid_requirements", testable_conditions: 0 },
+        decision: "NEEDS_INPUT — Writer/Author blocked until testable ACs exist",
       },
     ];
   }
@@ -1068,7 +1019,9 @@ export function buildDownstreamPhases(story, analystParsed) {
 
   const requiresApi = farmCtx.storyRequiresApi(story);
   const requiresWeb = farmCtx.storyRequiresWebpage(story);
-  const writerCases = buildWriterTestCases(story);
+  const writerReturns = buildWriterOutput(story, analystWithActions);
+  const writerCases = writerReturns.test_cases || [];
+  const outlineCount = (writerReturns.test_outlines || []).length;
   const prelimWriter = writerCases.length
     ? writerCases
     : story.test_cases.map((id, i) => {
@@ -1084,11 +1037,6 @@ export function buildDownstreamPhases(story, analystParsed) {
   const humanNeed = inferHumanInputNeeds(story, analystWithActions, prelimWriter);
   const needsHumanInput = humanNeed.needsHumanInput;
 
-  const writerReturns = {
-    success: true,
-    test_cases: writerCases,
-    test_cases_summary: tc + " · " + story.test_cases.join(", "),
-  };
   const writerGate = validationGateEvents("writer", "test_case_writing", story, writerReturns, {
     gateDecision: needsHumanInput
       ? `request human input (${humanNeed.types.join(" + ")}) before data extraction`
@@ -1098,7 +1046,7 @@ export function buildDownstreamPhases(story, analystParsed) {
   const events = [
     { kind: "phase_start", phase: "test_case_writing", message: "Enter phase: test_case_writing", role: null, orchestrator_memory: mem(story, { phase: "test_case_writing", gaps: gapSummary }), agent_context: {}, agent_returns: {}, decision: null },
     { kind: "agent_assign", phase: "test_case_writing", message: "Orchestrator assigns task to writer", role: "writer", orchestrator_memory: mem(story, { phase: "test_case_writing", gaps: gapSummary }), agent_context: { ticket: s, gap_analysis: "ready", acceptance_criteria: acList.join(" | ") || String(story.acceptance_criteria) }, agent_returns: {}, decision: null },
-    { kind: "agent_return", phase: "test_case_writing", message: "Wrote " + tc + " test case(s) for " + s + ".", role: "writer", orchestrator_memory: mem(story, { phase: "test_case_writing", gaps: gapSummary, test_cases: String(tc) }), agent_context: {}, agent_returns: writerReturns, decision: null, structured_output: "__writer__" },
+    { kind: "agent_return", phase: "test_case_writing", message: `Wrote ${outlineCount} outline(s) (+ ${writerCases.length} GWT docs) for ${s}.`, role: "writer", orchestrator_memory: mem(story, { phase: "test_case_writing", gaps: gapSummary, outlines: String(outlineCount) }), agent_context: {}, agent_returns: writerReturns, decision: null, structured_output: "__writer__" },
     ...writerGate,
   ];
 
@@ -1112,12 +1060,13 @@ export function buildDownstreamPhases(story, analystParsed) {
 
   const dataExtractorReturns = {
     success: true,
-    datasets: [{ id: "DS-1", rows: tc }],
-    datasets_summary: tc + " row(s)",
-    fixtures: tc + " fixture file(s)",
+    runner: "stub",
+    datasets: [{ id: "DS-1", rows: Math.max(tc, outlineCount) }],
+    datasets_summary: Math.max(tc, outlineCount) + " row(s)",
+    fixtures: Math.max(tc, outlineCount) + " fixture file(s)",
     env_vars: 3,
     source: "story context",
-    rows_extracted: tc,
+    rows_extracted: Math.max(tc, outlineCount),
   };
   const dataGate = validationGateEvents("test_data_extractor", "test_data_extraction", story, dataExtractorReturns, {
     gateDecision: "proceed to test_authoring",
@@ -1133,7 +1082,7 @@ export function buildDownstreamPhases(story, analystParsed) {
   const webpage = farmCtx.humanWebpageInput?.ok ? farmCtx.humanWebpageInput : null;
   const authorReturns = buildAuthorOutput(
     story,
-    { test_cases: writerCases },
+    writerReturns,
     analystWithActions,
     webpage,
   );
@@ -1244,7 +1193,10 @@ export function buildEventsAfterHumanApiInput(story, analystParsed, writerOutput
   );
   const s = story.id;
   const tc = story.test_cases.length;
-  const writerCases = writerOutput?.test_cases || buildWriterTestCases(story);
+  const writerFull = writerOutput?.test_outlines
+    ? writerOutput
+    : buildWriterOutput(story, parsed);
+  const writerCases = writerFull.test_cases || buildWriterTestCases(story, parsed);
   const humanNeed = inferHumanInputNeeds(story, parsed, writerCases);
   const received = {
     kind: "human_input_received",
@@ -1263,6 +1215,7 @@ export function buildEventsAfterHumanApiInput(story, analystParsed, writerOutput
   const prevWeb = farmCtx.humanWebpageInput;
   const dataExtractorReturns = {
     success: true,
+    runner: "stub",
     datasets: [{ id: "DS-1", rows: tc }],
     fixtures: tc + " fixture file(s)",
     env_vars: `from human ${humanNeed.types.join(" + ")}`,
@@ -1273,7 +1226,7 @@ export function buildEventsAfterHumanApiInput(story, analystParsed, writerOutput
     gateDecision: "proceed to test_authoring",
   });
   const webpage = farmCtx.humanWebpageInput?.ok ? farmCtx.humanWebpageInput : null;
-  const authorReturns = buildAuthorOutput(story, { test_cases: writerCases }, parsed, webpage);
+  const authorReturns = buildAuthorOutput(story, writerFull, parsed, webpage);
 
   const events = [
     received,

@@ -89,15 +89,16 @@ function validParsed(overrides = {}) {
     ready_for_test_design: false,
     analyst_report: { what_i_did: [], why: [], orchestrator_actions: [] },
   }));
-  // Uncleared ticket is a hard block (NEEDS_INPUT), not a checkbox-continue wait.
-  assert.equal(unclear.state, PIPELINE_STATE.NEEDS_INPUT);
+  // Uncleared ticket asks human for clarification (not a dead-end hard block).
+  assert.equal(unclear.state, PIPELINE_STATE.WAITING_ON_HUMAN);
   assert.equal(unclear.proceed, false);
-  assert.match(unclear.message || unclear.blocking_actions[0].detail, /did not clear/i);
+  assert.equal(unclear.blocking_actions[0].action, "ASK_HUMAN");
+  assert.match(unclear.blocking_actions[0].detail, /clarif/i);
 }
 
 {
-  // Derived HOLD (blocking:true) must hard-block — not WAITING_ON_HUMAN checkbox-continue.
-  const holdHard = resolveAnalystOrchestratorGate(validParsed({
+  // Legacy HOLD is rewritten to ASK_HUMAN clarification.
+  const holdAsk = resolveAnalystOrchestratorGate(validParsed({
     ready_for_test_design: false,
     analyst_report: {
       what_i_did: [],
@@ -107,8 +108,20 @@ function validParsed(overrides = {}) {
       ],
     },
   }));
-  assert.equal(holdHard.state, PIPELINE_STATE.NEEDS_INPUT);
-  assert.equal(holdHard.proceed, false);
+  assert.equal(holdAsk.state, PIPELINE_STATE.WAITING_ON_HUMAN);
+  assert.equal(holdAsk.blocking_actions[0].action, "ASK_HUMAN");
+  assert.equal(holdAsk.blocking_actions[0].requires_value, true);
+}
+
+{
+  const derivedUncleared = ensureAnalystReportActions({
+    success: true,
+    ready_for_test_design: false,
+    testable_conditions: [{ id: "AC-1", text: "x", source: "ac" }],
+    prerequisites_needed: { blocking: [], non_blocking: [] },
+  });
+  assert.equal(derivedUncleared.analyst_report.orchestrator_actions[0].action, "ASK_HUMAN");
+  assert.match(derivedUncleared.analyst_report.orchestrator_actions[0].detail, /clarif/i);
 }
 
 {
