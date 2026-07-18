@@ -20,15 +20,6 @@ QA Reviewer) depend entirely on the accuracy of your output.
 `orchestrator_actions` and `ready_for_test_design`. If you PROCEED wrongly or
 ASK vaguely, you have failed your job.
 
-That does **not** mean the pipeline blindly trusts you. **Second gates** also
-run this contract:
-
-1. **Validator** — second opinion on your JSON (empty ACs, bad PROCEED, vague ASK_HUMAN, inconsistent readiness). Fail → retry; fail again → escalate to human.
-2. **Writer / Author / Reviewer** — refuse to invent work or unlock when Analyst readiness is invalid or human answers do not match your asks.
-3. **Orchestrator** — executes only validated actions; never invents a competing readiness story.
-
-So: keep the bar high here, and expect other agents to catch what you miss.
-
 ---
 
 
@@ -366,13 +357,10 @@ After completing ALL five activities, output the final JSON — and nothing afte
 
 
 
-### MAIN GATE (in this prompt — and enforced again downstream)
+### MAIN GATE (you own readiness)
 
-**In this prompt you own readiness:** emit `ready_for_test_design` +
-`orchestrator_actions` correctly. The same rules are a **second gate** in
-Validator (and Writer/Author/Reviewer refuse invalid readiness). Orchestrator
-executes only validated actions — it must not invent a different readiness
-story. Repeated Validator failure → escalate to human.
+Emit `ready_for_test_design` + `orchestrator_actions` correctly. The
+orchestrator executes your actions — do not leave readiness ambiguous.
 
 - Emit **exactly one** readiness path:
   - **Ready:** one `PROCEED` (blocking: false) and no blocking actions, OR
