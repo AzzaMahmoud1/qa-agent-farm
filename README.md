@@ -12,10 +12,32 @@ Analyst → (human gate) → Writer(outlines) → (approve) → Data Extractor �
                                                               └─ always runs; source = human curl/URL or story context
 ```
 
+```mermaid
+flowchart TD
+  start[Ticket or paste] --> orch[Orchestrator]
+  orch --> analyst[Analyst LIVE via prompt]
+  analyst --> valA[Validator MAIN GATE]
+  valA -->|fail| retryA[Retry Analyst or abort]
+  valA -->|pass| actions{Analyst orchestrator_actions}
+  actions -->|blocking ASK_HUMAN| human[Human typed answers]
+  human --> recheck[Reviewer recheck vs asks]
+  recheck -->|rejected| human
+  recheck -->|accepted| writer
+  actions -->|PROCEED| writer[Writer outlines]
+  writer --> approve[Human Approve outlines]
+  approve --> data[Data Extractor]
+  data --> author[Author Plan Act Reflect]
+  author -->|status REVIEW| exec[Executor]
+  author -->|stub PLAN_READY or BUILDING| hold[Pipeline hold no COMPLETE]
+  exec --> rev[Reviewer coverage]
+  rev --> rep[Reporter]
+  rep --> done[COMPLETE]
+```
+
 | Agent | Role |
 |-------|------|
-| **Orchestrator** | Only entry point; assigns workers, pauses on gates, aborts on validator failure |
-| **Analyst** | Extracts testable conditions, coverage gaps, blocking prerequisites |
+| **Orchestrator** | Only entry point; assigns workers; **executes Analyst actions** (does not invent readiness) |
+| **Analyst** | **Readiness main gate** — ACs, gaps, prereqs, `orchestrator_actions` via prompt |
 | **Writer** | Emits `test_outlines` (primary) + GWT docs; human Approve/Reject before Author |
 | **Data Extractor** | Always runs; builds datasets / oracles from human input or story context |
 | **Author** | Builds executable steps from **approved** outlines (Playwright stub — cannot COMPLETE yet) |
@@ -26,6 +48,20 @@ Analyst → (human gate) → Writer(outlines) → (approve) → Data Extractor �
 `Writer` stops treating offline Given/When/Then as the primary unblock for Author. Outlines + human approval do. Legacy GWT may remain as documentation only.
 
 Trigger a run with `qa:`, `test:`, `ticket:`, or “write tests for” / “review this ticket”. Worker subagents run **only** when the orchestrator dispatches them.
+
+## `.cursor/` folder (keep it)
+
+Cursor IDE dispatch config — **not** the simulator runtime. Code changes live under `agents/`, `src/prompts/`, `js/`. `.cursor/` rarely changes when you edit the Analyst prompt (the skill only *points* at the prompt file).
+
+| Path | Purpose |
+|------|---------|
+| `.cursor/agents/*.md` | Subagent entrypoints Cursor can dispatch (`qa-orchestrator`, `qa-analyst`, …) |
+| `.cursor/skills/qa-*/SKILL.md` | Per-role rules for those subagents |
+| `.cursorrules` | Triggers (`qa:` / `test:` / `ticket:`) + “orchestrator-only dispatch” |
+
+**Do not remove.** Without it, Cursor chat cannot run the farm as subagents. Simulator-only users still need it if they use `qa:` in Cursor.
+
+Analyst rules stay in **one place:** `src/prompts/agent1_requirement_analyst_v3.md` — `.cursor/skills/qa-analyst` is a pointer only.
 
 ## Hard gates (P0)
 

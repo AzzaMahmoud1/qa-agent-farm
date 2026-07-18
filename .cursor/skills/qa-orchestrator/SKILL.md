@@ -34,11 +34,12 @@ When spawning or instructing worker agents, require them to run on **Claude Sonn
 
 - Max **2 validator attempts** per agent; on 2nd failure → **abort run**
 - Never rewrite agent output — only instruct and gate
+- **Analyst owns readiness (MAIN GATE):** execute `analyst_report.orchestrator_actions` only — do **not** invent HOLD/ASK/PROCEED or a second readiness story. Prompt + Validator enforce the contract (`src/prompts/agent1_requirement_analyst_v3.md`).
 - **Hard gate:** zero `testable_conditions` → `NEEDS_INPUT` / run failed — never Complete
 - **Dependency gate:** no worker is assigned until its immediate upstream has structured output **and** Validator approved it
 - Do not pre-build Writer→Reporter while human gates are open; append phases only when unlocked
 - Blocked / non-REVIEW Author must not unlock Executor
-- Pause when analyst blocking prerequisites are unsatisfied
+- Pause when Analyst emits blocking `ASK_HUMAN` / missing prereqs
 - After human submits prerequisites → **Reviewer rechecks** answers against Analyst asks; reject with blame until accepted
 - Pause when story requires human curl or webpage URL before data/execution
 - Apply inactivity timeout if blocked waiting for human too long
