@@ -2798,7 +2798,6 @@ async function startRequirementsDemo() {
   }
 }
 
-
 function stopPlay() {
   playing = false;
   el("btn-play").innerHTML = '<i class="ti ti-player-play" id="play-icon"></i> Play';

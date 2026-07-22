@@ -102,6 +102,7 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
     "ambiguous_acs": [
       {
         "ac_id": "AC-N or null",
+        "source_line": "verbatim ticket line when not also in testable_conditions",
         "issue": "why ambiguous",
         "question_for_human": "concrete question — not an invented assumption that patches the gap"
       }
@@ -181,6 +182,10 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
 
 - Never invent ACs. Empty `testable_conditions` ⇒ not ready for test design; ask
   or hold with reason.
+- **No silent drops:** every Business Rules / Alternative / Exception candidate
+  line must appear in `testable_conditions`, `ambiguous_acs` (with `source_line`
+  when not also an AC), `unimplemented_rules`, or `rejected_as_non_ac`. The
+  Validator fails the run if any line is missing from all four.
 - If confidence is `low` on material ambiguity ⇒ ASK_HUMAN or HOLD, never
   PROCEED alone.
 - Security/compliance ideas go in `coverage_gaps` unless the ticket makes them

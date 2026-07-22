@@ -44,13 +44,13 @@ export function buildValidationResult(targetAgent, passed, failureMessages, reco
 }
 
 export function validateAnalystOutputLive(story, analystOutput) {
-  const contract = checkAnalystPromptContract(analystOutput);
+  const contract = checkAnalystPromptContract(analystOutput, story);
 
   if (typeof farmCtx.prerequisites.validateAnalystOutput !== "function") {
     const passed = contract.ok;
     const base = buildValidationResult("analyst", passed, contract.failures, passed
       ? null
-      : "Analyst MAIN GATE contract failed — fix orchestrator_actions / readiness");
+      : "Analyst MAIN GATE / disposition coverage failed — fix readiness or silent drops");
     return { ...base, detail_failures: contract.failures, ac_quality: { failed_rules: ["MAIN GATE"] } };
   }
 
@@ -62,7 +62,7 @@ export function validateAnalystOutputLive(story, analystOutput) {
   const passed = live.passed && contract.ok;
   const base = buildValidationResult("analyst", passed, failures, passed
     ? null
-    : "Exclude ticket metadata from AC mapping; obey Analyst MAIN GATE (prompt readiness contract)");
+    : "Exclude ticket metadata from AC mapping; obey MAIN GATE + disposition coverage (no silent drops)");
   return {
     ...base,
     detail_failures: failures,

@@ -3,6 +3,8 @@
  * Aligns with src/prompts/agent1_requirement_analyst_v3.md
  */
 
+import { checkDispositionCoverage } from "./disposition-coverage.js";
+
 const VAGUE_ASK_RE = /\b(need more info|more information|clarify|unclear|tbd|todo|n\/a|please clarify|not (enough|clear)|requirements?\s+unclear)\b/i;
 
 function missingBlocking(parsed) {
@@ -34,9 +36,10 @@ function isVagueAskDetail(detail) {
 
 /**
  * @param {object} parsed — Analyst JSON
+ * @param {object|null} [story] — when provided, also enforce disposition coverage
  * @returns {{ ok: boolean, failures: string[] }}
  */
-export function checkAnalystPromptContract(parsed) {
+export function checkAnalystPromptContract(parsed, story = null) {
   const failures = [];
   if (!parsed || typeof parsed !== "object") {
     return { ok: false, failures: ["Analyst output must be an object"] };
@@ -103,8 +106,15 @@ export function checkAnalystPromptContract(parsed) {
     }
   }
 
+  if (story) {
+    const disposition = checkDispositionCoverage(story, parsed);
+    for (const f of disposition.failures) failures.push(f);
+  }
+
   return { ok: failures.length === 0, failures };
 }
+
+export { checkDispositionCoverage } from "./disposition-coverage.js";
 
 export function isLiveAnalystOutput(parsed) {
   return parsed?.runner === "cursor_agent_cli" || parsed?.runner === "live";

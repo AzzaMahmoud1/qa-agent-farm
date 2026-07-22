@@ -25,7 +25,7 @@ Check worker output against **that agent's skill rules only**. Never rewrite age
 
 | Agent | Key checks |
 |-------|------------|
-| Analyst | Structured ACs only from allowed sections, prerequisites categorized, `analysis_complete` vs `ready_for_test_design`, **MAIN GATE second opinion** (`agents/analyst-contract.js`): non-empty actions, no PROCEED on empty ACs / design-blocking gaps, access/env do not alone block design PROCEED, reject vague ASK_HUMAN |
+| Analyst | Structured ACs only from allowed sections, prerequisites categorized, `analysis_complete` vs `ready_for_test_design`, **disposition coverage** (no silent drops — every BR/Alt/Exception line in testable \| ambiguous \| unimplemented \| rejected), **MAIN GATE** (`agents/analyst-contract.js` + `disposition-coverage.js`): non-empty actions, no PROCEED on empty ACs / design-blocking gaps, access/env do not alone block design PROCEED, reject vague ASK_HUMAN |
 | Writer | Given/When/Then or outlines, AC coverage from Analyst conditions only, expected_evidence |
 | Data Extractor | Dataset per TC, test_oracle, human curl/web alignment, geo bounds |
 
