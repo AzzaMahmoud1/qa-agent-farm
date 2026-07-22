@@ -327,11 +327,10 @@ a { color: var(--text-accent); }
 
             <div id="panel-requirements-input" class="input-source-panel" hidden>
               <label class="field-label">Requirements description</label>
-              <textarea id="req-description" class="input" rows="14" placeholder="Login with email and password&#10;&#10;As a user I want to sign in so I can access my dashboard.&#10;&#10;Acceptance Criteria:&#10;- Valid email and password logs the user in&#10;- Wrong password shows an error&#10;- Empty fields show validation errors"></textarea>
-              <p style="font-size:.72rem;color:var(--text-muted);margin:.35rem 0 .65rem;line-height:1.45">Paste the full requirement. <strong>Agent 1</strong> analyzes it instantly (local analyst). Enable live Cursor Agent (Sonnet 5) with <code>?agent1=live</code>. Use an <strong>Acceptance Criteria:</strong> section or bullet list for testable conditions.</p>
+              <textarea id="req-description" class="input" rows="14" placeholder="Paste your requirements here (title, Business Rules, Alternative Flow, Exception Flow, …)"></textarea>
+              <p style="font-size:.72rem;color:var(--text-muted);margin:.35rem 0 .65rem;line-height:1.45">Paste the full requirement you want analyzed. <strong>Agent 1</strong> runs locally by default. Enable live Cursor Agent with <code>?agent1=live</code>. Prefer <strong>Business Rules</strong> / <strong>Alternative Flow</strong> / <strong>Exception Flow</strong> (or Acceptance Criteria) for testable lines.</p>
               <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
                 <button type="button" class="btn btn-primary btn-fetch" id="btn-load-requirements"><i class="ti ti-player-play"></i> Load · run Agent 1</button>
-                <button type="button" class="btn btn-fetch" id="btn-load-sample-requirements" title="Load the Login use case sample, then run Agent 1"><i class="ti ti-file-text"></i> Load sample</button>
               </div>
               <span id="requirements-load-status" class="jira-status" style="display:inline-block;margin-top:.5rem"></span>
             </div>
@@ -528,7 +527,6 @@ a { color: var(--text-accent); }
     </div>
   </div>
 
-  <script src="requirements-sample.cjs"></script>
   <script src="lib/prerequisites.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="report-docx.js"></script>

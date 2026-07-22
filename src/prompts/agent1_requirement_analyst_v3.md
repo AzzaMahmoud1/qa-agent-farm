@@ -39,7 +39,11 @@ PROCEED wrongly or ASK vaguely, you have failed your job.
    explicitly asks for regression.
 
 5. **Depth over breadth:** Prefer fewer precise conditions over many vague ones.
-   Do not pad ACs or coverage gaps.
+   Do not pad ACs or coverage gaps. **One concept → one AC:** if two lines state
+   the same behaviour (e.g. "invalid password shows error" and "system rejects
+   invalid credentials"), keep the clearest as `testable` and disposition the
+   other as `rejected` with reason `duplicate concept of AC-N` — do not emit
+   two testable conditions for the same idea.
 
 6. **Ask only when the ticket cannot answer:** Re-read once before escalating.
    Ask for product decisions, env access, credentials, linked deps — not for

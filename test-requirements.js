@@ -17,7 +17,7 @@ const {
   buildAnalystOutput,
   validateAnalystOutput,
 } = require("./lib/prerequisites.cjs");
-const { LOGIN_USE_CASE_SAMPLE } = require("./requirements-sample.cjs");
+const { LOGIN_USE_CASE_SAMPLE } = require("./test/fixtures/login-use-case.cjs");
 
 const SAMPLE = LOGIN_USE_CASE_SAMPLE;
 
@@ -75,6 +75,27 @@ test("rejects metadata and UC section headers", () => {
 test("basic flow steps are not acceptance criteria", () => {
   const acText = parsed.acceptance_criteria_list.join(" ");
   assert(!/opens login page|enters credentials/i.test(acText), "flow content in ACs");
+});
+
+test("free-text paste without AC sections invents zero ACs", () => {
+  const free = parseFullRequirements(
+    "Users should log in with email and password.\n"
+    + "Invalid credentials must show an error.\n"
+    + "The system rejects wrong passwords.",
+  );
+  assert(free.acceptance_criteria_list.length === 0, "expected 0 ACs from free text, got " + free.acceptance_criteria_list.length);
+  const out = buildAnalystOutput({
+    title: free.title,
+    description: free.description,
+    requirements_raw: free.requirements_raw,
+    acceptance_criteria_list: free.acceptance_criteria_list,
+    acceptance_criteria_entries: free.acceptance_criteria_entries,
+    acceptance_criteria_rejected: free.acceptance_criteria_rejected,
+    components: [],
+    labels: [],
+  });
+  assert(out.testable_conditions.length === 0, "stub must not invent testable_conditions");
+  assert(out.ready_for_test_design === false, "not ready without ACs");
 });
 
 test("prerequisites exclude section headers", () => {
@@ -167,8 +188,14 @@ test("JIRA-style title+description uses section-aware analyst output", () => {
   };
   const out = buildAnalystOutput(jiraStory);
   assert(out.analysis_complete === true, "analysis_complete");
-  assert(out.testable_conditions.length === 3, "expected 3 structured ACs from JIRA path");
+  // Login sample: invalid-password + valid-email/password are distinct; "rejects invalid
+  // credentials" is the same concept as invalid-password → rejected as duplicate.
+  assert(out.testable_conditions.length === 2, "expected 2 distinct-concept ACs (duplicate collapsed)");
   assert(out.testable_conditions.some((c) => c.source === "Alternative Flow"), "missing alt flow source");
+  assert(
+    (out.analyst_reasoning?.rejected_as_non_ac || []).some((r) => /duplicate concept/i.test(r)),
+    "expected duplicate-concept rejection",
+  );
   assert(out.analyst_reasoning?.rejected_as_non_ac?.length > 0, "missing rejected lines");
 });
 

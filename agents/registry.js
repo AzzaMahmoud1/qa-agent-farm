@@ -1,33 +1,6 @@
 /** Agent registry — roles, pipeline steps, guidelines, constants */
-const FALLBACK_STORIES = {
-      "SEHJ-10668": {
-        id: "SEHJ-10668",
-        title: "Login fails when email contains uppercase letters",
-        jira: "https://leansa.atlassian.net/browse/SEHJ-10668",
-        description: "Users report mixed-case email login failures.",
-        acceptance_criteria_list: [
-          "Email login must be case-insensitive",
-          "Error message must be clear when credentials are wrong",
-          "Session token must be generated correctly after login",
-          "Password remains case-sensitive",
-        ],
-        priority: "High",
-        status: "To Do",
-        issueType: "Bug",
-        components: ["Authentication / Login"],
-        acceptance_criteria: 4,
-        gaps: 5,
-        blocking_gaps: 0,
-        test_cases: ["TC-01", "TC-02", "TC-03", "TC-04"],
-        api_requests: null,
-        score: null,
-        passed: null,
-        failed: null,
-        coverage: null,
-        from_jira: false,
-      },
-    };
-
+/** No baked-in tickets — simulator uses only JIRA or pasted requirements. */
+const FALLBACK_STORIES = {};
 
 const AGENT_ROLES = ["analyst", "writer", "test_data_extractor", "author", "test_executor", "reviewer", "reporter"];
 

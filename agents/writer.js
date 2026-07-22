@@ -21,7 +21,8 @@ function acSources(story, analystOutput) {
   if (conditions.length) {
     return conditions.map((c, i) => ({
       id: c.id || `AC-${i + 1}`,
-      text: c.text || c.condition || c.id || "Acceptance criterion",
+      // Analyst schema uses ac_text / testable_statement (not text)
+      text: c.ac_text || c.testable_statement || c.text || c.condition || c.id || "Acceptance criterion",
     }));
   }
   const list = story.acceptance_criteria_list || [];

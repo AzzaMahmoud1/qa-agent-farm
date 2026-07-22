@@ -208,7 +208,7 @@ Configured in `agents/registry.js` (`AGENT_MODEL_ROUTING`) and `.cursor/agents/*
 ## Requirements
 
 - **Node.js >= 18.18** with `"type": "module"` in `package.json`
-- Browser classic scripts (`lib/prerequisites.js`, samples) stay CJS-compatible; Node loads `lib/prerequisites.cjs` via `createRequire`
+- Browser classic scripts (`lib/prerequisites.js`) stay CJS-compatible; Node loads `lib/prerequisites.cjs` via `createRequire`
 - Optional: JIRA credentials in `.env` for live ticket fetch
 - For Cursor agent runs: enable **Claude Fable 5** and **Claude Sonnet** in Cursor Models settings
 

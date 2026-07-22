@@ -1,6 +1,6 @@
 import { createAgentFarm } from "../agents/index.js";
 import {
-  FALLBACK_STORIES, AGENT_ROLES, PIPELINE_STEPS, AGENT_META, AGENT_GUIDELINES,
+  AGENT_ROLES, PIPELINE_STEPS, AGENT_META, AGENT_GUIDELINES,
   VALIDATOR_MAX_ATTEMPTS, ORCHESTRATOR_INACTIVITY_TIMEOUT_MS, VALIDATOR_GUIDELINES, OUTPUT_ROLES,
   MODEL_ORCHESTRATOR, MODEL_WORKER, getModelForAgent,
 } from "../agents/registry.js";
@@ -302,7 +302,7 @@ function buildStoryFromRequirementsForm() {
     requirements_raw,
     requirements_metadata: meta || {},
     acceptance_criteria_list: acList,
-    acceptance_criteria_entries: acEntries || acList.map((text) => ({ text, source: "Business Rules", section: "inferred_business_rules" })),
+    acceptance_criteria_entries: acEntries || acList.map((text) => ({ text, source: "Acceptance Criteria", section: "ac" })),
     acceptance_criteria_rejected: rejectedAcs || [],
     priority: meta?.priority || "Medium",
     status: meta?.status || "Draft",
@@ -419,7 +419,7 @@ function escapeHtml(s) {
 
 async function fetchJiraTicket(input) {
   const resolved = resolveTicketInput(input);
-  if (!resolved) throw new Error("Paste a valid JIRA URL (e.g. https://…/browse/SEHJ-10668)");
+  if (!resolved) throw new Error("Paste a valid JIRA URL (e.g. https://…/browse/PROJ-123)");
   const { key, url } = resolved;
   el("jira-url").value = url;
   setJiraStatus("loading", "fetching " + key + "…");
@@ -860,20 +860,6 @@ async function loadRequirementsFromForm(runOptions) {
 }
 
 
-async function loadSampleRequirements(runOptions, autoRun) {
-  const sample = typeof LOGIN_USE_CASE_SAMPLE === "string" ? LOGIN_USE_CASE_SAMPLE : "";
-  if (!sample || !el("req-description")) return null;
-  setInputSource("requirements");
-  el("req-description").value = sample;
-  setRequirementsLoadStatus("ok", "sample loaded");
-  const story = await loadRequirementsFromForm(runOptions);
-  if (autoRun) {
-    el("event-message").textContent = "Login use case sample loaded — press Play.";
-  }
-  return story;
-}
-
-
 function loadStory(story, runOptions) {
   if (!story) return;
   stopPlay();
@@ -953,23 +939,8 @@ async function loadStoryByKey(input, preferJira, runOptions) {
     }
   }
 
-  const fallback = FALLBACK_STORIES[resolved.key];
-  if (fallback) {
-    try {
-      const story = { ...fallback };
-      await ensureAgent1(story, runOptions);
-      loadStory(story, runOptions);
-      if (!preferJira) setJiraStatus("err", "mock data");
-      activeOutputTab = "analyst";
-      renderOutputTabs();
-      renderActiveOutputTab();
-    } catch (err) {
-      setJiraStatus("err", err.message.slice(0, 40));
-      alert(err.message);
-    }
-  } else {
-    el("event-message").textContent = "Could not load " + resolved.key + ". Check the JIRA URL and server.";
-  }
+  el("event-message").textContent = "Could not load " + resolved.key + ". Fetch from JIRA or paste requirements — no built-in sample tickets.";
+  setJiraStatus("err", "no ticket");
 }
 
 el("btn-next").onclick = () => { stopPlay(); next(); };
@@ -1011,18 +982,6 @@ el("btn-load-requirements")?.addEventListener("click", async () => {
   if (btn) btn.disabled = true;
   try {
     await loadRequirementsFromForm(currentRunOptions);
-  } catch (err) {
-    setRequirementsLoadStatus("err", err.message);
-    alert(err.message);
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-});
-el("btn-load-sample-requirements")?.addEventListener("click", async () => {
-  const btn = el("btn-load-sample-requirements");
-  if (btn) btn.disabled = true;
-  try {
-    await loadSampleRequirements(currentRunOptions, false);
   } catch (err) {
     setRequirementsLoadStatus("err", err.message);
     alert(err.message);
