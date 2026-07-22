@@ -13,6 +13,8 @@ import * as author from "./author.js";
 import * as executor from "./executor.js";
 import * as validator from "./validator.js";
 import * as orchestrator from "./orchestrator.js";
+import * as ioConsistency from "./io-consistency.js";
+import * as orchestratorDecide from "./orchestrator-decide.js";
 import { buildAgentOutputs } from "./pipeline.js";
 import { inferHumanInputNeeds } from "../lib/human-input.js";
 import { buildRequirementsFromStory, getLiveRequirements } from "../lib/requirements.js";
@@ -65,6 +67,8 @@ export function createAgentFarm(ctx) {
     ...executor,
     ...validator,
     ...orchestrator,
+    ...ioConsistency,
+    ...orchestratorDecide,
     buildAgentOutputs,
     inferHumanInputNeeds,
     buildRequirementsFromStory,

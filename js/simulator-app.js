@@ -1681,9 +1681,11 @@ function renderOrchestratorOutput(data) {
     ? `<h4 style="font-size:.72rem;color:var(--muted);margin:.75rem 0 .4rem;text-transform:uppercase">← Latest gate / feedback</h4>
        <div class="output-kv">${Object.entries(data.feedback_from_analyst).filter(([k]) => typeof data.feedback_from_analyst[k] !== "object" || Array.isArray(data.feedback_from_analyst[k])).map(([k, v]) => renderKv(k, v)).join("")}</div>`
     : "";
-  const gates = (data.validation_gates || []).map((g) =>
-    `<li><strong>${escapeHtml(g.agent)}</strong> — <span class="${g.passed ? "validation-pass" : "validation-fail"}">${g.passed ? "PASS" : "FAIL"}</span> ${g.score ? `(${escapeHtml(g.score)})` : ""}${g.failures?.length ? ` · ${escapeHtml(g.failures.join("; "))}` : ""}</li>`
-  ).join("");
+  const gates = (data.validation_gates || []).map((g) => {
+    const mode = g.gate_mode || "SIMULATED_GATE";
+    const modeColor = mode === "LIVE" ? "#166534" : "#a16207";
+    return `<li><strong>${escapeHtml(g.agent)}</strong> — <span class="${g.passed ? "validation-pass" : "validation-fail"}">${g.passed ? "PASS" : "FAIL"}</span> ${g.score ? `(${escapeHtml(g.score)})` : ""} <span style="background:${modeColor};color:#fff;border-radius:3px;padding:.05rem .35rem;font-size:.6rem;font-weight:700">${escapeHtml(mode)}</span>${g.orch_action ? ` · ${escapeHtml(g.orch_action)}` : ""}${g.io_quality ? ` · quality ${escapeHtml(g.io_quality)}` : ""}${g.failures?.length ? ` · ${escapeHtml(g.failures.join("; "))}` : ""}</li>`;
+  }).join("");
   const retries = (data.reinstructions || []).map((r) =>
     `<li><strong>${escapeHtml(r.agent)}</strong> — ${escapeHtml(r.reason || r.message)}</li>`
   ).join("");
@@ -1918,7 +1920,15 @@ function renderStructuredAnalystOutput(data) {
 function renderRunnerBadge(data) {
   const live = /cursor_agent|live/i.test(data?.runner || "")
     || (activeOutputTab === "analyst" && currentStory?.live_analyst_output);
-  return `<span title="${live ? "Cursor Agent CLI" : "Simulated stub"}" style="background:${live ? "#166534" : "#57534e"};color:#fff;border-radius:4px;padding:.1rem .4rem;font-size:.62rem;font-weight:700">${live ? "LIVE" : "STUB"}</span>`;
+  const gateMode = data?.gate_mode || data?.validation?.gate_mode;
+  const parts = [
+    `<span title="${live ? "Cursor Agent CLI" : "Simulated stub"}" style="background:${live ? "#166534" : "#57534e"};color:#fff;border-radius:4px;padding:.1rem .4rem;font-size:.62rem;font-weight:700">${live ? "LIVE" : "STUB"}</span>`,
+  ];
+  if (gateMode) {
+    const c = gateMode === "LIVE" ? "#166534" : gateMode === "SIMULATED_GATE" ? "#a16207" : "#57534e";
+    parts.push(` <span title="Validator gate honesty" style="background:${c};color:#fff;border-radius:4px;padding:.1rem .4rem;font-size:.62rem;font-weight:700">${escapeHtml(gateMode)}</span>`);
+  }
+  return parts.join("");
 }
 
 function kv(key, val, border) {

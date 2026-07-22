@@ -9,6 +9,8 @@ import { buildRequirementsFromStory } from "../lib/requirements.js";
 import { inferRequirementSignals, inferApiFields } from "../lib/test-data.js";
 import { isLatitudeKey, isLongitudeKey, parseCoordNumber, isValidLatitude, isValidLongitude, isBoundaryLatitude, isBoundaryLongitude } from "../lib/geo.js";
 import { checkAnalystPromptContract } from "./analyst-contract.js";
+import { checkIoConsistency, HANDOFF, ioFailuresAsMessages } from "./io-consistency.js";
+import { deliberateHandoff } from "./orchestrator-decide.js";
 
 export const DATA_EXTRACTOR_API_CHECKS = [
   "For API stories: derive datasets from human-provided curl (URL, method, headers, body)",
@@ -22,7 +24,7 @@ export const DATA_EXTRACTOR_API_CHECKS = [
 ];
 
 
-export function buildValidationResult(targetAgent, passed, failureMessages, recommendation) {
+export function buildValidationResult(targetAgent, passed, failureMessages, recommendation, extras = {}) {
   const g = AGENT_GUIDELINES[targetAgent];
   const failSet = new Set(failureMessages || []);
   const checks = g.rules.map((rule) => ({
@@ -40,18 +42,109 @@ export function buildValidationResult(targetAgent, passed, failureMessages, reco
     checks,
     failures: failureMessages || failedRules,
     recommendation: recommendation || (passed ? null : `Re-run ${AGENT_META[targetAgent].label} with corrections from failed checks`),
+    // Honesty: LIVE = real IO/guideline checks; SIMULATED_GATE = timeline auto-approve (not production-grade)
+    gate_mode: extras.gate_mode || (passed && !failureMessages?.length ? "LIVE" : "LIVE"),
+    io: extras.io || null,
+    orchestrator_decision: extras.orchestrator_decision || null,
+    ...extras,
+  };
+}
+
+/** Live Writer check — Analyst→Writer IO fidelity (outlines map to AC IDs; no zero-AC authoring). */
+export function validateWriterOutputLive(story, writerOutput, analystOutput) {
+  const io = checkIoConsistency(HANDOFF.ANALYST_WRITER, {
+    story,
+    analyst: analystOutput,
+    writer: writerOutput,
+  });
+  const failures = ioFailuresAsMessages(io);
+  if (writerOutput?.blocked) {
+    failures.unshift("Writer blocked — waiting on Analyst structured output");
+  }
+  if (!Array.isArray(writerOutput?.test_outlines) && !Array.isArray(writerOutput?.test_cases)) {
+    failures.push("Writer missing test_outlines / test_cases");
+  }
+  const prePassed = failures.length === 0 && io.ok;
+  const decision = deliberateHandoff({
+    handoff: HANDOFF.ANALYST_WRITER,
+    ctx: { story, analyst: analystOutput, writer: writerOutput },
+    validation: { passed: prePassed, failures },
+  });
+  const passed = prePassed && decision.action === "PROCEED";
+  return buildValidationResult(
+    "writer",
+    passed,
+    failures,
+    passed ? null : "Fix Writer↔Analyst IO fidelity — map every outline to Analyst AC IDs; do not invent ACs",
+    { gate_mode: "LIVE", io, orchestrator_decision: decision, detail_failures: failures },
+  );
+}
+
+/** Live Author check — only approved outlines / no zero-AC REVIEW. */
+export function validateAuthorOutputLive(story, authorOutput, writerOutput, analystOutput) {
+  const io = checkIoConsistency(HANDOFF.DATA_AUTHOR, {
+    story,
+    analyst: analystOutput,
+    writer: writerOutput,
+    author: authorOutput,
+  });
+  const failures = ioFailuresAsMessages(io);
+  const decision = deliberateHandoff({
+    handoff: HANDOFF.DATA_AUTHOR,
+    ctx: { story, analyst: analystOutput, writer: writerOutput, author: authorOutput },
+    validation: { passed: failures.length === 0 },
+  });
+  // Honest PLAN_READY / BUILDING / blocked is a soft hold, not a hard validation fail
+  const softHold = authorOutput?.blocked
+    || /PLAN_READY|BUILDING|BLOCKED/i.test(authorOutput?.status || "");
+  const passed = softHold ? true : (failures.length === 0 && io.ok);
+  return buildValidationResult(
+    "author",
+    passed,
+    softHold ? [] : failures,
+    softHold
+      ? null
+      : "Author IO fidelity failed — REVIEW only with approved outlines and Analyst ACs",
+    {
+      gate_mode: "LIVE",
+      io,
+      orchestrator_decision: decision,
+      detail_failures: softHold ? [] : failures,
+      hold: softHold,
+    },
+  );
+}
+
+/** Mark simulated timeline approvals honestly (not production-grade). */
+export function markSimulatedGate(validation, reason) {
+  if (!validation || typeof validation !== "object") return validation;
+  return {
+    ...validation,
+    gate_mode: "SIMULATED_GATE",
+    simulated: true,
+    simulation_note: reason
+      || "Simulated timeline approval — not a live IO-consistency gate. Do not treat as production-grade.",
   };
 }
 
 export function validateAnalystOutputLive(story, analystOutput) {
   const contract = checkAnalystPromptContract(analystOutput, story);
+  const io = checkIoConsistency(HANDOFF.TICKET_ANALYST, { story, analyst: analystOutput });
 
   if (typeof farmCtx.prerequisites.validateAnalystOutput !== "function") {
-    const passed = contract.ok;
-    const base = buildValidationResult("analyst", passed, contract.failures, passed
+    const failures = [...contract.failures, ...ioFailuresAsMessages(io)];
+    const passed = contract.ok && io.ok;
+    const decision = deliberateHandoff({
+      handoff: HANDOFF.TICKET_ANALYST,
+      ctx: { story, analyst: analystOutput },
+      validation: { passed },
+      analystActions: analystOutput?.analyst_report?.orchestrator_actions,
+    });
+    const base = buildValidationResult("analyst", passed, failures, passed
       ? null
-      : "Analyst MAIN GATE / disposition coverage failed — fix readiness or silent drops");
-    return { ...base, detail_failures: contract.failures, ac_quality: { failed_rules: ["MAIN GATE"] } };
+      : "Analyst MAIN GATE / disposition / IO fidelity failed",
+    { gate_mode: "LIVE", io, orchestrator_decision: decision });
+    return { ...base, detail_failures: failures, ac_quality: { failed_rules: ["MAIN GATE"] } };
   }
 
   const live = farmCtx.prerequisites.validateAnalystOutput(story, analystOutput);
@@ -59,10 +152,20 @@ export function validateAnalystOutputLive(story, analystOutput) {
   for (const f of contract.failures) {
     if (!failures.includes(f)) failures.push(f);
   }
-  const passed = live.passed && contract.ok;
+  for (const f of ioFailuresAsMessages(io)) {
+    if (!failures.includes(f)) failures.push(f);
+  }
+  const passed = live.passed && contract.ok && io.ok;
+  const decision = deliberateHandoff({
+    handoff: HANDOFF.TICKET_ANALYST,
+    ctx: { story, analyst: analystOutput },
+    validation: { passed, failures },
+    analystActions: analystOutput?.analyst_report?.orchestrator_actions,
+  });
   const base = buildValidationResult("analyst", passed, failures, passed
     ? null
-    : "Exclude ticket metadata from AC mapping; obey MAIN GATE + disposition coverage (no silent drops)");
+    : "Exclude ticket metadata from AC mapping; obey MAIN GATE + disposition coverage + IO fidelity",
+  { gate_mode: "LIVE", io, orchestrator_decision: decision });
   return {
     ...base,
     detail_failures: failures,
@@ -400,59 +503,94 @@ export function validateTestDataExtractorOutput(story, output, writerOutput, ana
 export function resolveLiveValidatorReturn(e) {
   if (e.kind !== "validator_return" || !farmCtx.currentStory) return e;
 
-  if (e.target_agent === "analyst") {
-    const analystOut = farmCtx.storyOutputs?.analyst;
-    if (!analystOut) return e;
-    const live = validateAnalystOutputLive(farmCtx.currentStory, analystOut);
-    const meta = AGENT_META.analyst;
-    const detail = live.detail_failures?.length ? live.detail_failures : live.failures;
+  const story = farmCtx.currentStory;
+  const outs = farmCtx.storyOutputs || {};
 
+  if (e.target_agent === "analyst") {
+    const analystOut = outs.analyst;
+    if (!analystOut) return e;
+    const live = validateAnalystOutputLive(story, analystOut);
+    return decorateLiveReturn(e, live, AGENT_META.analyst);
+  }
+
+  if (e.target_agent === "writer") {
+    const live = validateWriterOutputLive(story, outs.writer, outs.analyst);
+    return decorateLiveReturn(e, live, AGENT_META.writer);
+  }
+
+  if (e.target_agent === "author") {
+    const live = validateAuthorOutputLive(story, outs.author, outs.writer, outs.analyst);
+    return decorateLiveReturn(e, live, AGENT_META.author);
+  }
+
+  if (e.target_agent === "test_data_extractor") {
+    const live = validateTestDataExtractorOutput(
+      story,
+      outs.test_data_extractor,
+      outs.writer,
+      outs.analyst,
+    );
+    // Attach writer→data IO note (does not replace existing data validator)
+    const io = checkIoConsistency(HANDOFF.WRITER_DATA, {
+      story,
+      writer: outs.writer,
+      data: outs.test_data_extractor,
+      analyst: outs.analyst,
+    });
+    const withIo = {
+      ...live,
+      gate_mode: "LIVE",
+      io,
+      failures: live.passed ? live.failures : live.failures,
+    };
+    if (!io.ok && live.passed) {
+      // Downgrade: stub summary datasets must not look LIVE-clean
+      withIo.passed = false;
+      withIo.gate_mode = "LIVE";
+      withIo.failures = [...(live.failures || []), ...ioFailuresAsMessages(io)];
+      withIo.detail_failures = withIo.failures;
+      withIo.score = "0%";
+      withIo.recommendation = "Rebuild datasets with per-test-case linkage (IO fidelity)";
+    }
+    return decorateLiveReturn(e, withIo, AGENT_META.test_data_extractor);
+  }
+
+  // Remaining agents: keep timeline result but label SIMULATED_GATE honestly
+  if (e.validation && e.passed && !e.validation.gate_mode) {
     return {
       ...e,
-      passed: live.passed,
-      validation: live,
-      agent_returns: live,
-      brake_applied: !live.passed && e.attempt >= VALIDATOR_MAX_ATTEMPTS,
-      message: live.passed
-        ? `Validation PASSED for ${meta.label} on attempt ${e.attempt}/${VALIDATOR_MAX_ATTEMPTS} (${live.score}) — AC quality and test-action mapping verified`
-        : !live.passed && e.attempt >= VALIDATOR_MAX_ATTEMPTS
-          ? `Validation FAILED for ${meta.label} on attempt ${e.attempt}/${VALIDATOR_MAX_ATTEMPTS} — brake applied: ${detail.join("; ")}`
-          : `Validation FAILED for ${meta.label} on attempt ${e.attempt}/${VALIDATOR_MAX_ATTEMPTS}: ${detail.join("; ")}`,
-      decision: live.passed
-        ? "approve — orchestrator may proceed"
-        : e.attempt >= VALIDATOR_MAX_ATTEMPTS
-          ? "abort — 2nd failure, no retry"
-          : `reject — 1 retry allowed (${VALIDATOR_MAX_ATTEMPTS - e.attempt} left)`,
+      validation: markSimulatedGate(e.validation),
+      gate_mode: "SIMULATED_GATE",
+      message: `${e.message || "Validation"} · SIMULATED_GATE (not live IO)`,
     };
   }
 
-  if (e.target_agent !== "test_data_extractor") return e;
+  return e;
+}
 
-  const live = validateTestDataExtractorOutput(
-    farmCtx.currentStory,
-    farmCtx.storyOutputs.test_data_extractor,
-    farmCtx.storyOutputs.writer,
-    farmCtx.storyOutputs.analyst,
-  );
-  const meta = AGENT_META[e.target_agent];
+function decorateLiveReturn(e, live, meta) {
   const detail = live.detail_failures?.length ? live.detail_failures : live.failures;
-
+  const decision = live.orchestrator_decision;
   return {
     ...e,
     passed: live.passed,
     validation: live,
     agent_returns: live,
+    gate_mode: live.gate_mode || "LIVE",
+    orchestrator_decision: decision || null,
     brake_applied: !live.passed && e.attempt >= VALIDATOR_MAX_ATTEMPTS,
     message: live.passed
-      ? `Validation PASSED for ${meta.label} on attempt ${e.attempt}/${VALIDATOR_MAX_ATTEMPTS} (${live.score}) — data satisfies current requirements, API, coordinates, and test case links`
+      ? `Validation PASSED for ${meta.label} on attempt ${e.attempt}/${VALIDATOR_MAX_ATTEMPTS} (${live.score}) · ${live.gate_mode || "LIVE"}`
       : !live.passed && e.attempt >= VALIDATOR_MAX_ATTEMPTS
-        ? `Validation FAILED for ${meta.label} on attempt ${e.attempt}/${VALIDATOR_MAX_ATTEMPTS} — brake applied: ${detail.join("; ")}`
+        ? `Validation FAILED for ${meta.label} on attempt ${e.attempt}/${VALIDATOR_MAX_ATTEMPTS} — brake: ${detail.join("; ")}`
         : `Validation FAILED for ${meta.label} on attempt ${e.attempt}/${VALIDATOR_MAX_ATTEMPTS}: ${detail.join("; ")}`,
-    decision: live.passed
-      ? "approve — orchestrator may proceed"
-      : e.attempt >= VALIDATOR_MAX_ATTEMPTS
-        ? "abort — 2nd failure, no retry"
-        : `reject — 1 retry allowed (${VALIDATOR_MAX_ATTEMPTS - e.attempt} left)`,
+    decision: decision
+      ? `${decision.action}: ${decision.rationale}`
+      : live.passed
+        ? "approve — orchestrator may proceed"
+        : e.attempt >= VALIDATOR_MAX_ATTEMPTS
+          ? "abort — 2nd failure, no retry"
+          : `reject — 1 retry allowed (${VALIDATOR_MAX_ATTEMPTS - e.attempt} left)`,
   };
 }
 
@@ -462,9 +600,7 @@ export function buildValidatorLiveState(eventIndex) {
   for (let j = 0; j <= eventIndex; j++) {
     const ev = farmCtx.EVENTS[j];
     if (ev?.kind === "validator_return" && ev.validation) {
-      const resolved = (ev.target_agent === "test_data_extractor" || ev.target_agent === "analyst")
-        ? resolveLiveValidatorReturn(ev)
-        : ev;
+      const resolved = resolveLiveValidatorReturn(ev);
       validations.push({
         step: j + 1,
         target_agent: resolved.target_agent,

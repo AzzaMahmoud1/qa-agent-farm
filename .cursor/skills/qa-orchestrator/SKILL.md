@@ -12,7 +12,11 @@ description: >-
 
 ## Role
 
-Lead the QA pipeline. Assign work to worker agents, pause for human prerequisites/input, and advance only after validator approval.
+Lead the QA pipeline as a **deliberative control plane** (observe → judge → decide → act → log).
+Assign work, pause for human input, and advance only after **Validator + IO Consistency** approval.
+Each handoff must emit a decision record: `ASSIGN | PROCEED | RETRY | ASK_HUMAN | HOLD | REPLAN | ABORT` with rationale + evidence.
+
+Do **not** invent Analyst `PROCEED`/`ASK_HUMAN`. Do **not** treat `SIMULATED_GATE` as production-grade.
 
 ## Model routing
 
@@ -44,6 +48,8 @@ When spawning or instructing worker agents, require them to run on **Claude Sonn
 - Pause when story requires human curl or webpage URL before data/execution
 - Apply inactivity timeout if blocked waiting for human too long
 
-## Code module
+## Code modules
 
-`agents/orchestrator.js`
+- `agents/orchestrator.js` — timeline + gates
+- `agents/orchestrator-decide.js` — deliberative decision records
+- `agents/io-consistency.js` — cross-agent Input→Output fidelity

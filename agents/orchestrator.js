@@ -10,10 +10,19 @@ import { inferTcType, buildWriterTestCases, buildWriterOutput } from "./writer.j
 import { buildAuthorOutput } from "./author.js";
 import { inferHumanInputNeeds } from "../lib/human-input.js";
 import { getLiveRequirements } from "../lib/requirements.js";
-import { buildValidationResult, validateAnalystOutputLive, DATA_EXTRACTOR_API_CHECKS } from "./validator.js";
+import {
+  buildValidationResult,
+  validateAnalystOutputLive,
+  validateWriterOutputLive,
+  validateAuthorOutputLive,
+  markSimulatedGate,
+  DATA_EXTRACTOR_API_CHECKS,
+} from "./validator.js";
 import { analystReturnV1, buildAnalystReturnV2 } from "./demo-fixtures.js";
 import { isApprovableOutput } from "./dependency-gate.js";
 import { isLiveAnalystOutput } from "./analyst-contract.js";
+import { deliberateHandoff, withDecisionRecord } from "./orchestrator-decide.js";
+import { HANDOFF } from "./io-consistency.js";
 
 export {
   PIPELINE_DEPENDENCY,
@@ -281,18 +290,27 @@ export function abortRunEvents(targetAgent, phase, story, validation) {
 export function validationGateEvents(targetAgent, phase, story, agentReturns, opts) {
   const meta = AGENT_META[targetAgent];
   const g = AGENT_GUIDELINES[targetAgent];
-  const passValidation = buildValidationResult(targetAgent, true);
+  // Honest labeling: default timeline approve is SIMULATED_GATE unless caller marks LIVE
+  const gateMode = opts.gate_mode || "SIMULATED_GATE";
+  let passValidation = opts.passValidation || buildValidationResult(targetAgent, true, null, null, {
+    gate_mode: gateMode,
+  });
+  if (gateMode === "SIMULATED_GATE") {
+    passValidation = markSimulatedGate(passValidation, opts.simulation_note);
+  }
   const failValidation = opts.failValidation || buildValidationResult(
     targetAgent,
     false,
     opts.failures || ["Include related source and test file paths"],
-    opts.failRecommendation
+    opts.failRecommendation,
+    { gate_mode: gateMode === "LIVE" ? "LIVE" : "SIMULATED_GATE" },
   );
   const failValidation2 = opts.failValidation2 || buildValidationResult(
     targetAgent,
     false,
     opts.failures2 || opts.failures || ["Output still does not meet L2 guidelines after retry"],
-    opts.failRecommendation2 || "Agent failed to apply corrections — run will abort"
+    opts.failRecommendation2 || "Agent failed to apply corrections — run will abort",
+    { gate_mode: gateMode === "LIVE" ? "LIVE" : "SIMULATED_GATE" },
   );
   const failAttempts = new Set(opts.failAttempts || (opts.failFirst ? [1] : []));
   const events = [];
@@ -352,17 +370,34 @@ export function validationGateEvents(targetAgent, phase, story, agentReturns, op
   }
 
   function gateEv(validation, attemptNum) {
-    return {
+    const decision = opts.decisionRecord || deliberateHandoff({
+      handoff: opts.handoff || `${targetAgent}_gate`,
+      ctx: opts.ioCtx || { story },
+      validation,
+      attempt: attemptNum,
+    });
+    const base = {
       kind: "orchestrator_gate",
       phase: "orchestrator",
       target_agent: targetAgent,
-      message: opts.gateMessage || `Orchestrator approved ${meta.label} output (passed on attempt ${attemptNum}) — advancing pipeline`,
+      message: opts.gateMessage
+        || `Orchestrator ${decision.action} on ${meta.label} (attempt ${attemptNum}) · ${validation.gate_mode || gateMode}`,
       validation_feedback: validation,
-      orchestrator_memory: mem(story, { phase: "orchestrator", gate: targetAgent, validation: "passed", attempt: attemptNum }),
-      agent_context: {},
+      orchestrator_memory: mem(story, {
+        phase: "orchestrator",
+        gate: targetAgent,
+        validation: "passed",
+        attempt: attemptNum,
+        orch_action: decision.action,
+        quality: decision.io_summary?.quality?.overall,
+      }),
+      agent_context: { orchestrator_decision: decision, gate_mode: validation.gate_mode || gateMode },
       agent_returns: validation,
-      decision: opts.gateDecision,
+      decision: opts.gateDecision || `${decision.action}: ${decision.rationale}`,
+      orchestrator_decision: decision,
+      gate_mode: validation.gate_mode || gateMode,
     };
+    return withDecisionRecord(base, decision);
   }
 
   events.push(assignEv(1));
@@ -1129,11 +1164,50 @@ export function buildDownstreamPhases(story, analystParsed) {
   const humanNeed = inferHumanInputNeeds(story, analystWithActions, prelimWriter);
   const needsHumanInput = humanNeed.needsHumanInput;
 
-  const writerGate = validationGateEvents("writer", "test_case_writing", story, writerReturns, {
-    gateDecision: needsHumanInput
-      ? `request human input (${humanNeed.types.join(" + ")}) before data extraction`
-      : "proceed to test_data_extraction",
+  const writerLive = validateWriterOutputLive(story, writerReturns, analystWithActions);
+  const writerDecision = writerLive.orchestrator_decision || deliberateHandoff({
+    handoff: HANDOFF.ANALYST_WRITER,
+    ctx: { story, analyst: analystWithActions, writer: writerReturns },
+    validation: writerLive,
   });
+  const writerGate = validationGateEvents("writer", "test_case_writing", story, writerReturns, {
+    gate_mode: "LIVE",
+    passValidation: writerLive.passed ? writerLive : undefined,
+    failAttempts: writerLive.passed ? [] : [1, 2],
+    failValidation: writerLive,
+    failValidation2: writerLive,
+    decisionRecord: writerDecision,
+    handoff: HANDOFF.ANALYST_WRITER,
+    ioCtx: { story, analyst: analystWithActions, writer: writerReturns },
+    gateDecision: !writerLive.passed
+      ? `${writerDecision.action}: Writer IO fidelity failed`
+      : needsHumanInput
+        ? `request human input (${humanNeed.types.join(" + ")}) before data extraction`
+        : "proceed to test_data_extraction",
+    gateMessage: writerLive.passed
+      ? `Orchestrator PROCEED — Writer IO fidelity pass (quality ${writerLive.io?.quality?.overall})`
+      : `Orchestrator ${writerDecision.action} — Writer failed live IO consistency`,
+    retryInstructions: {
+      target_agent: "Test Case Writer (L3)",
+      task: "RETRY — map every outline to Analyst AC IDs; do not invent ACs",
+      validator_feedback: (writerLive.failures || []).join("; "),
+      corrections: [
+        "Every test_outline.mapped_acs / test_case.ac_ref must be an Analyst testable_conditions id",
+        "Do not author when testable_conditions is empty",
+        "Cover every Analyst AC with at least one outline",
+      ],
+    },
+  });
+
+  // If Writer IO fails hard, do not continue the simulated downstream as if approved.
+  if (!writerLive.passed) {
+    return [
+      { kind: "phase_start", phase: "test_case_writing", message: "Enter phase: test_case_writing", role: null, orchestrator_memory: mem(story, { phase: "test_case_writing", gaps: gapSummary }), agent_context: {}, agent_returns: {}, decision: null },
+      { kind: "agent_assign", phase: "test_case_writing", message: "Orchestrator assigns task to writer", role: "writer", orchestrator_memory: mem(story, { phase: "test_case_writing", gaps: gapSummary }), agent_context: { ticket: s, gap_analysis: "ready", acceptance_criteria: acList.join(" | ") || String(story.acceptance_criteria) }, agent_returns: {}, decision: null },
+      { kind: "agent_return", phase: "test_case_writing", message: `Wrote ${outlineCount} outline(s) (+ ${writerCases.length} GWT docs) for ${s}.`, role: "writer", orchestrator_memory: mem(story, { phase: "test_case_writing", gaps: gapSummary, outlines: String(outlineCount) }), agent_context: {}, agent_returns: writerReturns, decision: null, structured_output: "__writer__" },
+      ...writerGate,
+    ];
+  }
 
   const events = [
     { kind: "phase_start", phase: "test_case_writing", message: "Enter phase: test_case_writing", role: null, orchestrator_memory: mem(story, { phase: "test_case_writing", gaps: gapSummary }), agent_context: {}, agent_returns: {}, decision: null },
@@ -1161,7 +1235,9 @@ export function buildDownstreamPhases(story, analystParsed) {
     rows_extracted: Math.max(tc, outlineCount),
   };
   const dataGate = validationGateEvents("test_data_extractor", "test_data_extraction", story, dataExtractorReturns, {
-    gateDecision: "proceed to test_authoring",
+    gate_mode: "SIMULATED_GATE",
+    simulation_note: "Stub datasets without per-TC linkage — LIVE resolve may fail IO fidelity",
+    gateDecision: "proceed to test_authoring (SIMULATED_GATE until live datasets)",
   });
 
   events.push(
@@ -1207,7 +1283,13 @@ export function buildDownstreamPhases(story, analystParsed) {
     return events;
   }
 
+  const authorLive = validateAuthorOutputLive(story, authorReturns, writerReturns, analystWithActions);
   const authorGate = validationGateEvents("author", "test_authoring", story, authorReturns, {
+    gate_mode: "LIVE",
+    passValidation: authorLive,
+    decisionRecord: authorLive.orchestrator_decision,
+    handoff: HANDOFF.DATA_AUTHOR,
+    ioCtx: { story, analyst: analystWithActions, writer: writerReturns, author: authorReturns },
     gateDecision: "proceed to test_execution",
   });
   events.push(...authorGate);
@@ -1227,7 +1309,9 @@ export function buildDownstreamPhases(story, analystParsed) {
     human_webpage_used: requiresWeb && farmCtx.humanWebpageInput.ok,
   };
   const executorGate = validationGateEvents("test_executor", "test_execution", story, executorReturns, {
-    gateDecision: "proceed to qa_review",
+    gate_mode: "SIMULATED_GATE",
+    simulation_note: "Executor still stubbed (S2) — simulated gate only",
+    gateDecision: "proceed to qa_review (SIMULATED_GATE)",
   });
 
   const reviewerReturns = {
@@ -1237,12 +1321,16 @@ export function buildDownstreamPhases(story, analystParsed) {
     fix: "See analyst gaps + JIRA AC",
   };
   const reviewerGate = validationGateEvents("reviewer", "qa_review", story, reviewerReturns, {
-    gateDecision: "proceed to report_generation",
+    gate_mode: "SIMULATED_GATE",
+    simulation_note: "Reviewer score from story fixture — not evidence-cited LIVE review",
+    gateDecision: "proceed to report_generation (SIMULATED_GATE)",
   });
 
   const reporterReturns = { success: true, final_report: "Test Summary Report · " + s, ticket_key: s };
   const reporterGate = validationGateEvents("reporter", "report_generation", story, reporterReturns, {
-    gateDecision: "proceed to goal_check",
+    gate_mode: "SIMULATED_GATE",
+    simulation_note: "Reporter stub summary — not a LIVE artifact rollup",
+    gateDecision: "proceed to goal_check (SIMULATED_GATE)",
   });
 
   events.push(
@@ -1315,7 +1403,9 @@ export function buildEventsAfterHumanApiInput(story, analystParsed, writerOutput
     rows_extracted: tc,
   };
   const dataGate = validationGateEvents("test_data_extractor", "test_data_extraction", story, dataExtractorReturns, {
-    gateDecision: "proceed to test_authoring",
+    gate_mode: "SIMULATED_GATE",
+    simulation_note: "Stub datasets without per-TC linkage — LIVE resolve may fail IO fidelity",
+    gateDecision: "proceed to test_authoring (SIMULATED_GATE until live datasets)",
   });
   const webpage = farmCtx.humanWebpageInput?.ok ? farmCtx.humanWebpageInput : null;
   const authorReturns = buildAuthorOutput(story, writerFull, parsed, webpage);
@@ -1553,7 +1643,22 @@ export function buildOrchestratorLiveState(eventIndex) {
         score: ev.validation?.score,
         failures: ev.validation?.failures,
         brake_applied: !!ev.brake_applied,
+        gate_mode: ev.gate_mode || ev.validation?.gate_mode || "SIMULATED_GATE",
+        io_quality: ev.validation?.io?.quality?.overall || null,
+        orch_action: ev.orchestrator_decision?.action || ev.validation?.orchestrator_decision?.action || null,
       });
+    }
+    if (ev.kind === "orchestrator_gate" && ev.orchestrator_decision) {
+      decisions.push({
+        step: j + 1,
+        phase: ev.phase,
+        decision: `${ev.orchestrator_decision.action}: ${ev.orchestrator_decision.rationale}`,
+        message: ev.message,
+        action: ev.orchestrator_decision.action,
+        quality: ev.orchestrator_decision.io_summary?.quality?.overall,
+        gate_mode: ev.gate_mode,
+      });
+      latest_decision = `${ev.orchestrator_decision.action}: ${ev.orchestrator_decision.rationale}`;
     }
 
     if (ev.kind === "phase_start" || ev.kind === "orchestrator_validate" || ev.kind === "orchestrator_stage"
@@ -1565,7 +1670,7 @@ export function buildOrchestratorLiveState(eventIndex) {
         || ev.kind === "run_start" || ev.kind === "run_end" || ev.kind === "run_failed") {
       phase_log.push({ step: j + 1, kind: ev.kind, phase: ev.phase, message: ev.message });
     }
-    if (ev.decision) {
+    if (ev.decision && !(ev.kind === "orchestrator_gate" && ev.orchestrator_decision)) {
       decisions.push({ step: j + 1, phase: ev.phase, decision: ev.decision, message: ev.message });
       latest_decision = ev.decision;
     }

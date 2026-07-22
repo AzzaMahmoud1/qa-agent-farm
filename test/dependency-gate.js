@@ -45,12 +45,12 @@ const story = {
   title: "Admin can view organization subscriptions",
   description: "As a System Admin I want to view subscriptions. Pre-conditions: User logged in as System Admin.",
   acceptance_criteria_list: [
-    "System Admin can open Organization details and see the Subscriptions list",
-    "List shows active and inactive subscriptions",
+    "System Admin must open Organization details and see the Subscriptions list",
+    "List must show active and inactive subscriptions",
   ],
   acceptance_criteria_entries: [
-    { id: "AC-1", text: "System Admin can open Organization details and see the Subscriptions list" },
-    { id: "AC-2", text: "List shows active and inactive subscriptions" },
+    { text: "System Admin must open Organization details and see the Subscriptions list", source: "Business Rules", section: "business_rules" },
+    { text: "List must show active and inactive subscriptions", source: "Business Rules", section: "business_rules" },
   ],
   acceptance_criteria: 2,
   test_cases: ["TC-01", "TC-02"],

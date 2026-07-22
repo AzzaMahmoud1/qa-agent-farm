@@ -25,11 +25,14 @@ Check worker output against **that agent's skill rules only**. Never rewrite age
 
 | Agent | Key checks |
 |-------|------------|
-| Analyst | Structured ACs only from allowed sections, prerequisites categorized, `analysis_complete` vs `ready_for_test_design`, **disposition coverage** (no silent drops — every BR/Alt/Exception line in testable \| ambiguous \| unimplemented \| rejected), **MAIN GATE** (`agents/analyst-contract.js` + `disposition-coverage.js`): non-empty actions, no PROCEED on empty ACs / design-blocking gaps, access/env do not alone block design PROCEED, reject vague ASK_HUMAN |
-| Writer | Given/When/Then or outlines, AC coverage from Analyst conditions only, expected_evidence |
-| Data Extractor | Dataset per TC, test_oracle, human curl/web alignment, geo bounds |
+| Analyst | Structured ACs only from allowed sections, prerequisites categorized, `analysis_complete` vs `ready_for_test_design`, **disposition coverage**, **MAIN GATE**, plus **IO** ticket→analyst (`agents/io-consistency.js`) |
+| Writer | **LIVE IO** analyst→writer: every outline/case maps to Analyst AC IDs; no orphan AC; no zero-AC authoring |
+| Data Extractor | Dataset per TC, test_oracle, human curl/web alignment, geo bounds + **IO** writer→data linkage |
+| Author | **LIVE IO** — REVIEW only with approved outlines / Analyst ACs |
+| Executor / Reviewer / Reporter | Prefer LIVE evidence checks; if timeline-only, label **`SIMULATED_GATE`** (not production-grade) |
 
-Analyst MAIN GATE source of truth for rules: `src/prompts/agent1_requirement_analyst_v3.md`. Validator re-enforces it — does not invent new readiness.
+Analyst MAIN GATE source of truth: `src/prompts/agent1_requirement_analyst_v3.md`.  
+Cross-handoff fidelity: `agents/io-consistency.js`. Orchestrator decisions: `agents/orchestrator-decide.js`.
 
 ## Output
 
