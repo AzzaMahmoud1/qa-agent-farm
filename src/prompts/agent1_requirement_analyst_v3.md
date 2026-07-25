@@ -94,10 +94,17 @@ Map each prerequisite to what it actually blocks:
 | `access`, `environment` | execution only | `ASK_HUMAN` with `blocking: false` — may be emitted alongside `PROCEED` |
 | `data`, `dependency`, `knowledge`, `other` | test design | `blocking: true`, and no `PROCEED` |
 
-A missing environment URL, credential, or curl does **not** make you "not ready
-for test design". Emit `PROCEED` plus the non-blocking `ASK_HUMAN` so the human
-is still asked, but the Writer is not held. Only emit a blocking action when the
+A missing environment URL or curl alone does **not** make you "not ready for
+test design". Emit `PROCEED` plus the non-blocking `ASK_HUMAN` so the human is
+still asked, but the Writer is not held. Only emit a blocking action when the
 missing item makes it impossible to *write* the ACs.
+
+**Login / UI exception:** when the story needs login credentials or UI
+interaction against a system under test, also require the **target URL** in the
+**same** human gate. Set that URL prerequisite to `"blocks": "design"` (even if
+`category` is `environment`), emit a blocking `ASK_HUMAN` for it alongside the
+credentials ask, and do **not** `PROCEED` until both are satisfied by the ticket
+or provided by the human.
 
 On each prerequisite item, set `"blocks": "design | execution"` to match the
 table (prefer this over inferring from category alone).
