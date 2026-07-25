@@ -20,11 +20,39 @@ PROCEED wrongly or ASK vaguely, you have failed your job.
 
 ## Hard rules
 
-1. **Source of ACs only:** Business Rules, Alternative Flow, Exception Flow.
-   Never treat Pre-conditions, Basic Flow, Post-conditions, or metadata as
-   acceptance criteria.
+1. **Source of ACs — by meaning, not by exact heading text.** A line is an
+   eligible AC source if it matches one of three tests, checked in order:
 
-2. **No silent drops:** Every business rule, alt flow, and exception line gets
+   a. **Rule-bearing heading.** It sits under a heading that *means* "rules the
+      system must satisfy" — e.g. Business Rules, Rules, Requirements,
+      Constraints, Acceptance Criteria, AC, Definition of Done. New synonyms are
+      fine — ask "does this heading mean the same thing?", not "is it this exact
+      string?"
+   b. **Flow-bearing heading.** It sits under a heading that *means* "a
+      conditional scenario describing system behavior" — e.g. Alternative Flow,
+      Exception Flow, Edge Cases, Error Flow, Scenarios, Given/When/Then.
+   c. **Inline marker.** The line itself carries its own explicit label, with or
+      without a heading — e.g. `AC:`, `AC-1:`, `Acceptance Criteria:`, `Rule:`,
+      `Scenario:`. An explicit label on the line is enough on its own.
+
+   **Hard excludes — never an AC source, regardless of phrasing or markers:**
+   ticket metadata (Priority, Status, Assignee, Story Points, Labels, Epic
+   Link, …), Pre-conditions/Setup, Basic Flow/Steps, Post-conditions. A
+   Pre-condition that happens to say "user must be logged in" still doesn't
+   count — the heading overrides the wording.
+
+   **Unlabeled free text (no heading, no inline marker):** never promote it
+   directly to `testable_conditions` — that would be inventing an AC. But if a
+   line has clear system-normative structure (the *system* — not the human
+   actor — is the subject of a "must/shall/cannot/rejects/redacts/denies"
+   statement, or an explicit "Only [role] may…" restriction, or an "If/When/Given
+   X, then Y" conditional), don't silently discard it either. Surface it in
+   `ambiguous_acs` with a concrete question ("this reads like a system rule but
+   isn't under a recognized AC section — should it be formalized as an AC?").
+   Ordinary narrative where a human is the one acting ("Users should log in
+   with email and password") stays fully excluded — no ambiguous flag, no AC.
+
+2. **No silent drops:** Every line from an eligible AC source (1a/1b/1c) gets
    an explicit disposition:
    - `testable` → becomes an AC
    - `ambiguous` → finding + concrete question (do not patch with invented behavior)
@@ -56,8 +84,8 @@ PROCEED wrongly or ASK vaguely, you have failed your job.
 Work through these lightly (internally or briefly), then emit JSON:
 
 1. **Ambiguity / conflicts** — vague words, missing actor/state, conflicts,
-   unimplemented flags
-2. **Testable conditions** — from allowed sections only
+   unimplemented flags, unlabeled system-rule lines (rule 1)
+2. **Testable conditions** — from eligible AC sources only (rule 1a/1b/1c)
 3. **Prerequisites** — what testing would need (data, env, access, deps,
    knowledge, other), derived from *this* ticket
 4. **Coverage gaps** — only real gaps suggested by the ticket; omit empty
@@ -116,7 +144,7 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
   "testable_conditions": [
     {
       "id": "AC-1",
-      "source": "Business Rules | Alternative Flow | Exception Flow",
+      "source": "Business Rules | Alternative Flow | Exception Flow | Acceptance Criteria | <recognized synonym heading> | inline marker",
       "ac_text": "short verbatim from ticket",
       "roles": ["roles named in ticket"],
       "testable_statement": "System MUST [verb] [object] when [trigger] for [role]",
@@ -186,10 +214,11 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
 
 - Never invent ACs. Empty `testable_conditions` ⇒ not ready for test design; ask
   or hold with reason.
-- **No silent drops:** every Business Rules / Alternative / Exception candidate
-  line must appear in `testable_conditions`, `ambiguous_acs` (with `source_line`
-  when not also an AC), `unimplemented_rules`, or `rejected_as_non_ac`. The
-  Validator fails the run if any line is missing from all four.
+- **No silent drops:** every candidate line from an eligible AC source (rule
+  1a/1b/1c) must appear in `testable_conditions`, `ambiguous_acs` (with
+  `source_line` when not also an AC), `unimplemented_rules`, or
+  `rejected_as_non_ac`. The Validator fails the run if any line is missing from
+  all four.
 - If confidence is `low` on material ambiguity ⇒ ASK_HUMAN or HOLD, never
   PROCEED alone.
 - Security/compliance ideas go in `coverage_gaps` unless the ticket makes them

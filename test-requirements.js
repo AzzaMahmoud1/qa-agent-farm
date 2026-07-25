@@ -98,6 +98,74 @@ test("free-text paste without AC sections invents zero ACs", () => {
   assert(out.ready_for_test_design === false, "not ready without ACs");
 });
 
+test("inline 'AC:' marker outside any section is a testable condition (rule 1c)", () => {
+  const parsed = parseFullRequirements(
+    "we need to update the title of the landing page to be \"new title\"\n\n"
+    + "AC: check if the title of landing page is \"new title\"",
+  );
+  assert(parsed.acceptance_criteria_list.length === 1, "expected 1 AC from inline marker, got " + parsed.acceptance_criteria_list.length);
+  assert(parsed.acceptance_criteria_list[0] === "check if the title of landing page is \"new title\"", "unexpected AC text: " + parsed.acceptance_criteria_list[0]);
+  const out = buildAnalystOutput({
+    title: parsed.title,
+    description: parsed.description,
+    requirements_raw: parsed.requirements_raw,
+    acceptance_criteria_list: parsed.acceptance_criteria_list,
+    acceptance_criteria_entries: parsed.acceptance_criteria_entries,
+    acceptance_criteria_rejected: parsed.acceptance_criteria_rejected,
+    components: [],
+    labels: [],
+  });
+  assert(out.testable_conditions.length === 1, "expected 1 testable condition, got " + out.testable_conditions.length);
+  assert(out.ready_for_test_design === true, "should be ready for test design with a valid inline AC");
+});
+
+test("heading synonyms (Rules:, Edge Cases:, Definition of Done:) are recognized AC sources (rule 1a/1b)", () => {
+  const rules = parseFullRequirements("Some feature\n\nRules:\nOnly Admin may delete a record\n");
+  assert(rules.acceptance_criteria_list.includes("Only Admin may delete a record"), "Rules: heading not recognized");
+
+  const edgeCases = parseFullRequirements("Some feature\n\nEdge Cases:\nIf the cart is empty, checkout must be disabled\n");
+  assert(edgeCases.acceptance_criteria_list.some((a) => /checkout must be disabled/i.test(a)), "Edge Cases: heading not recognized");
+
+  const dod = parseFullRequirements("Some feature\n\nDefinition of Done:\nSystem must log every export request\n");
+  assert(dod.acceptance_criteria_list.some((a) => /log every export request/i.test(a)), "Definition of Done: heading not recognized");
+});
+
+test("unmarked system-rule prose is flagged ambiguous, never invented (rule 1 fallback)", () => {
+  const free = parseFullRequirements(
+    "Users should log in with email and password.\n"
+    + "Invalid credentials must show an error.\n"
+    + "The system rejects wrong passwords.",
+  );
+  // Guarantee unchanged: still zero invented ACs from free text.
+  assert(free.acceptance_criteria_list.length === 0, "expected 0 ACs from free text, got " + free.acceptance_criteria_list.length);
+  const out = buildAnalystOutput({
+    title: free.title,
+    description: free.description,
+    requirements_raw: free.requirements_raw,
+    acceptance_criteria_list: free.acceptance_criteria_list,
+    acceptance_criteria_entries: free.acceptance_criteria_entries,
+    acceptance_criteria_rejected: free.acceptance_criteria_rejected,
+    components: [],
+    labels: [],
+  });
+  assert(out.testable_conditions.length === 0, "stub must still not invent testable_conditions");
+  assert(out.ready_for_test_design === false, "still not ready without a validated AC");
+  // But no longer silently dropped: the two system-subject lines surface as ambiguous.
+  const ambiguousLines = (out.analyst_reasoning?.ambiguous_acs || []).map((a) => a.source_line);
+  assert(ambiguousLines.includes("Invalid credentials must show an error."), "expected ambiguous flag for system-rule line 1");
+  assert(ambiguousLines.includes("The system rejects wrong passwords."), "expected ambiguous flag for system-rule line 2");
+  // The human-actor line ("Users should log in...") is not a system rule — stays fully excluded.
+  assert(!ambiguousLines.includes("Users should log in with email and password."), "human-actor line should not be flagged ambiguous");
+});
+
+test("Pre-conditions stay excluded even with must/shall wording (hard exclude overrides wording)", () => {
+  const parsed = parseFullRequirements(
+    "Some feature\n\nPre-conditions:\nUser must be logged in before starting checkout\n\nBusiness Rules:\nSystem must charge the card on file\n",
+  );
+  assert(!parsed.acceptance_criteria_list.some((a) => /logged in before starting checkout/i.test(a)), "Pre-condition wrongly promoted to AC");
+  assert(parsed.acceptance_criteria_list.some((a) => /charge the card on file/i.test(a)), "Business Rules AC missing");
+});
+
 test("prerequisites exclude section headers", () => {
   const prereq = analyzeStoryPrerequisites(story);
   const labels = prereq.items.map((i) => i.label);

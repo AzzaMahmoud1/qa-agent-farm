@@ -58,9 +58,9 @@ const AGENT_GUIDELINES = {
         level: "L2",
         required_deliverables: ["testable_conditions", "coverage_gaps", "prerequisites_needed", "analyst_reasoning", "analysis_complete", "ready_for_test_design", "analyst_report"],
         rules: [
-          "Disposition every Business Rules / Alternative / Exception line; never silent-drop (Validator enforces coverage)",
+          "Disposition every eligible AC-source line (rule-bearing heading, flow-bearing heading, or inline AC/Rule/Scenario marker); never silent-drop (Validator enforces coverage)",
           "Reject ticket metadata and wrong sections — never map Basic Flow / Pre-conditions as ACs",
-          "Extract ACs only from Business Rules, Alternative Flow, Exception Flow",
+          "Extract ACs only from eligible sources; flag unlabeled system-rule prose as ambiguous instead of inventing or silently dropping it",
           "Map every acceptance criterion to a structured testable condition",
           "Categorize prerequisites as data/environment/dependency/knowledge/access with blocking/non-blocking",
           "Keep analysis_complete separate from ready_for_test_design (access usually blocks execution, not design)",
