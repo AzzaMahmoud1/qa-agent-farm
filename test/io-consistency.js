@@ -103,6 +103,29 @@ const analyst = {
 }
 
 {
+  // Regression: stub/JIRA "Acceptance Criteria" → acceptance_criteria (allowed)
+  const story = {
+    acceptance_criteria_entries: [
+      { text: "User can reset password with a valid token", section: "ac" },
+    ],
+  };
+  const io = checkIoConsistency(HANDOFF.TICKET_ANALYST, {
+    story,
+    analyst: {
+      ...analyst,
+      testable_conditions: [
+        {
+          id: "AC-1",
+          ac_text: "User can reset password with a valid token",
+          source: "Acceptance Criteria",
+        },
+      ],
+    },
+  });
+  assert.equal(io.fidelity_ok, true, io.failures.join("; "));
+}
+
+{
   // A4: disallowed source → fidelity_ok false
   const story = {
     acceptance_criteria_entries: [

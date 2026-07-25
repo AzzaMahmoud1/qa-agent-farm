@@ -89,7 +89,13 @@ export function checkIoConsistency(handoff, ctx = {}) {
       }
       // Fidelity: empty ACs is honest (not invention) — coverage gap handled by MAIN GATE
       const entries = story?.acceptance_criteria_entries || [];
-      const allowed = new Set(["business_rules", "alternative_flow", "exception_flow", "ac"]);
+      const allowed = new Set([
+        "business_rules",
+        "alternative_flow",
+        "exception_flow",
+        "ac",
+        "acceptance_criteria", // normalizeSection("Acceptance Criteria") — stub/JIRA source label
+      ]);
       for (const c of analyst.testable_conditions || []) {
         const src = String(c.source || "").toLowerCase();
         if (src && !/business rules|alternative|exception|acceptance/i.test(c.source || "")) {
