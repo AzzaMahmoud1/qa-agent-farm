@@ -22,6 +22,26 @@ import { analystReturnV1, buildAnalystReturnV2 } from "./demo-fixtures.js";
 import { isApprovableOutput } from "./dependency-gate.js";
 import { isLiveAnalystOutput, isDesignBlockingPrereq } from "./analyst-contract.js";
 import { slugifyPrereqId } from "../lib/human-ask-merge.js";
+import { inferExpectedShape } from "../lib/input-shapes.js";
+
+/** Imperative ask naming the artifact — not what the ticket is missing. */
+export function askHumanDetailForPrereq(b) {
+  const item = String(b?.item || "missing prerequisite").trim();
+  const shape = b?.expected_shape || inferExpectedShape(item);
+  if (shape === "credentials" || /\b(login|credential|password|username|user)\b/i.test(item)) {
+    return `Provide the username and password of a working test account (${item})`;
+  }
+  if (shape === "url" || b?.category === "environment" || b?.category === "access") {
+    return `Provide the full http(s) URL of the target test environment (${item})`;
+  }
+  if (shape === "api_access") {
+    return `Provide a runnable curl command or API base URL plus token (${item})`;
+  }
+  if (shape === "email") {
+    return `Provide a single email address (${item})`;
+  }
+  return `Provide a concrete value for: ${item}`;
+}
 import { deliberateHandoff, withDecisionRecord } from "./orchestrator-decide.js";
 import { HANDOFF } from "./io-consistency.js";
 
@@ -144,7 +164,7 @@ export function ensureAnalystReportActions(parsed) {
       return {
         action: "ASK_HUMAN",
         target: "human",
-        detail: `Provide ${b.item || "missing prerequisite"} (account/credentials or concrete data) for test design — ${b.if_not_satisfied || "required by ticket"}`,
+        detail: askHumanDetailForPrereq(b),
         blocking: true,
         requires_value: true,
         prereq_id,

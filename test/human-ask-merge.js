@@ -44,4 +44,19 @@ import { mergeHumanAskFields } from "../lib/human-ask-merge.js";
   assert.equal(merged.length, 2);
 }
 
+{
+  // Credentials ask must not absorb a webpage_url item via loose label match
+  const detail = "Provide the username and password of a working test account (Login test user)";
+  const merged = mergeHumanAskFields({
+    actions: [{ action: "ASK_HUMAN", detail, requires_value: true }],
+    prereqItems: [
+      { id: "env", label: "login page", input_type: "webpage_url", required: true },
+      { id: "login_user", label: "Login test user", required: true },
+    ],
+  });
+  const login = merged.find((f) => f.sources.prereq_id === "login_user" || /Login test user/i.test(f.label));
+  assert.ok(login);
+  assert.notEqual(login.input_type, "webpage_url");
+}
+
 console.log("human-ask-merge tests: ok");
