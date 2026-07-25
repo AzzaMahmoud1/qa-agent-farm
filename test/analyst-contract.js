@@ -1,6 +1,31 @@
 /** Prompt MAIN GATE contract unit tests. */
 import assert from "node:assert/strict";
+import path from "node:path";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { checkAnalystPromptContract } from "../agents/analyst-contract.js";
+import { setFarmCtx } from "../agents/ctx-bridge.js";
+import { validateAnalystOutputLive } from "../agents/validator.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+const prerequisites = require(path.join(__dirname, "../lib/prerequisites.cjs"));
+
+setFarmCtx({
+  prerequisites,
+  storyRequiresApi: () => false,
+  storyRequiresWebpage: () => false,
+  isRequiredInputReady: () => false,
+  isHumanInputSatisfied: () => true,
+  humanApiInput: { ok: false },
+  humanWebpageInput: { ok: false },
+  getLiveHumanInputNeed: () => ({ needsHumanInput: false, types: [] }),
+  getProvidedPrerequisites: () => [],
+  EVENTS: [],
+  currentStory: null,
+  storyOutputs: {},
+  executionResult: null,
+});
 
 const base = {
   testable_conditions: [{ id: "AC-1" }],
@@ -144,5 +169,53 @@ assert.equal(checkAnalystPromptContract({
     non_blocking: [],
   },
 }).ok, false);
+
+// Dual-grader regression: lib/prerequisites + analyst-contract must both honor blocks:execution
+{
+  const dualPayload = {
+    success: true,
+    analysis_complete: true,
+    ready_for_test_design: true,
+    analyst_reasoning: {
+      ticket_read: "Sample login ticket",
+      ambiguous_acs: [],
+      unimplemented_rules: [],
+      rejected_as_non_ac: [],
+    },
+    testable_conditions: [{
+      id: "AC-1",
+      ac_text: "User can log in with valid credentials",
+      source: "Business Rules",
+      section: "business_rules",
+      testable_statement: "System MUST authenticate user when valid credentials are submitted",
+    }],
+    prerequisites_needed: {
+      blocking: [{
+        item: "Sample payload",
+        category: "data",
+        blocks: "execution",
+        satisfied_by_ticket: false,
+      }],
+      non_blocking: [],
+    },
+    coverage_gaps: [],
+    analyst_report: {
+      what_i_did: ["scanned"],
+      why: [],
+      orchestrator_actions: [{ action: "PROCEED", target: "writer", blocking: false }],
+      confidence: { overall: "high", reason: "ok" },
+    },
+    summary: "1 condition",
+  };
+
+  const contract = checkAnalystPromptContract(dualPayload);
+  assert.equal(contract.ok, true, contract.failures.join("; "));
+
+  const libGate = prerequisites.validateAnalystOutput({}, dualPayload);
+  assert.equal(libGate.passed, true, (libGate.failures || []).join("; "));
+
+  const live = validateAnalystOutputLive({}, dualPayload);
+  assert.equal(live.passed, true, (live.failures || live.detail_failures || []).join("; "));
+}
 
 console.log("analyst-contract tests: ok");
