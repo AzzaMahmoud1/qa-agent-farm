@@ -4,7 +4,12 @@
  */
 import assert from "node:assert/strict";
 import { extractFinalJson } from "../src/agents/utils/extractFinalJson.js";
-import { validateAnalystOutput } from "../src/agents/requirementAnalyst.js";
+import {
+  validateAnalystOutput,
+  effortForAttempt,
+  extractUsageFromEnvelope,
+  buildRetryExtra,
+} from "../src/agents/requirementAnalyst.js";
 import { checkAnalystPromptContract } from "../agents/analyst-contract.js";
 import {
   resolveAnalystOrchestratorGate,
@@ -209,6 +214,54 @@ function validParsed(overrides = {}) {
   }));
   assert.equal(emptyAc.state, PIPELINE_STATE.NEEDS_INPUT);
   assert.equal(emptyAc.proceed, false);
+}
+
+// --- effort + retry payload (token-cost helpers) ---
+{
+  const prevEffort = process.env.ANALYST_EFFORT;
+  const prevRetry = process.env.ANALYST_RETRY_EFFORT;
+  delete process.env.ANALYST_EFFORT;
+  delete process.env.ANALYST_RETRY_EFFORT;
+  // Default stays high until medium is empirically validated against retry rate.
+  assert.equal(effortForAttempt(1), "high");
+  assert.equal(effortForAttempt(2), "high");
+  process.env.ANALYST_EFFORT = "medium";
+  assert.equal(effortForAttempt(1), "medium");
+  assert.equal(effortForAttempt(2), "medium"); // retry falls back to ANALYST_EFFORT
+  process.env.ANALYST_RETRY_EFFORT = "high";
+  assert.equal(effortForAttempt(2), "high");
+  if (prevEffort === undefined) delete process.env.ANALYST_EFFORT;
+  else process.env.ANALYST_EFFORT = prevEffort;
+  if (prevRetry === undefined) delete process.env.ANALYST_RETRY_EFFORT;
+  else process.env.ANALYST_RETRY_EFFORT = prevRetry;
+}
+
+{
+  const u = extractUsageFromEnvelope({
+    result: "ok",
+    usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 80 },
+  });
+  assert.equal(u.input_tokens, 100);
+  assert.equal(u.output_tokens, 50);
+  assert.equal(u.cache_read_input_tokens, 80);
+  assert.equal(extractUsageFromEnvelope({ result: "ok" }), null);
+}
+
+{
+  const err = new Error("MAIN GATE: PROCEED requires ready_for_test_design true");
+  err.parsed = { success: true, ready_for_test_design: false };
+  const extra = buildRetryExtra(err, "long scratchpad that must not appear " + "x".repeat(100));
+  assert.match(extra, /Failures:/);
+  assert.match(extra, /corrected final/);
+  assert.match(extra, /"ready_for_test_design":false/);
+  assert.doesNotMatch(extra, /long scratchpad that must not appear/);
+
+  const extractFail = new Error("No ```json fenced block");
+  extractFail.extractFailed = true;
+  const raw = "prefix-" + "y".repeat(2500);
+  const truncated = buildRetryExtra(extractFail, raw);
+  assert.ok(truncated.includes(raw.slice(-2000)));
+  assert.ok(!truncated.includes("prefix-"));
 }
 
 console.log("agent1-analyst tests: ok");

@@ -80,7 +80,7 @@ const analyst = {
 }
 
 {
-  // A4: Title Case section normalizes → fidelity_ok
+  // A4: Title Case source normalizes → fidelity_ok (section optional)
   const story = {
     acceptance_criteria_entries: [
       { text: "User can reset password with a valid token", section: "business_rules" },
@@ -95,7 +95,6 @@ const analyst = {
           id: "AC-1",
           ac_text: "User can reset password with a valid token",
           source: "Business Rules",
-          section: "Business Rules",
         },
       ],
     },
@@ -104,7 +103,7 @@ const analyst = {
 }
 
 {
-  // A4: disallowed section → fidelity_ok false
+  // A4: disallowed source → fidelity_ok false
   const story = {
     acceptance_criteria_entries: [
       { text: "User is logged in", section: "pre_conditions" },
@@ -119,7 +118,6 @@ const analyst = {
           id: "AC-1",
           ac_text: "User is logged in before reset",
           source: "Pre-conditions",
-          section: "pre_conditions",
         },
       ],
     },

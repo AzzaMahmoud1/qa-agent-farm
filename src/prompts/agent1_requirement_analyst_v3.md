@@ -59,7 +59,11 @@ PROCEED wrongly or ASK vaguely, you have failed your job.
 
 ## What to produce
 
-Work through these lightly (internally or briefly), then emit JSON:
+Do the full analysis thoroughly. Before the JSON, write at most ~5 short lines
+noting ambiguities found and dispositions made — not a long narrative. Thorough
+reasoning still happens; do not narrate it at length. Then emit JSON.
+
+Cover (internally):
 
 1. **Ambiguity / conflicts** — vague words, missing actor/state, conflicts,
    unimplemented flags
@@ -140,14 +144,12 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
   "testable_conditions": [
     {
       "id": "AC-1",
-      "section": "business_rules | alternative_flow | exception_flow | ac",
       "source": "Business Rules | Alternative Flow | Exception Flow",
       "ac_text": "complete verbatim clause from ticket (≥ ~12 characters)",
-      "roles": ["roles named in ticket"],
+      "roles": ["roles named in ticket — short"],
       "testable_statement": "System MUST [verb] [object] when [trigger] for [role]",
-      "pass_evidence": "observable pass",
-      "fail_evidence": "observable fail",
-      "delta_or_regression": "delta | regression"
+      "pass_evidence": "one short clause — observable pass",
+      "fail_evidence": "one short clause — observable fail"
     }
   ],
   "prerequisites_needed": {
@@ -184,10 +186,10 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
   "analysis_complete": true,
   "ready_for_test_design": false,
   "analyst_report": {
-    "what_i_did": ["3–6 specific actions that changed the output"],
+    "what_i_did": ["at most 2 short lines"],
     "why": [
       {
-        "decision": "non-obvious decision",
+        "decision": "only genuinely non-obvious decisions — at most 2 entries; [] ok",
         "reason": "ticket evidence",
         "impact_if_wrong": "downstream impact"
       }
@@ -215,9 +217,8 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
 
 ### Field notes
 
-- `section` is the machine enum (snake_case, exact): `business_rules`,
-  `alternative_flow`, `exception_flow`, or `ac`. `source` is the human-readable
-  label (Title Case).
+- `source` is the human-readable AC origin label (Title Case). Graders normalize
+  it to a snake_case section enum — do not emit a separate `section` field.
 - `rejected_as_non_ac` entries use a spaced em dash: `"<verbatim ticket line> — <reason>"`.
   The verbatim line must come first (before the separator).
 - `unimplemented_rules` items are objects:
@@ -228,6 +229,8 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
   acknowledge-only actions.
 - `assumptions_made` lists every inference beyond literal ticket text; use `[]`
   when nothing was assumed.
+- `what_i_did`: at most 2 short lines. `why`: at most 2 non-obvious decisions
+  (`[]` acceptable). `pass_evidence` / `fail_evidence` / `roles`: one short clause each.
 
 ### Gate checklist
 

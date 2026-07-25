@@ -95,10 +95,11 @@ export function checkIoConsistency(handoff, ctx = {}) {
         if (src && !/business rules|alternative|exception|acceptance/i.test(c.source || "")) {
           // soft: source label unusual
         }
-        if (entries.length && c.section && !allowed.has(normalizeSection(c.section))) {
+        const sectionRaw = c.section || c.source;
+        if (entries.length && sectionRaw && !allowed.has(normalizeSection(sectionRaw))) {
           fidelity_ok = false;
           invention_risk = "high";
-          failures.push(`IO: AC ${c.id} section "${c.section}" not an allowed AC source`);
+          failures.push(`IO: AC ${c.id} section "${sectionRaw}" not an allowed AC source`);
         }
       }
       // Zero testable ACs can be honest (all rejected/unimplemented) — MAIN GATE + disposition cover that.
