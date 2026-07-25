@@ -2055,7 +2055,7 @@ function renderWriterOutput(data) {
       ? `<div class="prereq-section-title" style="margin-top:0">Test outlines — approve before Author</div>${renderTestOutlines(outlines)}`
       : `<div class="output-empty">No outlines yet.</div>`,
     data.test_cases?.length
-      ? `<details style="margin-top:.75rem"><summary style="cursor:pointer;font-size:.72rem;color:var(--muted)">GWT docs (${data.test_cases.length})</summary>${renderTestCases(data.test_cases)}</details>`
+      ? `<details style="margin-top:.75rem"><summary style="cursor:pointer;font-size:.72rem;color:var(--muted)">GWT docs (${data.test_cases.length}) — documentation only; Author builds from approved outlines</summary>${renderTestCases(data.test_cases)}</details>`
       : "",
   ].join("");
 }
@@ -2074,7 +2074,7 @@ function renderTestOutlines(outlines) {
       <div class="tc-row-head">
         <span class="tc-row-id">${escapeHtml(o.id)}</span>
         <span style="color:${color[st] || color.draft};font-size:.68rem;font-weight:700;text-transform:uppercase">${escapeHtml(st)}</span>
-        <strong style="font-size:.8rem">${escapeHtml(o.title || "")}</strong>
+        <strong class="tc-title" title="${escapeHtml(o.ac_text || o.title || "")}">${escapeHtml(o.title || "")}</strong>
       </div>
       <div style="font-size:.74rem;color:var(--muted)">ACs: ${escapeHtml((o.mapped_acs || []).join(", ") || "—")} · ${escapeHtml(String(o.intent || ""))}${btns}</div>
     </div>`;
@@ -2167,17 +2167,20 @@ function renderReviewerOutput(data) {
 function renderTestCases(cases) {
   return cases.map((tc) => {
     const typeCls = tc.type.includes("happy") ? "happy" : tc.type.includes("edge") ? "edge" : "negative";
+    const hover = tc.ac_text || tc.title || "";
     return `<div class="tc-row">
       <div class="tc-row-head">
         <span class="tc-row-id">${escapeHtml(tc.id)}</span>
         <span class="tc-type tc-type-${typeCls}">${escapeHtml(tc.type.replace("_", " "))}</span>
-        <strong style="font-size:.8rem">${escapeHtml(tc.title)}</strong>
+        ${tc.documentation_only ? `<span class="tc-doc-only">docs only</span>` : ""}
+        <strong class="tc-title" title="${escapeHtml(hover)}">${escapeHtml(tc.title)}</strong>
       </div>
       <div style="font-size:.78rem;color:var(--muted);line-height:1.5">
         <div><strong style="color:var(--text)">Given</strong> ${escapeHtml(tc.given)}</div>
         <div><strong style="color:var(--text)">When</strong> ${escapeHtml(tc.when)}</div>
         <div><strong style="color:var(--text)">Then</strong> ${escapeHtml(tc.then)}</div>
-        <div style="margin-top:.3rem;font-family:monospace;font-size:.72rem">✓ ${escapeHtml(tc.expected_evidence)}</div>
+        ${tc.expected_evidence ? `<div style="margin-top:.3rem;font-family:monospace;font-size:.72rem"><strong>Expected:</strong> ${escapeHtml(tc.expected_evidence)}</div>` : ""}
+        ${tc.needs_detail ? `<div style="margin-top:.2rem;font-size:.7rem;color:var(--warn,#b45309)">Needs detail — Analyst did not supply pass/fail evidence</div>` : ""}
       </div>
     </div>`;
   }).join("");
