@@ -109,7 +109,10 @@ Emit exactly one path in `orchestrator_actions`:
 - **Not ready:** one or more blocking `ASK_HUMAN` / `FETCH_DEPENDENCY` / `HOLD`,
   and no `PROCEED`
 
-`ASK_HUMAN.detail` must be one executable line using names from the ticket only.
+`ASK_HUMAN.detail` must be one imperative line that names the concrete artifact
+and its form (e.g. "Provide the username and password of a test account that
+still has email/password login enabled") — not a description of what the ticket
+is missing. Use names from the ticket only.
 
 ---
 
@@ -205,7 +208,7 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
       {
         "action": "PROCEED | HOLD | ASK_HUMAN | FETCH_DEPENDENCY | RETRY_WITH_INFO",
         "target": "next agent | human | ticket id",
-        "detail": "one executable line",
+        "detail": "imperative naming the artifact + form (not ticket deficiency)",
         "blocking": true,
         "requires_value": true,
         "prereq_id": "same id as prerequisites_needed item when this ask is for that item",

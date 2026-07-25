@@ -30,7 +30,13 @@ import {
   resolveExpectedShape,
   evaluateProvidedValue,
   placeholderForShape,
+  expectationLine,
 } from "../lib/input-shapes.js";
+
+/** Per-field touch / submit-attempt — errors stay hidden until interaction. */
+const askFieldTouched = new Set();
+let askSubmitAttempted = false;
+let askShapeLoggedKeys = "";
 
 const el = (id) => document.getElementById(id);
 
@@ -714,14 +720,53 @@ function validateMergedField(field) {
   return { ...evaluateProvidedValue(shape, value, currentAskExtras()), shape };
 }
 
-function firstUnsatisfiedAskBlame() {
-  for (const field of getMergedAskFields()) {
-    const result = validateMergedField(field);
-    if (!result.ok) return result.blame || `Invalid: ${field.label}`;
+function askStatusSummary() {
+  const fields = getMergedAskFields();
+  if (!fields.length) {
+    if (prereqShowsApi && !humanApiInput.ok) return "API curl still needs a valid value";
+    if (prereqShowsWeb && !humanWebpageInput.ok) return "Webpage URL still needs a valid value";
+    return null;
   }
-  if (prereqShowsApi && !humanApiInput.ok) return "Provide a valid API curl";
-  if (prereqShowsWeb && !humanWebpageInput.ok) return "Provide a valid webpage URL";
-  return null;
+  const invalid = fields.filter((f) => !validateMergedField(f).ok).length;
+  if (!invalid) return null;
+  if (fields.length === 1) return "1 of 1 field still needs a valid value";
+  return `${invalid} of ${fields.length} fields still need a valid value`;
+}
+
+function paintAskFieldValidity(wrap, result, forceVisible = false) {
+  if (!wrap) return;
+  const key = wrap.dataset.askKey || "";
+  const show = forceVisible || askSubmitAttempted || askFieldTouched.has(key);
+  const blameEl = wrap.querySelector(".prereq-field-blame");
+  const inputEl = wrap.querySelector(".merged-ask-input, .prereq-curl-input, .prereq-web-input");
+  if (!show) {
+    if (blameEl) {
+      blameEl.textContent = "";
+      blameEl.hidden = true;
+    }
+    if (inputEl) {
+      inputEl.setAttribute("aria-invalid", "false");
+      inputEl.style.borderColor = "";
+    }
+    return;
+  }
+  if (blameEl) {
+    blameEl.textContent = result.ok ? "" : (result.blame || "Invalid value");
+    blameEl.hidden = !!result.ok;
+  }
+  if (inputEl) {
+    inputEl.setAttribute("aria-invalid", result.ok ? "false" : "true");
+    inputEl.style.borderColor = result.ok ? "" : "#dc2626";
+  }
+}
+
+function setSubmitPrereqDisabled(submitBtn, disabled) {
+  if (!submitBtn) return;
+  submitBtn.disabled = !!disabled;
+  submitBtn.setAttribute("aria-disabled", disabled ? "true" : "false");
+  submitBtn.style.opacity = disabled ? "0.45" : "";
+  submitBtn.style.cursor = disabled ? "not-allowed" : "";
+  submitBtn.style.pointerEvents = disabled ? "none" : "";
 }
 
 function isPrerequisitesSatisfied() {
@@ -946,6 +991,9 @@ function loadStory(story, runOptions) {
   userPrerequisites = {};
   cachedPrerequisiteCheck = null;
   cachedHumanInputNeed = null;
+  askFieldTouched.clear();
+  askSubmitAttempted = false;
+  askShapeLoggedKeys = "";
   pipelineState = "RUNNING";
   blockingOrchestratorActions = [];
   if (storyOutputs?.analyst?.pipeline_state) {
@@ -2953,11 +3001,26 @@ const submitHumanApi = submitHumanInput;
 
 
 function submitPrerequisites() {
-  updatePrerequisiteStatus();
   if (!isPrerequisitesSatisfied()) {
+    askSubmitAttempted = true;
+    const list = el("prerequisites-list");
+    const fields = getMergedAskFields();
+    let firstInvalid = null;
+    for (const field of fields) {
+      askFieldTouched.add(field.key);
+      const wrap = list?.querySelector(`.prereq-field[data-ask-key="${field.key.replace(/"/g, "")}"]`);
+      const result = validateMergedField(field);
+      if (wrap) paintAskFieldValidity(wrap, result, true);
+      if (!result.ok && !firstInvalid) {
+        firstInvalid = wrap?.querySelector(".merged-ask-input, .prereq-curl-input, .prereq-web-input");
+      }
+    }
+    firstInvalid?.focus();
+    updatePrerequisiteStatus();
     promptForPrerequisites();
     return false;
   }
+  updatePrerequisiteStatus();
   const conditions = storyOutputs?.analyst?.testable_conditions || [];
   if (!conditions.length) {
     const status = el("prerequisites-status");
@@ -3306,14 +3369,18 @@ function updatePrerequisiteStatus() {
   const check = cachedPrerequisiteCheck;
   if (!check?.needed && !blockingOrchestratorActions.length) return;
   const submitBtn = el("btn-submit-prerequisites");
+  if (pipelineState === "NEEDS_INPUT") {
+    setSubmitPrereqDisabled(submitBtn, true);
+    return;
+  }
   if (isPrerequisitesSatisfied()) {
     status.className = "jira-status ok";
     status.textContent = "Prerequisites confirmed — click Confirm or press Next";
-    if (submitBtn && pipelineState !== "NEEDS_INPUT") submitBtn.disabled = false;
+    setSubmitPrereqDisabled(submitBtn, false);
   } else {
     status.className = "jira-status loading";
-    status.textContent = firstUnsatisfiedAskBlame() || "Orchestrator is waiting — fill in all fields";
-    if (submitBtn && pipelineState !== "NEEDS_INPUT") submitBtn.disabled = true;
+    status.textContent = askStatusSummary() || "Orchestrator is waiting — fill in all fields";
+    setSubmitPrereqDisabled(submitBtn, true);
   }
 }
 
@@ -3352,7 +3419,7 @@ function updatePrerequisitesPanel(story, options = {}) {
       : state === "WAITING_ON_HUMAN"
         ? `<i class="ti ti-player-play"></i> Resolved — continue pipeline`
         : `<i class="ti ti-check"></i> Confirm prerequisites`;
-    submitBtn.disabled = state === "NEEDS_INPUT";
+    if (state === "NEEDS_INPUT") setSubmitPrereqDisabled(submitBtn, true);
   }
 
   if (storyMapEl && check.story_analysis?.test_actions?.length && waitingAtStep) {
@@ -3403,29 +3470,34 @@ function updatePrerequisitesPanel(story, options = {}) {
     prereqShowsApi = !!mergedFields.some((f) => f.input_type === "api_curl");
     prereqShowsWeb = !!mergedFields.some((f) => f.input_type === "webpage_url");
 
-    const paintFieldValidity = (wrap, result) => {
-      const blameEl = wrap.querySelector(".prereq-field-blame");
-      const inputEl = wrap.querySelector(".merged-ask-input, .prereq-curl-input, .prereq-web-input");
-      if (blameEl) {
-        blameEl.textContent = result.ok ? "" : (result.blame || "Invalid value");
-        blameEl.hidden = !!result.ok;
+    const shapeLogKey = mergedFields.map((f) => f.key).join("|");
+    if (shapeLogKey && shapeLogKey !== askShapeLoggedKeys) {
+      askShapeLoggedKeys = shapeLogKey;
+      for (const f of mergedFields) {
+        console.info("[ask-shape]", {
+          key: f.key,
+          label: f.label,
+          input_type: f.input_type || null,
+          expected_shape: f.expected_shape || null,
+          resolved: resolveExpectedShape(f),
+        });
       }
-      if (inputEl) {
-        inputEl.setAttribute("aria-invalid", result.ok ? "false" : "true");
-        inputEl.style.borderColor = result.ok ? "" : "#dc2626";
-      }
-    };
+    }
 
     const renderMerged = (field) => {
       const shape = resolveExpectedShape(field);
       const currentVal = readMergedFieldValue(field);
       const ph = placeholderForShape(shape, field.hint, field.input_type);
+      const expected = expectationLine(shape);
       const actionBadge = field.action
         ? `<span style="display:inline-block;background:#1e293b;color:#fff;border-radius:4px;padding:.05rem .35rem;font-size:.65rem;font-family:monospace;margin-right:.35rem">${escapeHtml(field.action.action || "ASK_HUMAN")}</span>`
         : "";
       const head = `
         <label class="field-label">${actionBadge}${escapeHtml(field.label)}</label>
-        ${field.note ? `<p class="prereq-hint">${escapeHtml(field.note)}</p>` : ""}
+        <p class="prereq-expected" style="font-size:.78rem;line-height:1.45;margin:.25rem 0 .35rem;color:var(--text-primary,#111)">
+          <strong>Expected:</strong> ${escapeHtml(expected)}
+        </p>
+        ${field.note ? `<p class="prereq-hint" style="opacity:.85">${escapeHtml(field.note)}</p>` : ""}
         ${field.required_for?.length ? `<p class="prereq-for-ac">For ${escapeHtml(field.required_for.join(", "))}</p>` : ""}`;
       const blame = `<p class="prereq-field-blame" hidden style="font-size:.72rem;color:#dc2626;margin:.3rem 0 0"></p>`;
       if (field.input_type === "api_curl") {
@@ -3456,27 +3528,38 @@ function updatePrerequisitesPanel(story, options = {}) {
 
     const fieldByKey = Object.fromEntries(mergedFields.map((f) => [f.key, f]));
 
-    list.querySelectorAll(".merged-ask-input").forEach((input) => {
-      const sync = () => {
+    const bindAskInput = (input) => {
+      const markAndPaint = () => {
         const field = fieldByKey[input.dataset.askKey];
         if (!field) return;
+        askFieldTouched.add(field.key);
         applyMergedFieldValue(field, input.value);
         if (field.sources.action_idx != null) {
           const a = blockingOrchestratorActions[field.sources.action_idx];
           if (a && input.value.trim()) a.resolved = true;
         }
-        paintFieldValidity(input.closest(".prereq-field"), validateMergedField(field));
+        paintAskFieldValidity(input.closest(".prereq-field"), validateMergedField(field));
         updatePrerequisiteStatus();
       };
-      input.addEventListener("input", sync);
-      sync();
-    });
+      input.addEventListener("input", markAndPaint);
+      input.addEventListener("blur", () => {
+        askFieldTouched.add(input.dataset.askKey || "");
+        const field = fieldByKey[input.dataset.askKey];
+        if (field) paintAskFieldValidity(input.closest(".prereq-field"), validateMergedField(field));
+      });
+      // Initial paint: no red until touched / submit attempt
+      const field = fieldByKey[input.dataset.askKey];
+      if (field) paintAskFieldValidity(input.closest(".prereq-field"), validateMergedField(field), false);
+    };
+
+    list.querySelectorAll(".merged-ask-input").forEach(bindAskInput);
 
     const curlInput = list.querySelector(".prereq-curl-input");
     if (curlInput) {
       const statusNode = list.querySelector(".prereq-curl-status");
       const field = fieldByKey[curlInput.dataset.askKey];
       curlInput.addEventListener("input", () => {
+        askFieldTouched.add(curlInput.dataset.askKey || "");
         const parsed = parseCurl(curlInput.value);
         humanApiInput = parsed.ok ? parsed : { ok: false, curl: curlInput.value };
         if (field) applyMergedFieldValue(field, curlInput.value);
@@ -3486,21 +3569,32 @@ function updatePrerequisitesPanel(story, options = {}) {
             : "";
           statusNode.style.color = parsed.ok ? "var(--accent, #16a34a)" : "var(--text-secondary)";
         }
-        if (field) paintFieldValidity(curlInput.closest(".prereq-field"), validateMergedField(field));
+        if (field) paintAskFieldValidity(curlInput.closest(".prereq-field"), validateMergedField(field));
         updatePrerequisiteStatus();
       });
+      curlInput.addEventListener("blur", () => {
+        askFieldTouched.add(curlInput.dataset.askKey || "");
+        if (field) paintAskFieldValidity(curlInput.closest(".prereq-field"), validateMergedField(field));
+      });
+      if (field) paintAskFieldValidity(curlInput.closest(".prereq-field"), validateMergedField(field), false);
     }
 
     const webInput = list.querySelector(".prereq-web-input");
     if (webInput) {
       const field = fieldByKey[webInput.dataset.askKey];
       webInput.addEventListener("input", () => {
+        askFieldTouched.add(webInput.dataset.askKey || "");
         const parsed = parseWebpageInput(webInput.value, humanWebpageInput.title);
         humanWebpageInput = parsed.ok ? parsed : { ok: false, url: webInput.value, path: "", origin: "", title: "" };
         if (field) applyMergedFieldValue(field, webInput.value);
-        if (field) paintFieldValidity(webInput.closest(".prereq-field"), validateMergedField(field));
+        if (field) paintAskFieldValidity(webInput.closest(".prereq-field"), validateMergedField(field));
         updatePrerequisiteStatus();
       });
+      webInput.addEventListener("blur", () => {
+        askFieldTouched.add(webInput.dataset.askKey || "");
+        if (field) paintAskFieldValidity(webInput.closest(".prereq-field"), validateMergedField(field));
+      });
+      if (field) paintAskFieldValidity(webInput.closest(".prereq-field"), validateMergedField(field), false);
     }
   }
   updatePrerequisiteStatus();
