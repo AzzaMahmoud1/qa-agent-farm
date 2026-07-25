@@ -25,6 +25,12 @@ import { parseCurl, parseWebpageInput, formatCurlPreview, inferHumanInputNeeds }
 import { redactParsedCurl, redactString } from "../lib/redaction.js";
 import { parseRequirementsDescription, issueToStory } from "../lib/story.js";
 import { buildRequirementsFromStory, getLiveRequirements } from "../lib/requirements.js";
+import { mergeHumanAskFields } from "../lib/human-ask-merge.js";
+import {
+  resolveExpectedShape,
+  evaluateProvidedValue,
+  placeholderForShape,
+} from "../lib/input-shapes.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -653,27 +659,83 @@ function actionNeedsTypedValue(a) {
     || /\b(provide|supply|seed|url|credential|password|token|curl|confirm|clarif)\b/i.test(detail);
 }
 
-function isPrerequisitesSatisfied() {
-  // Checkbox alone is not enough when Analyst asked for a typed clarification / value.
-  const actionsOk = !blockingOrchestratorActions.length
-    || blockingOrchestratorActions.every((a) => {
-      const value = (a.provided_value || "").trim();
-      if (actionNeedsTypedValue(a)) return value.length > 0;
-      return !!a.resolved || value.length > 0;
-    });
-  // When the panel surfaces the curl/webpage fields, the human must fill them here.
-  const apiOk = !prereqShowsApi || humanApiInput.ok;
-  const webOk = !prereqShowsWeb || humanWebpageInput.ok;
-  const check = cachedPrerequisiteCheck;
-  if (!check?.items?.length) return actionsOk && apiOk && webOk;
-  const fieldsOk = check.items.every((item) => {
-    // Access items are validated via the parsed curl / webpage inputs, not free text.
-    if (item.input_type === "api_curl") return humanApiInput.ok;
-    if (item.input_type === "webpage_url") return humanWebpageInput.ok;
-    const v = userPrerequisites[item.id]?.value;
-    return v != null && String(v).trim().length > 0;
+function currentAskExtras() {
+  return {
+    apiOk: !!humanApiInput.ok,
+    webOk: !!humanWebpageInput.ok,
+    webUrl: humanWebpageInput.url || "",
+  };
+}
+
+function getMergedAskFields() {
+  return mergeHumanAskFields({
+    actions: blockingOrchestratorActions,
+    prereqItems: cachedPrerequisiteCheck?.items || [],
   });
-  return actionsOk && fieldsOk && apiOk && webOk;
+}
+
+function readMergedFieldValue(field) {
+  const fromAction = field.sources?.action_idx != null
+    ? String(blockingOrchestratorActions[field.sources.action_idx]?.provided_value || "").trim()
+    : "";
+  if (field.input_type === "api_curl") return humanApiInput.curl || humanApiInput.url || fromAction || "";
+  if (field.input_type === "webpage_url") return humanWebpageInput.url || fromAction || "";
+  if (fromAction) return fromAction;
+  const pid = field.sources?.prereq_id;
+  if (pid && userPrerequisites[pid]?.value) return String(userPrerequisites[pid].value).trim();
+  if (userPrerequisites[field.key]?.value) return String(userPrerequisites[field.key].value).trim();
+  return "";
+}
+
+function applyMergedFieldValue(field, value) {
+  const v = String(value ?? "");
+  if (field.sources?.action_idx != null) {
+    const a = blockingOrchestratorActions[field.sources.action_idx];
+    if (a) {
+      a.provided_value = v;
+      if (v.trim()) a.resolved = true;
+    }
+  }
+  if (field.sources?.prereq_id) {
+    userPrerequisites[field.sources.prereq_id] = { value: v, label: field.label };
+  }
+  userPrerequisites[field.key] = { value: v, label: field.label };
+}
+
+function validateMergedField(field) {
+  const shape = resolveExpectedShape(field);
+  const value = readMergedFieldValue(field);
+  if (!field.required && !actionNeedsTypedValue(field.action) && !value) {
+    if (field.action && !field.action.resolved) {
+      return { ok: false, blame: "Action not resolved", shape };
+    }
+    return { ok: true, blame: null, shape };
+  }
+  return { ...evaluateProvidedValue(shape, value, currentAskExtras()), shape };
+}
+
+function firstUnsatisfiedAskBlame() {
+  for (const field of getMergedAskFields()) {
+    const result = validateMergedField(field);
+    if (!result.ok) return result.blame || `Invalid: ${field.label}`;
+  }
+  if (prereqShowsApi && !humanApiInput.ok) return "Provide a valid API curl";
+  if (prereqShowsWeb && !humanWebpageInput.ok) return "Provide a valid webpage URL";
+  return null;
+}
+
+function isPrerequisitesSatisfied() {
+  const fields = getMergedAskFields();
+  if (!fields.length && !prereqShowsApi && !prereqShowsWeb) {
+    // No merged asks — fall back to action checklist only when present.
+    if (!blockingOrchestratorActions.length) return true;
+  }
+  for (const field of fields) {
+    if (!validateMergedField(field).ok) return false;
+  }
+  if (prereqShowsApi && !humanApiInput.ok) return false;
+  if (prereqShowsWeb && !humanWebpageInput.ok) return false;
+  return true;
 }
 
 
@@ -2142,7 +2204,7 @@ function renderTicketPanel(story) {
   el("ticket-description").textContent = story.description || "(no description)";
   const acUl = el("ticket-ac");
   const acItems = story.acceptance_criteria_list || [];
-  const rejected = story.acceptance_criteria_rejected || [];
+  const rejected = (story.acceptance_criteria_rejected || []).filter((r) => r.kind !== "section_header");
   const meta = story.requirements_metadata || {};
   const metaNote = [
     meta.use_case ? `Use case: ${meta.use_case}` : null,
@@ -2152,7 +2214,7 @@ function renderTicketPanel(story) {
     ? `<li class="muted" style="margin-bottom:.35rem;font-size:.72rem">Testable acceptance criteria (${acItems.length})</li>`
       + acItems.map((a, i) => `<li><strong>AC-${i + 1}.</strong> ${escapeHtml(a)}</li>`).join("")
       + (rejected.length
-        ? `<li class="muted" style="margin-top:.65rem;font-size:.72rem">Excluded (${rejected.length}) — metadata, section headers, flow steps</li>`
+        ? `<li class="muted" style="margin-top:.65rem;font-size:.72rem">Excluded (${rejected.length}) — metadata, flow, or wrong section</li>`
           + rejected.map((r) => `<li class="muted" style="font-size:.72rem">${escapeHtml(r.text)}</li>`).join("")
         : "")
       + (metaNote.length
@@ -3242,13 +3304,16 @@ function updatePrerequisiteStatus() {
   const status = el("prerequisites-status");
   if (!status) return;
   const check = cachedPrerequisiteCheck;
-  if (!check?.needed) return;
+  if (!check?.needed && !blockingOrchestratorActions.length) return;
+  const submitBtn = el("btn-submit-prerequisites");
   if (isPrerequisitesSatisfied()) {
     status.className = "jira-status ok";
     status.textContent = "Prerequisites confirmed — click Confirm or press Next";
+    if (submitBtn && pipelineState !== "NEEDS_INPUT") submitBtn.disabled = false;
   } else {
     status.className = "jira-status loading";
-    status.textContent = "Orchestrator is waiting — fill in all fields";
+    status.textContent = firstUnsatisfiedAskBlame() || "Orchestrator is waiting — fill in all fields";
+    if (submitBtn && pipelineState !== "NEEDS_INPUT") submitBtn.disabled = true;
   }
 }
 
@@ -3331,123 +3396,109 @@ function updatePrerequisitesPanel(story, options = {}) {
   }
 
   if (list) {
-    const actionChecklist = actions.length
-      ? `<div class="prereq-section-title">Orchestrator actions — provide input or check off</div>`
-        + actions.map((a, i) => `
-      <div class="prereq-field" data-action-idx="${i}" style="border-left:3px solid #c4b5fd;padding-left:.6rem">
-        <label style="display:flex;gap:.55rem;align-items:flex-start;cursor:pointer">
-          <input type="checkbox" class="orch-action-check" data-idx="${i}" ${a.resolved ? "checked" : ""} style="margin-top:.25rem" />
-          <span style="font-size:.78rem;line-height:1.45">
-            <span style="display:inline-block;background:#1e293b;color:#fff;border-radius:4px;padding:.05rem .35rem;font-size:.65rem;font-family:monospace">${escapeHtml(a.action || "ACTION")}</span>
-            <strong>${escapeHtml(a.target || "—")}</strong> — ${escapeHtml(a.detail || "")}
-          </span>
-        </label>
-        <input class="input orch-action-input" data-idx="${i}" placeholder="${escapeHtml(
-          a.requires_value || /clarif/i.test(String(a.detail || "")) || a.action === "ASK_HUMAN"
-            ? "Type clarification or value (required — checkbox alone is not enough)"
-            : "Provide value (URL, credentials, ticket ID…) — optional if handled externally"
-        )}" value="${escapeHtml(a.provided_value || "")}" style="margin-top:.4rem" />
-      </div>`).join("")
-      : "";
+    const mergedFields = mergeHumanAskFields({
+      actions,
+      prereqItems: check.items || [],
+    });
+    prereqShowsApi = !!mergedFields.some((f) => f.input_type === "api_curl");
+    prereqShowsWeb = !!mergedFields.some((f) => f.input_type === "webpage_url");
 
-    // Track whether the analyst asked for API / webpage access as a prerequisite item.
-    prereqShowsApi = !!check.items?.some((it) => it.input_type === "api_curl");
-    prereqShowsWeb = !!check.items?.some((it) => it.input_type === "webpage_url");
+    const paintFieldValidity = (wrap, result) => {
+      const blameEl = wrap.querySelector(".prereq-field-blame");
+      const inputEl = wrap.querySelector(".merged-ask-input, .prereq-curl-input, .prereq-web-input");
+      if (blameEl) {
+        blameEl.textContent = result.ok ? "" : (result.blame || "Invalid value");
+        blameEl.hidden = !!result.ok;
+      }
+      if (inputEl) {
+        inputEl.setAttribute("aria-invalid", result.ok ? "false" : "true");
+        inputEl.style.borderColor = result.ok ? "" : "#dc2626";
+      }
+    };
 
-    const renderField = (item) => {
+    const renderMerged = (field) => {
+      const shape = resolveExpectedShape(field);
+      const currentVal = readMergedFieldValue(field);
+      const ph = placeholderForShape(shape, field.hint, field.input_type);
+      const actionBadge = field.action
+        ? `<span style="display:inline-block;background:#1e293b;color:#fff;border-radius:4px;padding:.05rem .35rem;font-size:.65rem;font-family:monospace;margin-right:.35rem">${escapeHtml(field.action.action || "ASK_HUMAN")}</span>`
+        : "";
       const head = `
-        <label class="field-label">${escapeHtml(item.label)}</label>
-        <p class="prereq-hint">${escapeHtml(item.analyst_note || item.reason || item.hint)}</p>
-        ${item.required_for?.length ? `<p class="prereq-for-ac">For ${escapeHtml(item.required_for.join(", "))}</p>` : ""}`;
-      if (item.input_type === "api_curl") {
-        return `<div class="prereq-field" data-id="${escapeHtml(item.id)}">${head}
-        <textarea class="input curl-input prereq-curl-input" rows="4" placeholder="${escapeHtml(item.hint)}">${escapeHtml(humanApiInput.curl || "")}</textarea>
+        <label class="field-label">${actionBadge}${escapeHtml(field.label)}</label>
+        ${field.note ? `<p class="prereq-hint">${escapeHtml(field.note)}</p>` : ""}
+        ${field.required_for?.length ? `<p class="prereq-for-ac">For ${escapeHtml(field.required_for.join(", "))}</p>` : ""}`;
+      const blame = `<p class="prereq-field-blame" hidden style="font-size:.72rem;color:#dc2626;margin:.3rem 0 0"></p>`;
+      if (field.input_type === "api_curl") {
+        return `<div class="prereq-field" data-ask-key="${escapeHtml(field.key)}" style="border-left:3px solid #c4b5fd;padding-left:.6rem">${head}
+        <textarea class="input curl-input prereq-curl-input" data-ask-key="${escapeHtml(field.key)}" rows="4" placeholder="${escapeHtml(ph)}">${escapeHtml(humanApiInput.curl || "")}</textarea>
         <div class="prereq-curl-status" style="font-size:.72rem;margin-top:.3rem;color:var(--text-secondary)"></div>
+        ${blame}
       </div>`;
       }
-      if (item.input_type === "webpage_url") {
-        return `<div class="prereq-field" data-id="${escapeHtml(item.id)}">${head}
-        <input class="input prereq-web-input" type="url" placeholder="${escapeHtml(item.hint)}" value="${escapeHtml(humanWebpageInput.url || "")}" />
+      if (field.input_type === "webpage_url") {
+        return `<div class="prereq-field" data-ask-key="${escapeHtml(field.key)}" style="border-left:3px solid #c4b5fd;padding-left:.6rem">${head}
+        <input class="input prereq-web-input" data-ask-key="${escapeHtml(field.key)}" type="url" placeholder="${escapeHtml(ph)}" value="${escapeHtml(humanWebpageInput.url || "")}" />
+        ${blame}
       </div>`;
       }
-      return `<div class="prereq-field" data-id="${escapeHtml(item.id)}">${head}
-        <input class="input prereq-input" data-id="${escapeHtml(item.id)}" placeholder="${escapeHtml(item.hint)}" value="${escapeHtml(userPrerequisites[item.id]?.value || "")}" />
+      return `<div class="prereq-field" data-ask-key="${escapeHtml(field.key)}" style="border-left:3px solid #c4b5fd;padding-left:.6rem">${head}
+        <input class="input merged-ask-input" data-ask-key="${escapeHtml(field.key)}" placeholder="${escapeHtml(ph)}" value="${escapeHtml(currentVal)}" style="margin-top:.35rem" />
+        ${blame}
       </div>`;
     };
 
-    const fieldList = check.items?.length
-      ? `<div class="prereq-section-title">${actions.length ? "Additional fields" : "Only you can provide"}</div>`
-        + check.items.map(renderField).join("")
-      : "";
-
-    if (!actionChecklist && !fieldList) {
+    if (!mergedFields.length) {
       list.innerHTML = `<p style="font-size:.75rem;color:var(--text-secondary);margin:0">Nothing extra needed — the ticket already has what tests require.</p>`;
     } else {
-      list.innerHTML = actionChecklist + fieldList;
+      list.innerHTML = `<div class="prereq-section-title">Provide input — one field per need</div>`
+        + mergedFields.map(renderMerged).join("");
     }
 
-    list.querySelectorAll(".prereq-input").forEach((input) => {
-      input.addEventListener("input", () => {
-        const id = input.dataset.id;
-        const meta = check.items.find((i) => i.id === id);
-        userPrerequisites[id] = { value: input.value, label: meta?.label || id };
-        updatePrerequisiteStatus();
-      });
-    });
+    const fieldByKey = Object.fromEntries(mergedFields.map((f) => [f.key, f]));
 
-    list.querySelectorAll(".orch-action-check").forEach((box) => {
-      box.addEventListener("change", () => {
-        const i = Number(box.dataset.idx);
-        if (blockingOrchestratorActions[i]) {
-          blockingOrchestratorActions[i].resolved = box.checked;
+    list.querySelectorAll(".merged-ask-input").forEach((input) => {
+      const sync = () => {
+        const field = fieldByKey[input.dataset.askKey];
+        if (!field) return;
+        applyMergedFieldValue(field, input.value);
+        if (field.sources.action_idx != null) {
+          const a = blockingOrchestratorActions[field.sources.action_idx];
+          if (a && input.value.trim()) a.resolved = true;
         }
+        paintFieldValidity(input.closest(".prereq-field"), validateMergedField(field));
         updatePrerequisiteStatus();
-      });
-    });
-
-    list.querySelectorAll(".orch-action-input").forEach((input) => {
-      input.addEventListener("input", () => {
-        const i = Number(input.dataset.idx);
-        const a = blockingOrchestratorActions[i];
-        if (!a) return;
-        a.provided_value = input.value;
-        const hasValue = input.value.trim().length > 0;
-        // Providing a value auto-resolves the action; clearing it reverts to the checkbox state.
-        if (hasValue) {
-          a.resolved = true;
-          const box = list.querySelector(`.orch-action-check[data-idx="${i}"]`);
-          if (box) box.checked = true;
-        }
-        userPrerequisites[`action-${i}`] = {
-          value: input.value,
-          label: a.detail || a.target || `Orchestrator action ${i + 1}`,
-          action: a.action || "ACTION",
-        };
-        updatePrerequisiteStatus();
-      });
+      };
+      input.addEventListener("input", sync);
+      sync();
     });
 
     const curlInput = list.querySelector(".prereq-curl-input");
     if (curlInput) {
       const statusNode = list.querySelector(".prereq-curl-status");
+      const field = fieldByKey[curlInput.dataset.askKey];
       curlInput.addEventListener("input", () => {
         const parsed = parseCurl(curlInput.value);
         humanApiInput = parsed.ok ? parsed : { ok: false, curl: curlInput.value };
+        if (field) applyMergedFieldValue(field, curlInput.value);
         if (statusNode) {
           statusNode.textContent = curlInput.value.trim()
             ? (parsed.ok ? `Parsed: ${parsed.method} ${parsed.endpoint}` : parsed.error)
             : "";
           statusNode.style.color = parsed.ok ? "var(--accent, #16a34a)" : "var(--text-secondary)";
         }
+        if (field) paintFieldValidity(curlInput.closest(".prereq-field"), validateMergedField(field));
         updatePrerequisiteStatus();
       });
     }
 
     const webInput = list.querySelector(".prereq-web-input");
     if (webInput) {
+      const field = fieldByKey[webInput.dataset.askKey];
       webInput.addEventListener("input", () => {
         const parsed = parseWebpageInput(webInput.value, humanWebpageInput.title);
         humanWebpageInput = parsed.ok ? parsed : { ok: false, url: webInput.value, path: "", origin: "", title: "" };
+        if (field) applyMergedFieldValue(field, webInput.value);
+        if (field) paintFieldValidity(webInput.closest(".prereq-field"), validateMergedField(field));
         updatePrerequisiteStatus();
       });
     }

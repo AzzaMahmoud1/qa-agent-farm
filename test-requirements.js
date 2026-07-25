@@ -70,6 +70,25 @@ test("rejects metadata and UC section headers", () => {
   for (const expected of ["UC05", "Priority: High", "Pre-conditions", "Post-conditions", "Basic Flow", "Alternative Flow"]) {
     assert(texts.includes(expected), `missing rejected: ${expected}`);
   }
+  const headers = parsed.acceptance_criteria_rejected.filter((r) =>
+    /^(Pre-conditions|Post-conditions|Basic Flow|Alternative Flow|Acceptance Criteria)$/i.test(r.text),
+  );
+  assert(headers.length >= 1, "expected section headers in rejected list");
+  assert(headers.every((r) => r.kind === "section_header"), "section headers must be tagged kind=section_header");
+});
+
+test("section headers excluded from displayed reject reasoning", () => {
+  const out = buildAnalystOutput(story);
+  const rejectStep = (out.reasoning_steps || []).find((s) => s.step === "reject_non_ac");
+  if (rejectStep) {
+    assert(!/"Acceptance Criteria"|"Pre-conditions"|"Basic Flow"/i.test(rejectStep.text),
+      "section headers must not appear in Excluded reasoning: " + rejectStep.text);
+  }
+  // If only headers were rejected, the step must be omitted entirely.
+  const onlyHeaders = (parsed.acceptance_criteria_rejected || []).every((r) => r.kind === "section_header");
+  if (onlyHeaders) {
+    assert(!rejectStep, "Excluded step must be dropped when only section headers were rejected");
+  }
 });
 
 test("basic flow steps are not acceptance criteria", () => {
