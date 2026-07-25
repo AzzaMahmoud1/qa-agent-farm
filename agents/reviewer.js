@@ -3,27 +3,12 @@ export const AGENT_ID = "reviewer";
 export const SKILL_PATH = ".cursor/skills/qa-reviewer/SKILL.md";
 export const SKILL_FOLDER = ".cursor/skills/qa-reviewer";
 
-const PLACEHOLDER_RE = /^(todo|tbd|n\/a|na|none|null|undefined|xxx|placeholder|changeme|example|test)$/i;
-
-function looksLikeUrl(value) {
-  return /^https?:\/\/\S+/i.test(String(value || "").trim());
-}
-
-function looksLikeCurl(value) {
-  return /^curl\b/i.test(String(value || "").trim());
-}
-
-function looksLikeEmail(value) {
-  return /\b[\w.+-]+@[\w.-]+\.\w{2,}\b/.test(String(value || ""));
-}
-
-function isPlaceholder(value) {
-  const v = String(value || "").trim();
-  if (!v) return true;
-  if (PLACEHOLDER_RE.test(v)) return true;
-  if (/^(https?:\/\/)?(example\.com|localhost)(\/|$)/i.test(v) && v.length < 24) return true;
-  return false;
-}
+import {
+  inferExpectedShape,
+  evaluateProvidedValue,
+  resolveExpectedShape,
+} from "../lib/input-shapes.js";
+import { mergeHumanAskFields } from "../lib/human-ask-merge.js";
 
 function normalizeAskText(text) {
   return String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -41,44 +26,20 @@ function asksOverlap(a, b) {
   return hits.length >= Math.min(2, words.length);
 }
 
-function inferExpectedShape(text) {
-  const t = String(text || "").toLowerCase();
-  if (/\b(curl|api key|bearer|authorization header)\b/.test(t) || /\bapi\b/.test(t) && /\b(url|base|token|endpoint)\b/.test(t)) {
-    return "api_access";
-  }
-  if (/\b(url|uri|endpoint|environment|staging|base url|webpage|page)\b/.test(t) || /\bhttps?:\/\//.test(t)) {
-    return "url";
-  }
-  if (/\b(email)\b/.test(t)) return "email";
-  if (/\b(password|credential|username|login|user ?name)\b/.test(t)) return "credentials";
-  return "text";
-}
-
-function evaluateProvidedValue(expectedShape, value, extras = {}) {
-  const v = String(value || "").trim();
-  if (!v && !(extras.apiOk || extras.webOk)) {
-    return { ok: false, blame: "No value provided" };
-  }
-  if (v && isPlaceholder(v)) {
-    return { ok: false, blame: `Placeholder/empty-looking value rejected: "${v.slice(0, 40)}"` };
-  }
-  if (expectedShape === "url") {
-    if (extras.webOk && looksLikeUrl(extras.webUrl)) return { ok: true, blame: null };
-    if (!looksLikeUrl(v)) return { ok: false, blame: "Expected an http(s) URL" };
-  }
-  if (expectedShape === "api_access") {
-    if (extras.apiOk) return { ok: true, blame: null };
-    if (!looksLikeCurl(v) && !looksLikeUrl(v)) {
-      return { ok: false, blame: "Expected a curl command or API base URL + token" };
-    }
-  }
-  if (expectedShape === "email" && !looksLikeEmail(v)) {
-    return { ok: false, blame: "Expected an email address" };
-  }
-  if (expectedShape === "credentials" && v.length < 3) {
-    return { ok: false, blame: "Credentials look too short / incomplete" };
-  }
-  return { ok: true, blame: null };
+function fieldValue(field, humanBundle) {
+  const api = humanBundle.api || {};
+  const webpage = humanBundle.webpage || {};
+  const userPrereqs = humanBundle.userPrerequisites || {};
+  const fromAction = field.action?.provided_value != null
+    ? String(field.action.provided_value).trim()
+    : "";
+  if (field.input_type === "api_curl") return api.curl || api.url || fromAction || "";
+  if (field.input_type === "webpage_url") return webpage.url || fromAction || "";
+  if (fromAction) return fromAction;
+  const pid = field.sources?.prereq_id;
+  if (pid && userPrereqs[pid]?.value) return String(userPrereqs[pid].value).trim();
+  if (userPrereqs[field.key]?.value) return String(userPrereqs[field.key].value).trim();
+  return "";
 }
 
 /**
@@ -87,11 +48,6 @@ function evaluateProvidedValue(expectedShape, value, extras = {}) {
  *
  * @param {object} analystOutput
  * @param {object} humanBundle
- * @param {Array} humanBundle.actions — orchestrator actions with provided_value / resolved
- * @param {Array} humanBundle.prereqItems — analyst prerequisite panel items
- * @param {Record<string,{value?:string,label?:string}>} humanBundle.userPrerequisites
- * @param {{ok?:boolean,curl?:string,url?:string}} [humanBundle.api]
- * @param {{ok?:boolean,url?:string}} [humanBundle.webpage]
  */
 export function reviewHumanInputAgainstAnalyst(analystOutput, humanBundle = {}) {
   const checks = [];
@@ -109,33 +65,34 @@ export function reviewHumanInputAgainstAnalyst(analystOutput, humanBundle = {}) 
   const blocking = (analystOutput?.prerequisites_needed?.blocking || [])
     .filter((b) => b && !b.satisfied_by_ticket);
 
-  // 1) Orchestrator ASK_HUMAN / FETCH actions that required a value
-  actions.forEach((a, i) => {
-    const detail = a.detail || a.item || "";
-    const asked = `${a.action || "ACTION"} → ${a.target || "human"}: ${detail}`;
-    const shape = inferExpectedShape(detail);
-    const value = (a.provided_value || "").trim();
-    // Checkbox-only without a value is not enough when Analyst asked to provide something.
-    const needsValue = a.requires_value === true
-      || /\b(provide|supply|seed|url|credential|password|token|curl|confirm|clarif)\b/i.test(detail)
-      || a.action === "ASK_HUMAN"
-      || a.action === "FETCH_DEPENDENCY";
+  const merged = mergeHumanAskFields({ actions, prereqItems });
+
+  for (const field of merged) {
+    const shape = resolveExpectedShape(field);
+    const value = fieldValue(field, humanBundle);
+    const needsValue = field.required
+      || field.action?.requires_value === true
+      || field.action?.action === "ASK_HUMAN"
+      || field.action?.action === "FETCH_DEPENDENCY";
+
     if (needsValue) {
       const result = evaluateProvidedValue(shape, value, extras);
       checks.push({
-        id: `action-${i}`,
-        analyst_ref: detail || a.action,
-        asked_for: asked,
-        provided: value || (a.resolved ? "(checked, no value)" : "(empty)"),
+        id: field.key,
+        analyst_ref: field.detail || field.label,
+        asked_for: field.action
+          ? `${field.action.action || "ACTION"} → ${field.action.target || "human"}: ${field.detail || field.label}`
+          : `${field.label}${field.item?.derived_from ? ` (from ${field.item.derived_from})` : ""}`,
+        provided: value || (field.action?.resolved ? "(checked, no value)" : "(empty)"),
         status: result.ok ? "pass" : "fail",
         blame: result.ok ? null : result.blame,
         expected_shape: shape,
       });
-    } else if (!a.resolved && !value) {
+    } else if (field.action && !field.action.resolved && !value) {
       checks.push({
-        id: `action-${i}`,
-        analyst_ref: detail || a.action,
-        asked_for: asked,
+        id: field.key,
+        analyst_ref: field.detail || field.label,
+        asked_for: `${field.action.action || "ACTION"} → ${field.action.target || "human"}: ${field.detail || ""}`,
         provided: "(empty)",
         status: "fail",
         blame: "Action not resolved and no value provided",
@@ -143,56 +100,34 @@ export function reviewHumanInputAgainstAnalyst(analystOutput, humanBundle = {}) 
       });
     } else {
       checks.push({
-        id: `action-${i}`,
-        analyst_ref: detail || a.action,
-        asked_for: asked,
+        id: field.key,
+        analyst_ref: field.detail || field.label,
+        asked_for: field.label,
         provided: value || "(checked)",
         status: "pass",
         blame: null,
         expected_shape: shape,
       });
     }
-  });
+  }
 
-  // 2) Analyst prerequisite panel items (fillable gaps)
-  prereqItems.forEach((item) => {
-    const label = item.label || item.id;
-    const shape = item.input_type === "api_curl"
-      ? "api_access"
-      : item.input_type === "webpage_url"
-        ? "url"
-        : inferExpectedShape(`${label} ${item.reason || item.hint || ""}`);
-    let value = "";
-    if (item.input_type === "api_curl") value = api.curl || api.url || "";
-    else if (item.input_type === "webpage_url") value = webpage.url || "";
-    else value = userPrereqs[item.id]?.value || "";
-    const result = evaluateProvidedValue(shape, value, extras);
-    checks.push({
-      id: item.id,
-      analyst_ref: label,
-      asked_for: `${label}${item.derived_from ? ` (from ${item.derived_from})` : ""}`,
-      provided: value ? String(value).slice(0, 120) : "(empty)",
-      status: result.ok ? "pass" : "fail",
-      blame: result.ok ? null : result.blame,
-      expected_shape: shape,
-    });
-  });
-
-  // 3) Blocking analyst prerequisites not already covered by an action/panel check
+  // Blocking analyst prerequisites not already covered by a merged check
   for (const b of blocking) {
     const covered = checks.some((c) =>
       asksOverlap(c.analyst_ref, b.item) || asksOverlap(c.asked_for, b.item)
+      || (b.id && c.id === b.id),
     );
     if (covered) continue;
-    // Human may have satisfied via a free-text action; if nothing matched, fail closed when must_be_provided_by human.
     if (b.must_be_provided_by && b.must_be_provided_by !== "human") continue;
-    const matchedAction = actions.find((a) => asksOverlap(a.detail || a.item, b.item));
+    const matchedAction = actions.find((a) =>
+      (b.id && a.prereq_id === b.id) || asksOverlap(a.detail || a.item, b.item),
+    );
     const matchedPrereq = Object.values(userPrereqs).find((p) => asksOverlap(p.label, b.item));
-    const shape = inferExpectedShape(b.item);
+    const shape = b.expected_shape || inferExpectedShape(b.item);
     const value = (matchedAction?.provided_value || matchedPrereq?.value || "").trim();
     const result = evaluateProvidedValue(shape, value, extras);
     checks.push({
-      id: `blocking-${checks.length}`,
+      id: b.id || `blocking-${checks.length}`,
       analyst_ref: b.item,
       asked_for: `[${b.category || "data"}] ${b.item}`,
       provided: value ? String(value).slice(0, 120) : "(not mapped / empty)",
@@ -203,10 +138,8 @@ export function reviewHumanInputAgainstAnalyst(analystOutput, humanBundle = {}) 
   }
 
   const failures = checks.filter((c) => c.status === "fail");
-  // If Analyst asked for nothing blocking, accept (nothing to recheck).
   const nothingToCheck = checks.length === 0;
   const verdict = nothingToCheck ? "accepted" : (failures.length ? "rejected" : "accepted");
-  const passed = verdict === "accepted";
 
   return {
     role: "reviewer",
@@ -233,7 +166,6 @@ export function reviewHumanInputAgainstAnalyst(analystOutput, humanBundle = {}) 
 
 export function buildReviewerOutput(story, tcIds, executorOutput) {
   if (!executorOutput || (executorOutput.blocked && !executorOutput.summary && !executorOutput.results)) {
-    // Allow human_input_recheck without Executor; post-exec review needs Executor payload.
     if (!executorOutput) {
       return {
         success: false,

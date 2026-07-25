@@ -155,9 +155,11 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
   "prerequisites_needed": {
     "blocking": [
       {
+        "id": "stable_slug_from_item",
         "item": "description",
         "category": "data | environment | access | dependency | knowledge | other",
         "blocks": "design | execution",
+        "expected_shape": "url | api_access | email | credentials | text",
         "derived_from": "ticket phrase or 'explicit section'",
         "satisfied_by_ticket": false,
         "if_not_satisfied": "what breaks",
@@ -166,9 +168,11 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
     ],
     "non_blocking": [
       {
+        "id": "stable_slug_from_item",
         "item": "description",
         "category": "data | environment | access | dependency | knowledge | other",
         "blocks": "design | execution",
+        "expected_shape": "url | api_access | email | credentials | text",
         "derived_from": "ticket phrase or 'explicit section'",
         "satisfied_by_ticket": false
       }
@@ -203,7 +207,9 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
         "target": "next agent | human | ticket id",
         "detail": "one executable line",
         "blocking": true,
-        "requires_value": true
+        "requires_value": true,
+        "prereq_id": "same id as prerequisites_needed item when this ask is for that item",
+        "expected_shape": "url | api_access | email | credentials | text"
       }
     ],
     "confidence": {
@@ -231,6 +237,9 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
   when nothing was assumed.
 - `what_i_did`: at most 2 short lines. `why`: at most 2 non-obvious decisions
   (`[]` acceptable). `pass_evidence` / `fail_evidence` / `roles`: one short clause each.
+- Give each `prerequisites_needed` item a stable `id`. When an `ASK_HUMAN` /
+  `FETCH_DEPENDENCY` is for that item, set the same value on `prereq_id` so the
+  UI shows one field. Prefer `expected_shape` over leaving the UI to infer it.
 
 ### Gate checklist
 

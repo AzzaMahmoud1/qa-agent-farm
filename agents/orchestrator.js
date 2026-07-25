@@ -21,6 +21,7 @@ import {
 import { analystReturnV1, buildAnalystReturnV2 } from "./demo-fixtures.js";
 import { isApprovableOutput } from "./dependency-gate.js";
 import { isLiveAnalystOutput, isDesignBlockingPrereq } from "./analyst-contract.js";
+import { slugifyPrereqId } from "../lib/human-ask-merge.js";
 import { deliberateHandoff, withDecisionRecord } from "./orchestrator-decide.js";
 import { HANDOFF } from "./io-consistency.js";
 
@@ -137,13 +138,19 @@ export function ensureAnalystReportActions(parsed) {
       requires_value: true,
     }];
   } else if (designMissing.length) {
-    orchestrator_actions = designMissing.map((b) => ({
-      action: "ASK_HUMAN",
-      target: "human",
-      detail: `Provide ${b.item || "missing prerequisite"} (account/credentials or concrete data) for test design — ${b.if_not_satisfied || "required by ticket"}`,
-      blocking: true,
-      requires_value: true,
-    }));
+    orchestrator_actions = designMissing.map((b, i) => {
+      const prereq_id = b.id || slugifyPrereqId(b.item, i);
+      if (!b.id) b.id = prereq_id;
+      return {
+        action: "ASK_HUMAN",
+        target: "human",
+        detail: `Provide ${b.item || "missing prerequisite"} (account/credentials or concrete data) for test design — ${b.if_not_satisfied || "required by ticket"}`,
+        blocking: true,
+        requires_value: true,
+        prereq_id,
+        expected_shape: b.expected_shape || undefined,
+      };
+    });
   } else if (parsed.ready_for_test_design !== false) {
     orchestrator_actions = [{
       action: "PROCEED",
