@@ -148,6 +148,22 @@ export function ensureAnalystReportActions(parsed) {
   const missingBlocking = (parsed.prerequisites_needed?.blocking || []).filter((b) => !b.satisfied_by_ticket);
   // Access/env usually block execution, not AC design (prompt two-signal readiness).
   const designMissing = missingBlocking.filter(isDesignBlockingPrereq);
+  // Login/UI human gates must also collect a target URL in the same panel even if
+  // the Analyst left the URL as execution-only (category environment/access).
+  const loginOrUiMissing = designMissing.some((b) => {
+    const id = String(b.id || "").toLowerCase();
+    const item = String(b.item || "");
+    return id === "login_user" || /\b(login|credential|password|username|ui|webpage|browser)\b/i.test(item);
+  });
+  const coRequiredUrlMissing = loginOrUiMissing
+    ? missingBlocking.filter((b) => {
+      if (isDesignBlockingPrereq(b)) return false;
+      const id = String(b.id || "").toLowerCase();
+      const item = String(b.item || "");
+      return id === "target_environment"
+        || /\b(url|uri|environment|where to test|staging|base url)\b/i.test(item);
+    })
+    : [];
   let orchestrator_actions;
   if (!hasTestableConditions(parsed)) {
     orchestrator_actions = [{
@@ -158,9 +174,12 @@ export function ensureAnalystReportActions(parsed) {
       requires_value: true,
     }];
   } else if (designMissing.length) {
-    orchestrator_actions = designMissing.map((b, i) => {
+    const askList = [...designMissing, ...coRequiredUrlMissing];
+    orchestrator_actions = askList.map((b, i) => {
       const prereq_id = b.id || slugifyPrereqId(b.item, i);
       if (!b.id) b.id = prereq_id;
+      // Promote co-required URL into the design gate so MAIN GATE / ready stay aligned.
+      if (coRequiredUrlMissing.includes(b)) b.blocks = "design";
       return {
         action: "ASK_HUMAN",
         target: "human",

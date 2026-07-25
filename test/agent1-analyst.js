@@ -208,6 +208,36 @@ function validParsed(overrides = {}) {
 }
 
 {
+  // Login gap + execution-only URL → both blocking ASKs in the same gate.
+  const both = ensureAnalystReportActions({
+    success: true,
+    analysis_complete: true,
+    ready_for_test_design: false,
+    testable_conditions: [{ id: "AC-1" }],
+    prerequisites_needed: {
+      blocking: [
+        { id: "login_user", item: "Login test user", category: "data", satisfied_by_ticket: false },
+        {
+          id: "target_environment",
+          item: "Where to test",
+          category: "environment",
+          blocks: "execution",
+          satisfied_by_ticket: false,
+        },
+      ],
+      non_blocking: [],
+    },
+  });
+  const acts = both.analyst_report.orchestrator_actions;
+  assert.equal(acts.length, 2);
+  assert.ok(acts.every((a) => a.action === "ASK_HUMAN" && a.blocking === true));
+  assert.ok(acts.some((a) => a.prereq_id === "login_user"));
+  assert.ok(acts.some((a) => a.prereq_id === "target_environment"));
+  const urlPrereq = both.prerequisites_needed.blocking.find((b) => b.id === "target_environment");
+  assert.equal(urlPrereq.blocks, "design");
+}
+
+{
   const emptyAc = resolveAnalystOrchestratorGate(validParsed({
     testable_conditions: [],
     ready_for_test_design: true,
