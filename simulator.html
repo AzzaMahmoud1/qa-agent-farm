@@ -402,8 +402,9 @@ a { color: var(--text-accent); }
           <div class="panel-head"><i class="ti ti-player-play"></i> Demos</div>
           <div class="panel-body">
             <button type="button" class="btn" id="btn-demo-default" style="width:100%;justify-content:center;margin-bottom:.5rem"><i class="ti ti-route"></i> Default pipeline</button>
-            <button type="button" class="btn btn-primary" id="btn-demo-requirements" style="width:100%;justify-content:center"><i class="ti ti-alert-triangle"></i> Requirements failures</button>
-            <p style="font-size:.75rem;color:var(--text-muted);margin:.65rem 0 0;line-height:1.5"><strong>Default</strong> = real run (one Analyst return → one Validator check; retry only if live output fails). <strong>Requirements failures</strong> = scripted incomplete→fail→retry→abort demo.</p>
+            <button type="button" class="btn btn-primary" id="btn-demo-requirements" style="width:100%;justify-content:center;margin-bottom:.5rem"><i class="ti ti-alert-triangle"></i> Requirements failures</button>
+            <button type="button" class="btn" id="btn-raw-analyst" style="width:100%;justify-content:center"><i class="ti ti-bug"></i> Raw Analyst (skip gates)</button>
+            <p style="font-size:.75rem;color:var(--text-muted);margin:.65rem 0 0;line-height:1.5"><strong>Default</strong> = real run (one Analyst return → one Validator check; retry only if live output fails). <strong>Requirements failures</strong> = scripted incomplete→fail→retry→abort demo. <strong>Raw Analyst</strong> = debug only — stops right after Agent 1's own output, no Validator, no downstream gates.</p>
           </div>
         </div>
       </aside>

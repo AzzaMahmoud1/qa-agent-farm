@@ -902,7 +902,9 @@ function loadStory(story, runOptions) {
   const source = story.from_jira ? "live JIRA" : story.from_requirements ? "requirements" : "mock";
   const modeLabel = opts.demo === "requirements"
     ? ' · <span style="color:#dc2626;font-weight:600">demo: requirements failures</span>'
-    : "";
+    : opts.rawAnalyst
+      ? ' · <span style="color:#dc2626;font-weight:600">raw Analyst — gates skipped</span>'
+      : "";
   el("story-meta").innerHTML = story.id + " · " + source + modeLabel + " · run <span id=\"run-id\">" + runId + "</span>";
   if (story.from_requirements) {
     fillRequirementsForm(story);
@@ -2615,6 +2617,7 @@ function startDefaultPipeline() {
   const url = new URL(location.href);
   url.searchParams.delete("demo");
   url.searchParams.delete("abort_demo");
+  url.searchParams.delete("raw");
   if (currentInputSource === "requirements") {
     url.searchParams.delete("ticket");
     history.replaceState(null, "", url);
@@ -2622,8 +2625,29 @@ function startDefaultPipeline() {
   startPipelineFromActiveSource({});
 }
 
+async function startRawAnalystMode() {
+  currentRunOptions = { rawAnalyst: true };
+  const url = new URL(location.href);
+  url.searchParams.set("raw", "analyst");
+  url.searchParams.delete("demo");
+  url.searchParams.delete("abort_demo");
+  if (currentInputSource === "requirements") {
+    url.searchParams.delete("ticket");
+    history.replaceState(null, "", url);
+    try {
+      await loadRequirementsFromForm(currentRunOptions);
+    } catch (err) {
+      setRequirementsLoadStatus("err", err.message);
+    }
+    return;
+  }
+  history.replaceState(null, "", url);
+  startPipelineFromActiveSource(currentRunOptions);
+}
+
 el("btn-demo-requirements")?.addEventListener("click", startRequirementsDemo);
 el("btn-demo-default")?.addEventListener("click", startDefaultPipeline);
+el("btn-raw-analyst")?.addEventListener("click", startRawAnalystMode);
 el("demo-exit-link")?.addEventListener("click", (e) => {
   e.preventDefault();
   startDefaultPipeline();
@@ -2638,7 +2662,8 @@ el("demo-exit-link")?.addEventListener("click", (e) => {
     const demo = params.get("demo") === "requirements" || params.get("abort_demo") === "1"
       ? "requirements"
       : null;
-    currentRunOptions = demo ? { demo } : {};
+    const rawAnalyst = params.get("raw") === "analyst";
+    currentRunOptions = demo ? { demo } : rawAnalyst ? { rawAnalyst: true } : {};
     const source = params.get("source");
     if (source === "requirements") {
       setInputSource("requirements");
@@ -3156,11 +3181,20 @@ function triggerFileDownload(filename, content, mime) {
 function updateDemoBanner(runOptions) {
   const banner = el("demo-banner");
   const isDemo = runOptions?.demo === "requirements";
-  if (banner) banner.hidden = !isDemo;
+  const isRaw = !!runOptions?.rawAnalyst;
+  if (banner) banner.hidden = !isDemo && !isRaw;
+  const bannerText = el("demo-banner-text");
+  if (bannerText && isRaw) {
+    bannerText.textContent = "Raw Analyst mode — pipeline stops right after Agent 1's own output. Validator, human-input recheck, and every downstream gate are skipped. Not a real pipeline result. Exit to use the real default pipeline.";
+  } else if (bannerText && isDemo) {
+    bannerText.textContent = "Requirements failures — Analyst returns incomplete output, fails validation twice, then the run aborts (validator brake). Exit to use the real default pipeline.";
+  }
   const btnReq = el("btn-demo-requirements");
   const btnDef = el("btn-demo-default");
+  const btnRaw = el("btn-raw-analyst");
   if (btnReq) btnReq.classList.toggle("btn-primary", isDemo);
-  if (btnDef) btnDef.classList.toggle("btn-primary", !isDemo);
+  if (btnDef) btnDef.classList.toggle("btn-primary", !isDemo && !isRaw);
+  if (btnRaw) btnRaw.classList.toggle("btn-primary", isRaw);
 }
 
 

@@ -571,7 +571,7 @@ export function buildRequirementsFailureDemo(story) {
 export function resolvePipelineEvents(story, runOptions) {
   const opts = runOptions || {};
   if (opts.demo === "requirements") return buildRequirementsFailureDemo(story);
-  return buildEvents(story);
+  return buildEvents(story, opts);
 }
 
 export function buildPrerequisiteInputEvents(story, analystParsed) {
@@ -957,7 +957,8 @@ export function enrichEventForDisplay(e) {
   return e;
 }
 
-export function buildEvents(story) {
+export function buildEvents(story, runOptions) {
+  const opts = runOptions || {};
   const s = story.id;
   const tc = story.test_cases.length;
   const gapSummary = story.gaps + " (" + story.blocking_gaps + " blocking)";
@@ -1069,7 +1070,7 @@ export function buildEvents(story) {
 
   const analystGate = validationGateEvents("analyst", "gap_analysis", story, analystFeedback, analystGateOpts);
 
-  const coreStart = [
+  const coreStartBeforeGate = [
     { kind: "run_start", phase: "init", message: "Orchestrator received ticket " + s + (story.from_jira ? " (live from JIRA)" : ""), role: null, orchestrator_memory: mem(story, { phase: "init", source: story.from_jira ? "jira" : "mock" }), agent_context: {}, agent_returns: {}, decision: "begin QA pipeline — orchestrator leads" },
 
     { kind: "orchestrator_stage", phase: "orchestrator", message: "Stage 1: Orchestrator validates ticket (" + story.acceptance_criteria + " AC · " + story.issueType + " · " + story.priority + ")", role: null, orchestrator_memory: mem(story, { phase: "orchestrator", stage: "1", validation: "valid", component }), agent_context: {}, agent_returns: {}, decision: "assign Requirement Analyst — analyze prerequisites" },
@@ -1092,9 +1093,28 @@ export function buildEvents(story) {
         ? "Live Analyst output — proceeding to single validator check"
         : `Live Analyst output failed quality checks (${(analystQuality.failures || []).length}) — validator retry path`,
     },
-
-    ...analystGate,
   ];
+
+  // Debug/raw mode: stop right after Analyst's own return — no Validator check,
+  // no retry, no prerequisite gate, no downstream phases. Off by default; the
+  // real pipeline still enforces the hard gates in README (P0).
+  if (opts.rawAnalyst) {
+    return [
+      ...coreStartBeforeGate,
+      {
+        kind: "raw_analyst_end",
+        phase: "gap_analysis",
+        message: "Raw Analyst mode — stopped after Agent 1 output; Validator and all downstream gates skipped by request",
+        role: null,
+        orchestrator_memory: mem(story, { phase: "gap_analysis", mode: "raw_analyst", gates: "skipped" }),
+        agent_context: {},
+        agent_returns: {},
+        decision: "debug mode — not a real pipeline result",
+      },
+    ];
+  }
+
+  const coreStart = [...coreStartBeforeGate, ...analystGate];
 
   const prerequisiteEvents = buildPrerequisiteInputEvents(story, analystWithActions);
 
