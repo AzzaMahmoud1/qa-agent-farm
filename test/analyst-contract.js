@@ -83,4 +83,66 @@ assert.equal(checkAnalystPromptContract({
   analysis_complete: false,
 }).ok, false);
 
+// A2: low confidence + PROCEED (+ blocking ASK) ⇒ fail — low cannot PROCEED at all
+assert.equal(checkAnalystPromptContract({
+  ...base,
+  analyst_report: {
+    orchestrator_actions: [
+      { action: "PROCEED", blocking: false },
+      { action: "ASK_HUMAN", blocking: true, detail: "Provide staging URL + admin credentials for the login flow" },
+    ],
+    confidence: { overall: "low" },
+  },
+}).ok, false);
+
+// A3: PROCEED with ready_for_test_design false ⇒ fail
+assert.equal(checkAnalystPromptContract({
+  ...base,
+  ready_for_test_design: false,
+  analyst_report: {
+    orchestrator_actions: [{ action: "PROCEED", target: "writer", blocking: false }],
+    confidence: { overall: "high" },
+  },
+}).ok, false);
+
+// A1: access missing + PROCEED + non-blocking ASK_HUMAN ⇒ ok
+assert.equal(checkAnalystPromptContract({
+  ...base,
+  prerequisites_needed: {
+    blocking: [{ item: "Staging URL", category: "access", satisfied_by_ticket: false }],
+    non_blocking: [],
+  },
+  analyst_report: {
+    orchestrator_actions: [
+      { action: "PROCEED", target: "writer", blocking: false },
+      {
+        action: "ASK_HUMAN",
+        target: "human",
+        detail: "Provide staging URL for the login environment",
+        blocking: false,
+        requires_value: true,
+      },
+    ],
+    confidence: { overall: "high" },
+  },
+}).ok, true);
+
+// B1: explicit blocks:execution overrides data category → PROCEED ok
+assert.equal(checkAnalystPromptContract({
+  ...base,
+  prerequisites_needed: {
+    blocking: [{ item: "Sample payload", category: "data", blocks: "execution", satisfied_by_ticket: false }],
+    non_blocking: [],
+  },
+}).ok, true);
+
+// B1: explicit blocks:design overrides access category → PROCEED fails
+assert.equal(checkAnalystPromptContract({
+  ...base,
+  prerequisites_needed: {
+    blocking: [{ item: "Confirm access model", category: "access", blocks: "design", satisfied_by_ticket: false }],
+    non_blocking: [],
+  },
+}).ok, false);
+
 console.log("analyst-contract tests: ok");

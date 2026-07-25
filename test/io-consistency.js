@@ -79,4 +79,53 @@ const analyst = {
   assert.equal(sim.simulated, true);
 }
 
+{
+  // A4: Title Case section normalizes → fidelity_ok
+  const story = {
+    acceptance_criteria_entries: [
+      { text: "User can reset password with a valid token", section: "business_rules" },
+    ],
+  };
+  const io = checkIoConsistency(HANDOFF.TICKET_ANALYST, {
+    story,
+    analyst: {
+      ...analyst,
+      testable_conditions: [
+        {
+          id: "AC-1",
+          ac_text: "User can reset password with a valid token",
+          source: "Business Rules",
+          section: "Business Rules",
+        },
+      ],
+    },
+  });
+  assert.equal(io.fidelity_ok, true, io.failures.join("; "));
+}
+
+{
+  // A4: disallowed section → fidelity_ok false
+  const story = {
+    acceptance_criteria_entries: [
+      { text: "User is logged in", section: "pre_conditions" },
+    ],
+  };
+  const io = checkIoConsistency(HANDOFF.TICKET_ANALYST, {
+    story,
+    analyst: {
+      ...analyst,
+      testable_conditions: [
+        {
+          id: "AC-1",
+          ac_text: "User is logged in before reset",
+          source: "Pre-conditions",
+          section: "pre_conditions",
+        },
+      ],
+    },
+  });
+  assert.equal(io.fidelity_ok, false);
+  assert.ok(io.failures.some((f) => /section/i.test(f)));
+}
+
 console.log("io-consistency tests: ok");

@@ -40,6 +40,11 @@ function pct(n, d) {
   return Math.round((n / d) * 100);
 }
 
+/** Normalize section labels so Title Case / hyphens match snake_case enums. */
+export function normalizeSection(s) {
+  return String(s || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
 /**
  * @param {string} handoff — HANDOFF.*
  * @param {object} ctx — { story, analyst, writer, data, author, executor, reviewer, reporter }
@@ -90,7 +95,7 @@ export function checkIoConsistency(handoff, ctx = {}) {
         if (src && !/business rules|alternative|exception|acceptance/i.test(c.source || "")) {
           // soft: source label unusual
         }
-        if (entries.length && c.section && !allowed.has(c.section)) {
+        if (entries.length && c.section && !allowed.has(normalizeSection(c.section))) {
           fidelity_ok = false;
           invention_risk = "high";
           failures.push(`IO: AC ${c.id} section "${c.section}" not an allowed AC source`);

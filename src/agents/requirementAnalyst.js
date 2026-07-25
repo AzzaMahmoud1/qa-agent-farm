@@ -55,6 +55,7 @@ const MODEL_SPEC = ANALYST_EFFORT ? `${ANALYST_MODEL}[effort=${ANALYST_EFFORT}]`
 
 const REQUIRED_TOP_KEYS = [
   "success",
+  "analyst_reasoning",
   "testable_conditions",
   "prerequisites_needed",
   "coverage_gaps",
@@ -76,6 +77,16 @@ export function validateAnalystOutput(parsed) {
   const missing = REQUIRED_TOP_KEYS.filter((k) => !(k in parsed));
   if (missing.length) {
     throw new Error(`Analyst output missing required keys: ${missing.join(", ")}`);
+  }
+
+  const reasoning = parsed.analyst_reasoning;
+  if (!reasoning || typeof reasoning !== "object" || Array.isArray(reasoning)) {
+    throw new Error("analyst_reasoning must be a non-array object");
+  }
+  for (const key of ["ambiguous_acs", "unimplemented_rules", "rejected_as_non_ac"]) {
+    if (!Array.isArray(reasoning[key])) {
+      throw new Error(`analyst_reasoning.${key} must be an array`);
+    }
   }
 
   if (!Array.isArray(parsed.testable_conditions)) {

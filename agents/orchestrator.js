@@ -20,7 +20,7 @@ import {
 } from "./validator.js";
 import { analystReturnV1, buildAnalystReturnV2 } from "./demo-fixtures.js";
 import { isApprovableOutput } from "./dependency-gate.js";
-import { isLiveAnalystOutput } from "./analyst-contract.js";
+import { isLiveAnalystOutput, isDesignBlockingPrereq } from "./analyst-contract.js";
 import { deliberateHandoff, withDecisionRecord } from "./orchestrator-decide.js";
 import { HANDOFF } from "./io-consistency.js";
 
@@ -126,10 +126,7 @@ export function ensureAnalystReportActions(parsed) {
 
   const missingBlocking = (parsed.prerequisites_needed?.blocking || []).filter((b) => !b.satisfied_by_ticket);
   // Access/env usually block execution, not AC design (prompt two-signal readiness).
-  const designMissing = missingBlocking.filter((b) => {
-    const cat = String(b.category || "").toLowerCase();
-    return cat !== "access" && cat !== "environment";
-  });
+  const designMissing = missingBlocking.filter(isDesignBlockingPrereq);
   let orchestrator_actions;
   if (!hasTestableConditions(parsed)) {
     orchestrator_actions = [{

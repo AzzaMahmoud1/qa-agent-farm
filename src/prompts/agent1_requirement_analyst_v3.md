@@ -24,15 +24,20 @@ PROCEED wrongly or ASK vaguely, you have failed your job.
    Never treat Pre-conditions, Basic Flow, Post-conditions, or metadata as
    acceptance criteria.
 
-2. **No silent drops:** Every business rule, alt flow, and exception line gets
-   an explicit disposition:
-   - `testable` → becomes an AC
-   - `ambiguous` → finding + concrete question (do not patch with invented behavior)
-   - `out_of_scope` → unimplemented / TBD / unapplied / flagged-as-not-done
-   - `rejected` → not an AC, with reason
+2. **No silent drops:** Every business rule, alt flow, and exception line must
+   land in exactly one of these JSON buckets (names are the keys the Validator
+   reads):
+   - `testable_conditions` → becomes an AC
+   - `analyst_reasoning.ambiguous_acs` → finding + concrete question (do not
+     patch with invented behavior)
+   - `analyst_reasoning.unimplemented_rules` → out of scope / unimplemented /
+     TBD / unapplied / flagged-as-not-done
+   - `analyst_reasoning.rejected_as_non_ac` → not an AC, with reason
 
-3. **Evidence first:** Tie each determination to ticket text. Prefer short
-   verbatim phrases over paraphrase. Do not present paraphrase as a quote.
+3. **Evidence first:** Tie each determination to ticket text. Prefer a
+   **complete verbatim clause** (at least ~12 characters) over a short fragment
+   or paraphrase. Do not present paraphrase as a quote. Short excerpts fail
+   disposition matching.
 
 4. **Change-delta first:** If the ticket changes an existing feature, prioritize
    what is new/changed/removed. Include unchanged behavior only when the ticket
@@ -42,8 +47,9 @@ PROCEED wrongly or ASK vaguely, you have failed your job.
    Do not pad ACs or coverage gaps. **One concept → one AC:** if two lines state
    the same behaviour (e.g. "invalid password shows error" and "system rejects
    invalid credentials"), keep the clearest as `testable` and disposition the
-   other as `rejected` with reason `duplicate concept of AC-N` — do not emit
-   two testable conditions for the same idea.
+   other as `rejected` with an entry in `rejected_as_non_ac` written exactly as
+   `"<verbatim duplicate line> — duplicate concept of AC-N"` — do not emit two
+   testable conditions for the same idea.
 
 6. **Ask only when the ticket cannot answer:** Re-read once before escalating.
    Ask for product decisions, env access, credentials, linked deps — not for
@@ -74,17 +80,28 @@ Keep these separate:
 
 - `analysis_complete`: you finished dispositions, ACs (if any), findings, and asks
 - `ready_for_test_design`: analysis is complete **and** there are no missing
-  *blocking* prerequisites that would make test design meaningless (e.g. zero
-  testable ACs, or unresolved product ambiguity that blocks writing ACs)
+  *design-blocking* prerequisites that would make test design meaningless (e.g.
+  zero testable ACs, or unresolved product ambiguity that blocks writing ACs)
 
-Missing env URL/credentials usually blocks **execution**, not analysis. Put them
-in `prerequisites_needed` and `orchestrator_actions` as `ASK_HUMAN`, but do not
-treat every missing access item as “analysis failed” unless ACs themselves cannot
-be formed.
+Map each prerequisite to what it actually blocks:
+
+| `prerequisites_needed` category | What it blocks | `orchestrator_actions` |
+|---|---|---|
+| `access`, `environment` | execution only | `ASK_HUMAN` with `blocking: false` — may be emitted alongside `PROCEED` |
+| `data`, `dependency`, `knowledge`, `other` | test design | `blocking: true`, and no `PROCEED` |
+
+A missing environment URL, credential, or curl does **not** make you "not ready
+for test design". Emit `PROCEED` plus the non-blocking `ASK_HUMAN` so the human
+is still asked, but the Writer is not held. Only emit a blocking action when the
+missing item makes it impossible to *write* the ACs.
+
+On each prerequisite item, set `"blocks": "design | execution"` to match the
+table (prefer this over inferring from category alone).
 
 Emit exactly one path in `orchestrator_actions`:
 
-- **Ready:** one `PROCEED` (blocking: false), no blocking actions
+- **Ready:** `ready_for_test_design: true` + exactly one `PROCEED`
+  (`blocking: false`), plus optional non-blocking access/environment `ASK_HUMAN`
 - **Not ready:** one or more blocking `ASK_HUMAN` / `FETCH_DEPENDENCY` / `HOLD`,
   and no `PROCEED`
 
@@ -102,7 +119,12 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
   "success": true,
   "analyst_reasoning": {
     "ticket_read": "one sentence",
-    "unimplemented_rules": [],
+    "unimplemented_rules": [
+      {
+        "text": "<verbatim ticket line>",
+        "reason": "why it is out of scope / unimplemented"
+      }
+    ],
     "ambiguous_acs": [
       {
         "ac_id": "AC-N or null",
@@ -111,13 +133,16 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
         "question_for_human": "concrete question — not an invented assumption that patches the gap"
       }
     ],
-    "rejected_as_non_ac": ["line + reason"]
+    "rejected_as_non_ac": [
+      "<verbatim ticket line> — <reason>"
+    ]
   },
   "testable_conditions": [
     {
       "id": "AC-1",
+      "section": "business_rules | alternative_flow | exception_flow | ac",
       "source": "Business Rules | Alternative Flow | Exception Flow",
-      "ac_text": "short verbatim from ticket",
+      "ac_text": "complete verbatim clause from ticket (≥ ~12 characters)",
       "roles": ["roles named in ticket"],
       "testable_statement": "System MUST [verb] [object] when [trigger] for [role]",
       "pass_evidence": "observable pass",
@@ -130,6 +155,7 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
       {
         "item": "description",
         "category": "data | environment | access | dependency | knowledge | other",
+        "blocks": "design | execution",
         "derived_from": "ticket phrase or 'explicit section'",
         "satisfied_by_ticket": false,
         "if_not_satisfied": "what breaks",
@@ -140,6 +166,7 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
       {
         "item": "description",
         "category": "data | environment | access | dependency | knowledge | other",
+        "blocks": "design | execution",
         "derived_from": "ticket phrase or 'explicit section'",
         "satisfied_by_ticket": false
       }
@@ -165,12 +192,16 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
         "impact_if_wrong": "downstream impact"
       }
     ],
+    "assumptions_made": [
+      "every inference made beyond what the ticket literally states (empty when nothing was assumed)"
+    ],
     "orchestrator_actions": [
       {
         "action": "PROCEED | HOLD | ASK_HUMAN | FETCH_DEPENDENCY | RETRY_WITH_INFO",
         "target": "next agent | human | ticket id",
         "detail": "one executable line",
-        "blocking": true
+        "blocking": true,
+        "requires_value": true
       }
     ],
     "confidence": {
@@ -182,16 +213,33 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
 }
 ```
 
+### Field notes
+
+- `section` is the machine enum (snake_case, exact): `business_rules`,
+  `alternative_flow`, `exception_flow`, or `ac`. `source` is the human-readable
+  label (Title Case).
+- `rejected_as_non_ac` entries use a spaced em dash: `"<verbatim ticket line> — <reason>"`.
+  The verbatim line must come first (before the separator).
+- `unimplemented_rules` items are objects:
+  `{ "text": "<verbatim ticket line>", "reason": "why it is out of scope / unimplemented" }`.
+- `requires_value` is required on every `ASK_HUMAN` / `FETCH_DEPENDENCY` that
+  expects the human to type a value (URL, curl, credential, decision), as opposed
+  to merely acknowledging. Set `true` for those; omit or set `false` for
+  acknowledge-only actions.
+- `assumptions_made` lists every inference beyond literal ticket text; use `[]`
+  when nothing was assumed.
+
 ### Gate checklist
 
 - Never invent ACs. Empty `testable_conditions` ⇒ not ready for test design; ask
   or hold with reason.
 - **No silent drops:** every Business Rules / Alternative / Exception candidate
-  line must appear in `testable_conditions`, `ambiguous_acs` (with `source_line`
-  when not also an AC), `unimplemented_rules`, or `rejected_as_non_ac`. The
-  Validator fails the run if any line is missing from all four.
-- If confidence is `low` on material ambiguity ⇒ ASK_HUMAN or HOLD, never
-  PROCEED alone.
+  line must appear in `testable_conditions`, `analyst_reasoning.ambiguous_acs`
+  (with `source_line` when not also an AC), `analyst_reasoning.unimplemented_rules`,
+  or `analyst_reasoning.rejected_as_non_ac`. The Validator fails the run if any
+  line is missing from all four.
+- If confidence is `low` on material ambiguity ⇒ emit a blocking `ASK_HUMAN` or
+  `HOLD` and no `PROCEED`.
 - Security/compliance ideas go in `coverage_gaps` unless the ticket makes them
   acceptance criteria.
 - `orchestrator_actions` is never empty.

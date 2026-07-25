@@ -15,6 +15,12 @@ import {
 function validParsed(overrides = {}) {
   return {
     success: true,
+    analyst_reasoning: {
+      ticket_read: "ok",
+      ambiguous_acs: [],
+      unimplemented_rules: [],
+      rejected_as_non_ac: [],
+    },
     testable_conditions: [{ id: "AC-1" }],
     prerequisites_needed: { blocking: [], non_blocking: [] },
     coverage_gaps: [],
@@ -67,6 +73,22 @@ function validParsed(overrides = {}) {
       ready_for_test_design: true,
     })),
     /MAIN GATE|PROCEED forbidden|ready_for_test_design/i,
+  );
+  // A5: analyst_reasoning required + shape
+  {
+    const missingReasoning = validParsed();
+    delete missingReasoning.analyst_reasoning;
+    assert.throws(() => validateAnalystOutput(missingReasoning), /analyst_reasoning/);
+  }
+  assert.throws(
+    () => validateAnalystOutput(validParsed({
+      analyst_reasoning: {
+        ambiguous_acs: "not-an-array",
+        unimplemented_rules: [],
+        rejected_as_non_ac: [],
+      },
+    })),
+    /analyst_reasoning\.ambiguous_acs must be an array/,
   );
 }
 
