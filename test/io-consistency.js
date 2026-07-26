@@ -79,4 +79,74 @@ const analyst = {
   assert.equal(sim.simulated, true);
 }
 
+{
+  // A4: Title Case source normalizes → fidelity_ok (section optional)
+  const story = {
+    acceptance_criteria_entries: [
+      { text: "User can reset password with a valid token", section: "business_rules" },
+    ],
+  };
+  const io = checkIoConsistency(HANDOFF.TICKET_ANALYST, {
+    story,
+    analyst: {
+      ...analyst,
+      testable_conditions: [
+        {
+          id: "AC-1",
+          ac_text: "User can reset password with a valid token",
+          source: "Business Rules",
+        },
+      ],
+    },
+  });
+  assert.equal(io.fidelity_ok, true, io.failures.join("; "));
+}
+
+{
+  // Regression: stub/JIRA "Acceptance Criteria" → acceptance_criteria (allowed)
+  const story = {
+    acceptance_criteria_entries: [
+      { text: "User can reset password with a valid token", section: "ac" },
+    ],
+  };
+  const io = checkIoConsistency(HANDOFF.TICKET_ANALYST, {
+    story,
+    analyst: {
+      ...analyst,
+      testable_conditions: [
+        {
+          id: "AC-1",
+          ac_text: "User can reset password with a valid token",
+          source: "Acceptance Criteria",
+        },
+      ],
+    },
+  });
+  assert.equal(io.fidelity_ok, true, io.failures.join("; "));
+}
+
+{
+  // A4: disallowed source → fidelity_ok false
+  const story = {
+    acceptance_criteria_entries: [
+      { text: "User is logged in", section: "pre_conditions" },
+    ],
+  };
+  const io = checkIoConsistency(HANDOFF.TICKET_ANALYST, {
+    story,
+    analyst: {
+      ...analyst,
+      testable_conditions: [
+        {
+          id: "AC-1",
+          ac_text: "User is logged in before reset",
+          source: "Pre-conditions",
+        },
+      ],
+    },
+  });
+  assert.equal(io.fidelity_ok, false);
+  assert.ok(io.failures.some((f) => /section/i.test(f)));
+}
+
 console.log("io-consistency tests: ok");

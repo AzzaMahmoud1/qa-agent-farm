@@ -20,7 +20,28 @@ import {
 } from "./validator.js";
 import { analystReturnV1, buildAnalystReturnV2 } from "./demo-fixtures.js";
 import { isApprovableOutput } from "./dependency-gate.js";
-import { isLiveAnalystOutput } from "./analyst-contract.js";
+import { isLiveAnalystOutput, isDesignBlockingPrereq } from "./analyst-contract.js";
+import { slugifyPrereqId } from "../lib/human-ask-merge.js";
+import { inferExpectedShape } from "../lib/input-shapes.js";
+
+/** Imperative ask naming the artifact — not what the ticket is missing. */
+export function askHumanDetailForPrereq(b) {
+  const item = String(b?.item || "missing prerequisite").trim();
+  const shape = b?.expected_shape || inferExpectedShape(item);
+  if (shape === "credentials" || /\b(login|credential|password|username|user)\b/i.test(item)) {
+    return `Provide the username and password of a working test account (${item})`;
+  }
+  if (shape === "url" || b?.category === "environment" || b?.category === "access") {
+    return `Provide the full http(s) URL of the target test environment (${item})`;
+  }
+  if (shape === "api_access") {
+    return `Provide a runnable curl command or API base URL plus token (${item})`;
+  }
+  if (shape === "email") {
+    return `Provide a single email address (${item})`;
+  }
+  return `Provide a concrete value for: ${item}`;
+}
 import { deliberateHandoff, withDecisionRecord } from "./orchestrator-decide.js";
 import { HANDOFF } from "./io-consistency.js";
 
@@ -126,10 +147,23 @@ export function ensureAnalystReportActions(parsed) {
 
   const missingBlocking = (parsed.prerequisites_needed?.blocking || []).filter((b) => !b.satisfied_by_ticket);
   // Access/env usually block execution, not AC design (prompt two-signal readiness).
-  const designMissing = missingBlocking.filter((b) => {
-    const cat = String(b.category || "").toLowerCase();
-    return cat !== "access" && cat !== "environment";
+  const designMissing = missingBlocking.filter(isDesignBlockingPrereq);
+  // Login/UI human gates must also collect a target URL in the same panel even if
+  // the Analyst left the URL as execution-only (category environment/access).
+  const loginOrUiMissing = designMissing.some((b) => {
+    const id = String(b.id || "").toLowerCase();
+    const item = String(b.item || "");
+    return id === "login_user" || /\b(login|credential|password|username|ui|webpage|browser)\b/i.test(item);
   });
+  const coRequiredUrlMissing = loginOrUiMissing
+    ? missingBlocking.filter((b) => {
+      if (isDesignBlockingPrereq(b)) return false;
+      const id = String(b.id || "").toLowerCase();
+      const item = String(b.item || "");
+      return id === "target_environment"
+        || /\b(url|uri|environment|where to test|staging|base url)\b/i.test(item);
+    })
+    : [];
   let orchestrator_actions;
   if (!hasTestableConditions(parsed)) {
     orchestrator_actions = [{
@@ -140,13 +174,22 @@ export function ensureAnalystReportActions(parsed) {
       requires_value: true,
     }];
   } else if (designMissing.length) {
-    orchestrator_actions = designMissing.map((b) => ({
-      action: "ASK_HUMAN",
-      target: "human",
-      detail: `Provide ${b.item || "missing prerequisite"} (account/credentials or concrete data) for test design — ${b.if_not_satisfied || "required by ticket"}`,
-      blocking: true,
-      requires_value: true,
-    }));
+    const askList = [...designMissing, ...coRequiredUrlMissing];
+    orchestrator_actions = askList.map((b, i) => {
+      const prereq_id = b.id || slugifyPrereqId(b.item, i);
+      if (!b.id) b.id = prereq_id;
+      // Promote co-required URL into the design gate so MAIN GATE / ready stay aligned.
+      if (coRequiredUrlMissing.includes(b)) b.blocks = "design";
+      return {
+        action: "ASK_HUMAN",
+        target: "human",
+        detail: askHumanDetailForPrereq(b),
+        blocking: true,
+        requires_value: true,
+        prereq_id,
+        expected_shape: b.expected_shape || undefined,
+      };
+    });
   } else if (parsed.ready_for_test_design !== false) {
     orchestrator_actions = [{
       action: "PROCEED",

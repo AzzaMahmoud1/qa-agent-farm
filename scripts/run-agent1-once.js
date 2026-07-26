@@ -3,10 +3,16 @@
  * Usage: node scripts/run-agent1-once.js
  *
  * Auth: Cursor Agent CLI login (`cursor-agent login` / `cursor-agent status`).
+ * Effort: ANALYST_EFFORT (first), ANALYST_RETRY_EFFORT (retry). Defaults high / high
+ * until medium is empirically validated; set ANALYST_EFFORT=medium to experiment.
  */
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { writeFileSync, mkdirSync } from "node:fs";
+import {
+  effortForAttempt,
+  ANALYST_PROMPT,
+} from "../src/agents/requirementAnalyst.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -48,8 +54,12 @@ const { runRequirementAnalyst } = await import("../src/agents/requirementAnalyst
 
 console.log("Running Agent 1 (Requirement Analyst) via Cursor Agent CLI…");
 console.log("Binary:", process.env.CURSOR_AGENT_BIN || "cursor-agent (auto-detected)");
-console.log("Model:", process.env.ANALYST_MODEL || "claude-sonnet-5", "· effort:", process.env.ANALYST_EFFORT || "high");
-console.log("Prompt:", "src/prompts/agent1_requirement_analyst_v3.md");
+console.log(
+  "Model:", process.env.ANALYST_MODEL || "claude-sonnet-5",
+  "· first effort:", effortForAttempt(1),
+  "· retry effort:", effortForAttempt(2),
+);
+console.log("Prompt:", "src/prompts/agent1_requirement_analyst_v3.md", `(${ANALYST_PROMPT.length} chars)`);
 console.log("---");
 
 const started = Date.now();
@@ -60,6 +70,27 @@ const outDir = join(root, ".data");
 mkdirSync(outDir, { recursive: true });
 const outPath = join(outDir, "agent1-last-run.json");
 writeFileSync(outPath, JSON.stringify(result, null, 2), "utf8");
+
+if (result.attempts?.length) {
+  console.log("Attempt metrics:");
+  for (const a of result.attempts) {
+    const u = a.usage;
+    if (u && (u.input_tokens != null || u.output_tokens != null)) {
+      console.log(
+        `  #${a.attempt} effort=${a.effort}`
+        + ` input_tokens=${u.input_tokens ?? "n/a"}`
+        + ` output_tokens=${u.output_tokens ?? "n/a"}`
+        + ` cache_read=${u.cache_read_input_tokens ?? "n/a"}`,
+      );
+    } else {
+      console.log(
+        `  #${a.attempt} effort=${a.effort}`
+        + ` usage=unavailable prompt_chars=${a.prompt_chars}`
+        + ` response_chars=${a.response_chars}`,
+      );
+    }
+  }
+}
 
 if (result.success === false) {
   console.error("FAILED after retry:", result.error);

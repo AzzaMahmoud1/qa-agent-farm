@@ -11,13 +11,21 @@ function missingBlocking(parsed) {
   return (parsed?.prerequisites_needed?.blocking || []).filter((b) => b && !b.satisfied_by_ticket);
 }
 
+/**
+ * Prefer explicit `blocks: "design" | "execution"`; fall back to category.
+ * access/environment → execution only; other categories → design.
+ */
+export function isDesignBlockingPrereq(b) {
+  const explicit = String(b?.blocks || "").toLowerCase();
+  if (explicit === "design") return true;
+  if (explicit === "execution") return false;
+  const cat = String(b?.category || "").toLowerCase();
+  return cat !== "access" && cat !== "environment";
+}
+
 /** Missing items that block *test design* (not just later execution). */
 function designBlockingMissing(parsed) {
-  return missingBlocking(parsed).filter((b) => {
-    const cat = String(b.category || "").toLowerCase();
-    // Access / env URL usually block execution, not AC design.
-    return cat !== "access" && cat !== "environment";
-  });
+  return missingBlocking(parsed).filter(isDesignBlockingPrereq);
 }
 
 function actionsOf(parsed) {
@@ -78,6 +86,10 @@ export function checkAnalystPromptContract(parsed, story = null) {
     failures.push("MAIN GATE: ready_for_test_design true requires a PROCEED action");
   }
 
+  if (hasProceed && parsed.ready_for_test_design !== true) {
+    failures.push("MAIN GATE: PROCEED requires ready_for_test_design true");
+  }
+
   if (hasProceed && blockingActs.length) {
     failures.push("MAIN GATE: cannot emit PROCEED together with blocking orchestrator_actions");
   }
@@ -95,8 +107,8 @@ export function checkAnalystPromptContract(parsed, story = null) {
     failures.push("MAIN GATE: every missing blocking prerequisite must map to a blocking ASK_HUMAN / FETCH_DEPENDENCY / HOLD");
   }
 
-  if (conf === "low" && hasProceed && !blockingActs.some((a) => /ASK_HUMAN|HOLD/i.test(a.action || ""))) {
-    failures.push("MAIN GATE: low confidence cannot PROCEED alone — need ASK_HUMAN or HOLD");
+  if (conf === "low" && hasProceed) {
+    failures.push("MAIN GATE: low confidence cannot PROCEED — emit a blocking ASK_HUMAN or HOLD instead");
   }
 
   for (const a of actions) {

@@ -234,8 +234,29 @@ a { color: var(--text-accent); }
 .output-kv-val { font-size: .78rem; line-height: 1.5; color: var(--text-secondary); }
 .output-kv-val ul { margin: .2rem 0 0; padding-left: 1rem; }
 .tc-row { border: 1px solid var(--border); border-radius: 8px; padding: .55rem .7rem; margin-bottom: .45rem; background: var(--surface-2); }
-.tc-row-head { display: flex; gap: .45rem; align-items: center; margin-bottom: .3rem; flex-wrap: wrap; }
-.tc-row-id { font-family: var(--font-mono); font-size: .7rem; color: var(--text-muted); }
+.tc-row-head { display: flex; gap: .45rem; align-items: flex-start; margin-bottom: .3rem; flex-wrap: wrap; }
+.tc-row-id { font-family: var(--font-mono); font-size: .7rem; color: var(--text-muted); flex: 0 0 auto; }
+.tc-title {
+  font-size: .8rem;
+  font-weight: 700;
+  min-width: 0;
+  flex: 1 1 12rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.35;
+}
+.tc-doc-only {
+  font-size: .62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .02em;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: .05rem .3rem;
+  flex: 0 0 auto;
+}
 .tc-type { font-size: .62rem; font-weight: 700; text-transform: uppercase; padding: .1rem .35rem; border-radius: 4px; }
 .tc-type-happy { background: #d1fae5; color: #065f46; }
 .tc-type-negative { background: #fee2e2; color: #991b1b; }

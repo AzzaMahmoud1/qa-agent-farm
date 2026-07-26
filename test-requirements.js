@@ -70,6 +70,25 @@ test("rejects metadata and UC section headers", () => {
   for (const expected of ["UC05", "Priority: High", "Pre-conditions", "Post-conditions", "Basic Flow", "Alternative Flow"]) {
     assert(texts.includes(expected), `missing rejected: ${expected}`);
   }
+  const headers = parsed.acceptance_criteria_rejected.filter((r) =>
+    /^(Pre-conditions|Post-conditions|Basic Flow|Alternative Flow|Acceptance Criteria)$/i.test(r.text),
+  );
+  assert(headers.length >= 1, "expected section headers in rejected list");
+  assert(headers.every((r) => r.kind === "section_header"), "section headers must be tagged kind=section_header");
+});
+
+test("section headers excluded from displayed reject reasoning", () => {
+  const out = buildAnalystOutput(story);
+  const rejectStep = (out.reasoning_steps || []).find((s) => s.step === "reject_non_ac");
+  if (rejectStep) {
+    assert(!/"Acceptance Criteria"|"Pre-conditions"|"Basic Flow"/i.test(rejectStep.text),
+      "section headers must not appear in Excluded reasoning: " + rejectStep.text);
+  }
+  // If only headers were rejected, the step must be omitted entirely.
+  const onlyHeaders = (parsed.acceptance_criteria_rejected || []).every((r) => r.kind === "section_header");
+  if (onlyHeaders) {
+    assert(!rejectStep, "Excluded step must be dropped when only section headers were rejected");
+  }
 });
 
 test("basic flow steps are not acceptance criteria", () => {
@@ -195,6 +214,41 @@ test("login user gap when no credentials", () => {
   const prereq = analyzeStoryPrerequisites(story);
   const labels = prereq.items.map((i) => i.label);
   assert(labels.some((l) => l === "Login test user"), "expected login gap: " + labels.join(", "));
+});
+
+test("login story also requires target URL in same human gate", () => {
+  const prereq = analyzeStoryPrerequisites(story);
+  const labels = prereq.items.map((i) => i.label);
+  assert(labels.some((l) => l === "Where to test"), "expected URL gap with login: " + labels.join(", "));
+
+  const out = buildAnalystOutput(story);
+  assert(out.ready_for_test_design === false, "not ready until login + URL provided");
+  const missing = (out.prerequisites_needed.blocking || []).filter((b) => !b.satisfied_by_ticket);
+  const url = missing.find((b) => b.id === "target_environment" || b.item === "Where to test");
+  assert(url, "target_environment missing in blocking");
+  assert(url.blocks === "design", "login/UI URL must blocks:design, got " + url.blocks);
+  const asks = (out.analyst_report.orchestrator_actions || []).filter((a) => a.action === "ASK_HUMAN");
+  const askIds = asks.map((a) => a.prereq_id).join(",");
+  assert(asks.some((a) => a.prereq_id === "login_user" || /login|credential|password/i.test(a.detail)), "login ASK: " + askIds);
+  assert(asks.some((a) => a.prereq_id === "target_environment" || /url|environment|where to test/i.test(a.detail)), "URL ASK: " + askIds);
+  assert(!asks.some((a) => a.action === "PROCEED"), "no PROCEED while login/URL missing");
+});
+
+test("login + URL in ticket unlocks design readiness", () => {
+  const filled = {
+    ...story,
+    requirements_raw: `${SAMPLE}\n\nEnvironment: https://staging.example.com\nTest user: qa@example.com\nPassword: Secret123!`,
+    description: `${story.description}\nEnvironment: https://staging.example.com\nTest user: qa@example.com\nPassword: Secret123!`,
+  };
+  const out = buildAnalystOutput(filled);
+  const missing = (out.prerequisites_needed.blocking || []).filter((b) => !b.satisfied_by_ticket);
+  const loginOrUrl = missing.filter((b) => b.id === "login_user" || b.id === "target_environment");
+  assert(loginOrUrl.length === 0, "login/URL should be satisfied: " + loginOrUrl.map((b) => b.item).join(", "));
+  assert(out.ready_for_test_design === true, "ready when login + URL present");
+  assert(
+    (out.analyst_report.orchestrator_actions || []).some((a) => a.action === "PROCEED"),
+    "PROCEED when login + URL satisfied",
+  );
 });
 
 test("validator fails metadata mapped as AC", () => {

@@ -29,7 +29,9 @@ Agent 1 (Analyst) JSON: `testable_conditions`, `prerequisites_needed.blocking`, 
 - One case per **blocking** coverage gap when applicable
 - **Skip** ACs in `unimplemented_rules` — set `skip_reason`
 - Prerequisites from Analyst blocking list only
-- Include `expected_evidence` (HTTP status, UI state, DB state)
+- Include `expected_evidence` from Analyst `pass_evidence` / `fail_evidence` only — never invent HTTP status codes
+- Build Given/When/Then from Analyst `roles`, `testable_statement`, and evidence fields — not provenance metadata or "Scenario exercises AC-N" boilerplate
+- `suggested_file`: `tests/api/…` only when an API surface is detected, else `tests/e2e/…` for webpage; omit when surface is unknown
 
 ## Output JSON
 
@@ -46,6 +48,8 @@ Agent 1 (Analyst) JSON: `testable_conditions`, `prerequisites_needed.blocking`, 
     "then": "...",
     "expected_evidence": "...",
     "suggested_file": "tests/...",
+    "source_ref": "optional traceability — not used as Given",
+    "needs_detail": false,
     "skip_reason": null
   }]
 }

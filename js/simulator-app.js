@@ -25,6 +25,18 @@ import { parseCurl, parseWebpageInput, formatCurlPreview, inferHumanInputNeeds }
 import { redactParsedCurl, redactString } from "../lib/redaction.js";
 import { parseRequirementsDescription, issueToStory } from "../lib/story.js";
 import { buildRequirementsFromStory, getLiveRequirements } from "../lib/requirements.js";
+import { mergeHumanAskFields } from "../lib/human-ask-merge.js";
+import {
+  resolveExpectedShape,
+  evaluateProvidedValue,
+  placeholderForShape,
+  expectationLine,
+} from "../lib/input-shapes.js";
+
+/** Per-field touch / submit-attempt — errors stay hidden until interaction. */
+const askFieldTouched = new Set();
+let askSubmitAttempted = false;
+let askShapeLoggedKeys = "";
 
 const el = (id) => document.getElementById(id);
 
@@ -653,27 +665,122 @@ function actionNeedsTypedValue(a) {
     || /\b(provide|supply|seed|url|credential|password|token|curl|confirm|clarif)\b/i.test(detail);
 }
 
-function isPrerequisitesSatisfied() {
-  // Checkbox alone is not enough when Analyst asked for a typed clarification / value.
-  const actionsOk = !blockingOrchestratorActions.length
-    || blockingOrchestratorActions.every((a) => {
-      const value = (a.provided_value || "").trim();
-      if (actionNeedsTypedValue(a)) return value.length > 0;
-      return !!a.resolved || value.length > 0;
-    });
-  // When the panel surfaces the curl/webpage fields, the human must fill them here.
-  const apiOk = !prereqShowsApi || humanApiInput.ok;
-  const webOk = !prereqShowsWeb || humanWebpageInput.ok;
-  const check = cachedPrerequisiteCheck;
-  if (!check?.items?.length) return actionsOk && apiOk && webOk;
-  const fieldsOk = check.items.every((item) => {
-    // Access items are validated via the parsed curl / webpage inputs, not free text.
-    if (item.input_type === "api_curl") return humanApiInput.ok;
-    if (item.input_type === "webpage_url") return humanWebpageInput.ok;
-    const v = userPrerequisites[item.id]?.value;
-    return v != null && String(v).trim().length > 0;
+function currentAskExtras() {
+  return {
+    apiOk: !!humanApiInput.ok,
+    webOk: !!humanWebpageInput.ok,
+    webUrl: humanWebpageInput.url || "",
+  };
+}
+
+function getMergedAskFields() {
+  return mergeHumanAskFields({
+    actions: blockingOrchestratorActions,
+    prereqItems: cachedPrerequisiteCheck?.items || [],
   });
-  return actionsOk && fieldsOk && apiOk && webOk;
+}
+
+function readMergedFieldValue(field) {
+  const fromAction = field.sources?.action_idx != null
+    ? String(blockingOrchestratorActions[field.sources.action_idx]?.provided_value || "").trim()
+    : "";
+  if (field.input_type === "api_curl") return humanApiInput.curl || humanApiInput.url || fromAction || "";
+  if (field.input_type === "webpage_url") return humanWebpageInput.url || fromAction || "";
+  if (fromAction) return fromAction;
+  const pid = field.sources?.prereq_id;
+  if (pid && userPrerequisites[pid]?.value) return String(userPrerequisites[pid].value).trim();
+  if (userPrerequisites[field.key]?.value) return String(userPrerequisites[field.key].value).trim();
+  return "";
+}
+
+function applyMergedFieldValue(field, value) {
+  const v = String(value ?? "");
+  if (field.sources?.action_idx != null) {
+    const a = blockingOrchestratorActions[field.sources.action_idx];
+    if (a) {
+      a.provided_value = v;
+      if (v.trim()) a.resolved = true;
+    }
+  }
+  if (field.sources?.prereq_id) {
+    userPrerequisites[field.sources.prereq_id] = { value: v, label: field.label };
+  }
+  userPrerequisites[field.key] = { value: v, label: field.label };
+}
+
+function validateMergedField(field) {
+  const shape = resolveExpectedShape(field);
+  const value = readMergedFieldValue(field);
+  if (!field.required && !actionNeedsTypedValue(field.action) && !value) {
+    if (field.action && !field.action.resolved) {
+      return { ok: false, blame: "Action not resolved", shape };
+    }
+    return { ok: true, blame: null, shape };
+  }
+  return { ...evaluateProvidedValue(shape, value, currentAskExtras()), shape };
+}
+
+function askStatusSummary() {
+  const fields = getMergedAskFields();
+  if (!fields.length) {
+    if (prereqShowsApi && !humanApiInput.ok) return "API curl still needs a valid value";
+    if (prereqShowsWeb && !humanWebpageInput.ok) return "Webpage URL still needs a valid value";
+    return null;
+  }
+  const invalid = fields.filter((f) => !validateMergedField(f).ok).length;
+  if (!invalid) return null;
+  if (fields.length === 1) return "1 of 1 field still needs a valid value";
+  return `${invalid} of ${fields.length} fields still need a valid value`;
+}
+
+function paintAskFieldValidity(wrap, result, forceVisible = false) {
+  if (!wrap) return;
+  const key = wrap.dataset.askKey || "";
+  const show = forceVisible || askSubmitAttempted || askFieldTouched.has(key);
+  const blameEl = wrap.querySelector(".prereq-field-blame");
+  const inputEl = wrap.querySelector(".merged-ask-input, .prereq-curl-input, .prereq-web-input");
+  if (!show) {
+    if (blameEl) {
+      blameEl.textContent = "";
+      blameEl.hidden = true;
+    }
+    if (inputEl) {
+      inputEl.setAttribute("aria-invalid", "false");
+      inputEl.style.borderColor = "";
+    }
+    return;
+  }
+  if (blameEl) {
+    blameEl.textContent = result.ok ? "" : (result.blame || "Invalid value");
+    blameEl.hidden = !!result.ok;
+  }
+  if (inputEl) {
+    inputEl.setAttribute("aria-invalid", result.ok ? "false" : "true");
+    inputEl.style.borderColor = result.ok ? "" : "#dc2626";
+  }
+}
+
+function setSubmitPrereqDisabled(submitBtn, disabled) {
+  if (!submitBtn) return;
+  submitBtn.disabled = !!disabled;
+  submitBtn.setAttribute("aria-disabled", disabled ? "true" : "false");
+  submitBtn.style.opacity = disabled ? "0.45" : "";
+  submitBtn.style.cursor = disabled ? "not-allowed" : "";
+  submitBtn.style.pointerEvents = disabled ? "none" : "";
+}
+
+function isPrerequisitesSatisfied() {
+  const fields = getMergedAskFields();
+  if (!fields.length && !prereqShowsApi && !prereqShowsWeb) {
+    // No merged asks — fall back to action checklist only when present.
+    if (!blockingOrchestratorActions.length) return true;
+  }
+  for (const field of fields) {
+    if (!validateMergedField(field).ok) return false;
+  }
+  if (prereqShowsApi && !humanApiInput.ok) return false;
+  if (prereqShowsWeb && !humanWebpageInput.ok) return false;
+  return true;
 }
 
 
@@ -884,6 +991,9 @@ function loadStory(story, runOptions) {
   userPrerequisites = {};
   cachedPrerequisiteCheck = null;
   cachedHumanInputNeed = null;
+  askFieldTouched.clear();
+  askSubmitAttempted = false;
+  askShapeLoggedKeys = "";
   pipelineState = "RUNNING";
   blockingOrchestratorActions = [];
   if (storyOutputs?.analyst?.pipeline_state) {
@@ -1947,7 +2057,7 @@ function renderWriterOutput(data) {
       ? `<div class="prereq-section-title" style="margin-top:0">Test outlines — approve before Author</div>${renderTestOutlines(outlines)}`
       : `<div class="output-empty">No outlines yet.</div>`,
     data.test_cases?.length
-      ? `<details style="margin-top:.75rem"><summary style="cursor:pointer;font-size:.72rem;color:var(--muted)">GWT docs (${data.test_cases.length})</summary>${renderTestCases(data.test_cases)}</details>`
+      ? `<details style="margin-top:.75rem"><summary style="cursor:pointer;font-size:.72rem;color:var(--muted)">GWT docs (${data.test_cases.length}) — documentation only; Author builds from approved outlines</summary>${renderTestCases(data.test_cases)}</details>`
       : "",
   ].join("");
 }
@@ -1966,7 +2076,7 @@ function renderTestOutlines(outlines) {
       <div class="tc-row-head">
         <span class="tc-row-id">${escapeHtml(o.id)}</span>
         <span style="color:${color[st] || color.draft};font-size:.68rem;font-weight:700;text-transform:uppercase">${escapeHtml(st)}</span>
-        <strong style="font-size:.8rem">${escapeHtml(o.title || "")}</strong>
+        <strong class="tc-title" title="${escapeHtml(o.ac_text || o.title || "")}">${escapeHtml(o.title || "")}</strong>
       </div>
       <div style="font-size:.74rem;color:var(--muted)">ACs: ${escapeHtml((o.mapped_acs || []).join(", ") || "—")} · ${escapeHtml(String(o.intent || ""))}${btns}</div>
     </div>`;
@@ -2059,17 +2169,20 @@ function renderReviewerOutput(data) {
 function renderTestCases(cases) {
   return cases.map((tc) => {
     const typeCls = tc.type.includes("happy") ? "happy" : tc.type.includes("edge") ? "edge" : "negative";
+    const hover = tc.ac_text || tc.title || "";
     return `<div class="tc-row">
       <div class="tc-row-head">
         <span class="tc-row-id">${escapeHtml(tc.id)}</span>
         <span class="tc-type tc-type-${typeCls}">${escapeHtml(tc.type.replace("_", " "))}</span>
-        <strong style="font-size:.8rem">${escapeHtml(tc.title)}</strong>
+        ${tc.documentation_only ? `<span class="tc-doc-only">docs only</span>` : ""}
+        <strong class="tc-title" title="${escapeHtml(hover)}">${escapeHtml(tc.title)}</strong>
       </div>
       <div style="font-size:.78rem;color:var(--muted);line-height:1.5">
         <div><strong style="color:var(--text)">Given</strong> ${escapeHtml(tc.given)}</div>
         <div><strong style="color:var(--text)">When</strong> ${escapeHtml(tc.when)}</div>
         <div><strong style="color:var(--text)">Then</strong> ${escapeHtml(tc.then)}</div>
-        <div style="margin-top:.3rem;font-family:monospace;font-size:.72rem">✓ ${escapeHtml(tc.expected_evidence)}</div>
+        ${tc.expected_evidence ? `<div style="margin-top:.3rem;font-family:monospace;font-size:.72rem"><strong>Expected:</strong> ${escapeHtml(tc.expected_evidence)}</div>` : ""}
+        ${tc.needs_detail ? `<div style="margin-top:.2rem;font-size:.7rem;color:var(--warn,#b45309)">Needs detail — Analyst did not supply pass/fail evidence</div>` : ""}
       </div>
     </div>`;
   }).join("");
@@ -2144,7 +2257,7 @@ function renderTicketPanel(story) {
   el("ticket-description").textContent = story.description || "(no description)";
   const acUl = el("ticket-ac");
   const acItems = story.acceptance_criteria_list || [];
-  const rejected = story.acceptance_criteria_rejected || [];
+  const rejected = (story.acceptance_criteria_rejected || []).filter((r) => r.kind !== "section_header");
   const meta = story.requirements_metadata || {};
   const metaNote = [
     meta.use_case ? `Use case: ${meta.use_case}` : null,
@@ -2154,7 +2267,7 @@ function renderTicketPanel(story) {
     ? `<li class="muted" style="margin-bottom:.35rem;font-size:.72rem">Testable acceptance criteria (${acItems.length})</li>`
       + acItems.map((a, i) => `<li><strong>AC-${i + 1}.</strong> ${escapeHtml(a)}</li>`).join("")
       + (rejected.length
-        ? `<li class="muted" style="margin-top:.65rem;font-size:.72rem">Excluded (${rejected.length}) — metadata, section headers, flow steps</li>`
+        ? `<li class="muted" style="margin-top:.65rem;font-size:.72rem">Excluded (${rejected.length}) — metadata, flow, or wrong section</li>`
           + rejected.map((r) => `<li class="muted" style="font-size:.72rem">${escapeHtml(r.text)}</li>`).join("")
         : "")
       + (metaNote.length
@@ -2916,11 +3029,26 @@ const submitHumanApi = submitHumanInput;
 
 
 function submitPrerequisites() {
-  updatePrerequisiteStatus();
   if (!isPrerequisitesSatisfied()) {
+    askSubmitAttempted = true;
+    const list = el("prerequisites-list");
+    const fields = getMergedAskFields();
+    let firstInvalid = null;
+    for (const field of fields) {
+      askFieldTouched.add(field.key);
+      const wrap = list?.querySelector(`.prereq-field[data-ask-key="${field.key.replace(/"/g, "")}"]`);
+      const result = validateMergedField(field);
+      if (wrap) paintAskFieldValidity(wrap, result, true);
+      if (!result.ok && !firstInvalid) {
+        firstInvalid = wrap?.querySelector(".merged-ask-input, .prereq-curl-input, .prereq-web-input");
+      }
+    }
+    firstInvalid?.focus();
+    updatePrerequisiteStatus();
     promptForPrerequisites();
     return false;
   }
+  updatePrerequisiteStatus();
   const conditions = storyOutputs?.analyst?.testable_conditions || [];
   if (!conditions.length) {
     const status = el("prerequisites-status");
@@ -3276,13 +3404,20 @@ function updatePrerequisiteStatus() {
   const status = el("prerequisites-status");
   if (!status) return;
   const check = cachedPrerequisiteCheck;
-  if (!check?.needed) return;
+  if (!check?.needed && !blockingOrchestratorActions.length) return;
+  const submitBtn = el("btn-submit-prerequisites");
+  if (pipelineState === "NEEDS_INPUT") {
+    setSubmitPrereqDisabled(submitBtn, true);
+    return;
+  }
   if (isPrerequisitesSatisfied()) {
     status.className = "jira-status ok";
     status.textContent = "Prerequisites confirmed — click Confirm or press Next";
+    setSubmitPrereqDisabled(submitBtn, false);
   } else {
     status.className = "jira-status loading";
-    status.textContent = "Orchestrator is waiting — fill in all fields";
+    status.textContent = askStatusSummary() || "Orchestrator is waiting — fill in all fields";
+    setSubmitPrereqDisabled(submitBtn, true);
   }
 }
 
@@ -3321,7 +3456,7 @@ function updatePrerequisitesPanel(story, options = {}) {
       : state === "WAITING_ON_HUMAN"
         ? `<i class="ti ti-player-play"></i> Resolved — continue pipeline`
         : `<i class="ti ti-check"></i> Confirm prerequisites`;
-    submitBtn.disabled = state === "NEEDS_INPUT";
+    if (state === "NEEDS_INPUT") setSubmitPrereqDisabled(submitBtn, true);
   }
 
   if (storyMapEl && check.story_analysis?.test_actions?.length && waitingAtStep) {
@@ -3365,125 +3500,138 @@ function updatePrerequisitesPanel(story, options = {}) {
   }
 
   if (list) {
-    const actionChecklist = actions.length
-      ? `<div class="prereq-section-title">Orchestrator actions — provide input or check off</div>`
-        + actions.map((a, i) => `
-      <div class="prereq-field" data-action-idx="${i}" style="border-left:3px solid #c4b5fd;padding-left:.6rem">
-        <label style="display:flex;gap:.55rem;align-items:flex-start;cursor:pointer">
-          <input type="checkbox" class="orch-action-check" data-idx="${i}" ${a.resolved ? "checked" : ""} style="margin-top:.25rem" />
-          <span style="font-size:.78rem;line-height:1.45">
-            <span style="display:inline-block;background:#1e293b;color:#fff;border-radius:4px;padding:.05rem .35rem;font-size:.65rem;font-family:monospace">${escapeHtml(a.action || "ACTION")}</span>
-            <strong>${escapeHtml(a.target || "—")}</strong> — ${escapeHtml(a.detail || "")}
-          </span>
-        </label>
-        <input class="input orch-action-input" data-idx="${i}" placeholder="${escapeHtml(
-          a.requires_value || /clarif/i.test(String(a.detail || "")) || a.action === "ASK_HUMAN"
-            ? "Type clarification or value (required — checkbox alone is not enough)"
-            : "Provide value (URL, credentials, ticket ID…) — optional if handled externally"
-        )}" value="${escapeHtml(a.provided_value || "")}" style="margin-top:.4rem" />
-      </div>`).join("")
-      : "";
+    const mergedFields = mergeHumanAskFields({
+      actions,
+      prereqItems: check.items || [],
+    });
+    prereqShowsApi = !!mergedFields.some((f) => f.input_type === "api_curl");
+    prereqShowsWeb = !!mergedFields.some((f) => f.input_type === "webpage_url");
 
-    // Track whether the analyst asked for API / webpage access as a prerequisite item.
-    prereqShowsApi = !!check.items?.some((it) => it.input_type === "api_curl");
-    prereqShowsWeb = !!check.items?.some((it) => it.input_type === "webpage_url");
+    const shapeLogKey = mergedFields.map((f) => f.key).join("|");
+    if (shapeLogKey && shapeLogKey !== askShapeLoggedKeys) {
+      askShapeLoggedKeys = shapeLogKey;
+      for (const f of mergedFields) {
+        console.info("[ask-shape]", {
+          key: f.key,
+          label: f.label,
+          input_type: f.input_type || null,
+          expected_shape: f.expected_shape || null,
+          resolved: resolveExpectedShape(f),
+        });
+      }
+    }
 
-    const renderField = (item) => {
+    const renderMerged = (field) => {
+      const shape = resolveExpectedShape(field);
+      const currentVal = readMergedFieldValue(field);
+      const ph = placeholderForShape(shape, field.hint, field.input_type);
+      const expected = expectationLine(shape);
+      const actionBadge = field.action
+        ? `<span style="display:inline-block;background:#1e293b;color:#fff;border-radius:4px;padding:.05rem .35rem;font-size:.65rem;font-family:monospace;margin-right:.35rem">${escapeHtml(field.action.action || "ASK_HUMAN")}</span>`
+        : "";
       const head = `
-        <label class="field-label">${escapeHtml(item.label)}</label>
-        <p class="prereq-hint">${escapeHtml(item.analyst_note || item.reason || item.hint)}</p>
-        ${item.required_for?.length ? `<p class="prereq-for-ac">For ${escapeHtml(item.required_for.join(", "))}</p>` : ""}`;
-      if (item.input_type === "api_curl") {
-        return `<div class="prereq-field" data-id="${escapeHtml(item.id)}">${head}
-        <textarea class="input curl-input prereq-curl-input" rows="4" placeholder="${escapeHtml(item.hint)}">${escapeHtml(humanApiInput.curl || "")}</textarea>
+        <label class="field-label">${actionBadge}${escapeHtml(field.label)}</label>
+        <p class="prereq-expected" style="font-size:.78rem;line-height:1.45;margin:.25rem 0 .35rem;color:var(--text-primary,#111)">
+          <strong>Expected:</strong> ${escapeHtml(expected)}
+        </p>
+        ${field.note ? `<p class="prereq-hint" style="opacity:.85">${escapeHtml(field.note)}</p>` : ""}
+        ${field.required_for?.length ? `<p class="prereq-for-ac">For ${escapeHtml(field.required_for.join(", "))}</p>` : ""}`;
+      const blame = `<p class="prereq-field-blame" hidden style="font-size:.72rem;color:#dc2626;margin:.3rem 0 0"></p>`;
+      if (field.input_type === "api_curl") {
+        return `<div class="prereq-field" data-ask-key="${escapeHtml(field.key)}" style="border-left:3px solid #c4b5fd;padding-left:.6rem">${head}
+        <textarea class="input curl-input prereq-curl-input" data-ask-key="${escapeHtml(field.key)}" rows="4" placeholder="${escapeHtml(ph)}">${escapeHtml(humanApiInput.curl || "")}</textarea>
         <div class="prereq-curl-status" style="font-size:.72rem;margin-top:.3rem;color:var(--text-secondary)"></div>
+        ${blame}
       </div>`;
       }
-      if (item.input_type === "webpage_url") {
-        return `<div class="prereq-field" data-id="${escapeHtml(item.id)}">${head}
-        <input class="input prereq-web-input" type="url" placeholder="${escapeHtml(item.hint)}" value="${escapeHtml(humanWebpageInput.url || "")}" />
+      if (field.input_type === "webpage_url") {
+        return `<div class="prereq-field" data-ask-key="${escapeHtml(field.key)}" style="border-left:3px solid #c4b5fd;padding-left:.6rem">${head}
+        <input class="input prereq-web-input" data-ask-key="${escapeHtml(field.key)}" type="url" placeholder="${escapeHtml(ph)}" value="${escapeHtml(humanWebpageInput.url || "")}" />
+        ${blame}
       </div>`;
       }
-      return `<div class="prereq-field" data-id="${escapeHtml(item.id)}">${head}
-        <input class="input prereq-input" data-id="${escapeHtml(item.id)}" placeholder="${escapeHtml(item.hint)}" value="${escapeHtml(userPrerequisites[item.id]?.value || "")}" />
+      return `<div class="prereq-field" data-ask-key="${escapeHtml(field.key)}" style="border-left:3px solid #c4b5fd;padding-left:.6rem">${head}
+        <input class="input merged-ask-input" data-ask-key="${escapeHtml(field.key)}" placeholder="${escapeHtml(ph)}" value="${escapeHtml(currentVal)}" style="margin-top:.35rem" />
+        ${blame}
       </div>`;
     };
 
-    const fieldList = check.items?.length
-      ? `<div class="prereq-section-title">${actions.length ? "Additional fields" : "Only you can provide"}</div>`
-        + check.items.map(renderField).join("")
-      : "";
-
-    if (!actionChecklist && !fieldList) {
+    if (!mergedFields.length) {
       list.innerHTML = `<p style="font-size:.75rem;color:var(--text-secondary);margin:0">Nothing extra needed — the ticket already has what tests require.</p>`;
     } else {
-      list.innerHTML = actionChecklist + fieldList;
+      list.innerHTML = `<div class="prereq-section-title">Provide input — one field per need</div>`
+        + mergedFields.map(renderMerged).join("");
     }
 
-    list.querySelectorAll(".prereq-input").forEach((input) => {
-      input.addEventListener("input", () => {
-        const id = input.dataset.id;
-        const meta = check.items.find((i) => i.id === id);
-        userPrerequisites[id] = { value: input.value, label: meta?.label || id };
-        updatePrerequisiteStatus();
-      });
-    });
+    const fieldByKey = Object.fromEntries(mergedFields.map((f) => [f.key, f]));
 
-    list.querySelectorAll(".orch-action-check").forEach((box) => {
-      box.addEventListener("change", () => {
-        const i = Number(box.dataset.idx);
-        if (blockingOrchestratorActions[i]) {
-          blockingOrchestratorActions[i].resolved = box.checked;
+    const bindAskInput = (input) => {
+      const markAndPaint = () => {
+        const field = fieldByKey[input.dataset.askKey];
+        if (!field) return;
+        askFieldTouched.add(field.key);
+        applyMergedFieldValue(field, input.value);
+        if (field.sources.action_idx != null) {
+          const a = blockingOrchestratorActions[field.sources.action_idx];
+          if (a && input.value.trim()) a.resolved = true;
         }
+        paintAskFieldValidity(input.closest(".prereq-field"), validateMergedField(field));
         updatePrerequisiteStatus();
+      };
+      input.addEventListener("input", markAndPaint);
+      input.addEventListener("blur", () => {
+        askFieldTouched.add(input.dataset.askKey || "");
+        const field = fieldByKey[input.dataset.askKey];
+        if (field) paintAskFieldValidity(input.closest(".prereq-field"), validateMergedField(field));
       });
-    });
+      // Initial paint: no red until touched / submit attempt
+      const field = fieldByKey[input.dataset.askKey];
+      if (field) paintAskFieldValidity(input.closest(".prereq-field"), validateMergedField(field), false);
+    };
 
-    list.querySelectorAll(".orch-action-input").forEach((input) => {
-      input.addEventListener("input", () => {
-        const i = Number(input.dataset.idx);
-        const a = blockingOrchestratorActions[i];
-        if (!a) return;
-        a.provided_value = input.value;
-        const hasValue = input.value.trim().length > 0;
-        // Providing a value auto-resolves the action; clearing it reverts to the checkbox state.
-        if (hasValue) {
-          a.resolved = true;
-          const box = list.querySelector(`.orch-action-check[data-idx="${i}"]`);
-          if (box) box.checked = true;
-        }
-        userPrerequisites[`action-${i}`] = {
-          value: input.value,
-          label: a.detail || a.target || `Orchestrator action ${i + 1}`,
-          action: a.action || "ACTION",
-        };
-        updatePrerequisiteStatus();
-      });
-    });
+    list.querySelectorAll(".merged-ask-input").forEach(bindAskInput);
 
     const curlInput = list.querySelector(".prereq-curl-input");
     if (curlInput) {
       const statusNode = list.querySelector(".prereq-curl-status");
+      const field = fieldByKey[curlInput.dataset.askKey];
       curlInput.addEventListener("input", () => {
+        askFieldTouched.add(curlInput.dataset.askKey || "");
         const parsed = parseCurl(curlInput.value);
         humanApiInput = parsed.ok ? parsed : { ok: false, curl: curlInput.value };
+        if (field) applyMergedFieldValue(field, curlInput.value);
         if (statusNode) {
           statusNode.textContent = curlInput.value.trim()
             ? (parsed.ok ? `Parsed: ${parsed.method} ${parsed.endpoint}` : parsed.error)
             : "";
           statusNode.style.color = parsed.ok ? "var(--accent, #16a34a)" : "var(--text-secondary)";
         }
+        if (field) paintAskFieldValidity(curlInput.closest(".prereq-field"), validateMergedField(field));
         updatePrerequisiteStatus();
       });
+      curlInput.addEventListener("blur", () => {
+        askFieldTouched.add(curlInput.dataset.askKey || "");
+        if (field) paintAskFieldValidity(curlInput.closest(".prereq-field"), validateMergedField(field));
+      });
+      if (field) paintAskFieldValidity(curlInput.closest(".prereq-field"), validateMergedField(field), false);
     }
 
     const webInput = list.querySelector(".prereq-web-input");
     if (webInput) {
+      const field = fieldByKey[webInput.dataset.askKey];
       webInput.addEventListener("input", () => {
+        askFieldTouched.add(webInput.dataset.askKey || "");
         const parsed = parseWebpageInput(webInput.value, humanWebpageInput.title);
         humanWebpageInput = parsed.ok ? parsed : { ok: false, url: webInput.value, path: "", origin: "", title: "" };
+        if (field) applyMergedFieldValue(field, webInput.value);
+        if (field) paintAskFieldValidity(webInput.closest(".prereq-field"), validateMergedField(field));
         updatePrerequisiteStatus();
       });
+      webInput.addEventListener("blur", () => {
+        askFieldTouched.add(webInput.dataset.askKey || "");
+        if (field) paintAskFieldValidity(webInput.closest(".prereq-field"), validateMergedField(field));
+      });
+      if (field) paintAskFieldValidity(webInput.closest(".prereq-field"), validateMergedField(field), false);
     }
   }
   updatePrerequisiteStatus();

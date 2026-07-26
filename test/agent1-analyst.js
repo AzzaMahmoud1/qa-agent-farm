@@ -4,7 +4,12 @@
  */
 import assert from "node:assert/strict";
 import { extractFinalJson } from "../src/agents/utils/extractFinalJson.js";
-import { validateAnalystOutput } from "../src/agents/requirementAnalyst.js";
+import {
+  validateAnalystOutput,
+  effortForAttempt,
+  extractUsageFromEnvelope,
+  buildRetryExtra,
+} from "../src/agents/requirementAnalyst.js";
 import { checkAnalystPromptContract } from "../agents/analyst-contract.js";
 import {
   resolveAnalystOrchestratorGate,
@@ -15,6 +20,12 @@ import {
 function validParsed(overrides = {}) {
   return {
     success: true,
+    analyst_reasoning: {
+      ticket_read: "ok",
+      ambiguous_acs: [],
+      unimplemented_rules: [],
+      rejected_as_non_ac: [],
+    },
     testable_conditions: [{ id: "AC-1" }],
     prerequisites_needed: { blocking: [], non_blocking: [] },
     coverage_gaps: [],
@@ -67,6 +78,22 @@ function validParsed(overrides = {}) {
       ready_for_test_design: true,
     })),
     /MAIN GATE|PROCEED forbidden|ready_for_test_design/i,
+  );
+  // A5: analyst_reasoning required + shape
+  {
+    const missingReasoning = validParsed();
+    delete missingReasoning.analyst_reasoning;
+    assert.throws(() => validateAnalystOutput(missingReasoning), /analyst_reasoning/);
+  }
+  assert.throws(
+    () => validateAnalystOutput(validParsed({
+      analyst_reasoning: {
+        ambiguous_acs: "not-an-array",
+        unimplemented_rules: [],
+        rejected_as_non_ac: [],
+      },
+    })),
+    /analyst_reasoning\.ambiguous_acs must be an array/,
   );
 }
 
@@ -181,12 +208,90 @@ function validParsed(overrides = {}) {
 }
 
 {
+  // Login gap + execution-only URL → both blocking ASKs in the same gate.
+  const both = ensureAnalystReportActions({
+    success: true,
+    analysis_complete: true,
+    ready_for_test_design: false,
+    testable_conditions: [{ id: "AC-1" }],
+    prerequisites_needed: {
+      blocking: [
+        { id: "login_user", item: "Login test user", category: "data", satisfied_by_ticket: false },
+        {
+          id: "target_environment",
+          item: "Where to test",
+          category: "environment",
+          blocks: "execution",
+          satisfied_by_ticket: false,
+        },
+      ],
+      non_blocking: [],
+    },
+  });
+  const acts = both.analyst_report.orchestrator_actions;
+  assert.equal(acts.length, 2);
+  assert.ok(acts.every((a) => a.action === "ASK_HUMAN" && a.blocking === true));
+  assert.ok(acts.some((a) => a.prereq_id === "login_user"));
+  assert.ok(acts.some((a) => a.prereq_id === "target_environment"));
+  const urlPrereq = both.prerequisites_needed.blocking.find((b) => b.id === "target_environment");
+  assert.equal(urlPrereq.blocks, "design");
+}
+
+{
   const emptyAc = resolveAnalystOrchestratorGate(validParsed({
     testable_conditions: [],
     ready_for_test_design: true,
   }));
   assert.equal(emptyAc.state, PIPELINE_STATE.NEEDS_INPUT);
   assert.equal(emptyAc.proceed, false);
+}
+
+// --- effort + retry payload (token-cost helpers) ---
+{
+  const prevEffort = process.env.ANALYST_EFFORT;
+  const prevRetry = process.env.ANALYST_RETRY_EFFORT;
+  delete process.env.ANALYST_EFFORT;
+  delete process.env.ANALYST_RETRY_EFFORT;
+  // Default stays high until medium is empirically validated against retry rate.
+  assert.equal(effortForAttempt(1), "high");
+  assert.equal(effortForAttempt(2), "high");
+  process.env.ANALYST_EFFORT = "medium";
+  assert.equal(effortForAttempt(1), "medium");
+  assert.equal(effortForAttempt(2), "medium"); // retry falls back to ANALYST_EFFORT
+  process.env.ANALYST_RETRY_EFFORT = "high";
+  assert.equal(effortForAttempt(2), "high");
+  if (prevEffort === undefined) delete process.env.ANALYST_EFFORT;
+  else process.env.ANALYST_EFFORT = prevEffort;
+  if (prevRetry === undefined) delete process.env.ANALYST_RETRY_EFFORT;
+  else process.env.ANALYST_RETRY_EFFORT = prevRetry;
+}
+
+{
+  const u = extractUsageFromEnvelope({
+    result: "ok",
+    usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 80 },
+  });
+  assert.equal(u.input_tokens, 100);
+  assert.equal(u.output_tokens, 50);
+  assert.equal(u.cache_read_input_tokens, 80);
+  assert.equal(extractUsageFromEnvelope({ result: "ok" }), null);
+}
+
+{
+  const err = new Error("MAIN GATE: PROCEED requires ready_for_test_design true");
+  err.parsed = { success: true, ready_for_test_design: false };
+  const extra = buildRetryExtra(err, "long scratchpad that must not appear " + "x".repeat(100));
+  assert.match(extra, /Failures:/);
+  assert.match(extra, /corrected final/);
+  assert.match(extra, /"ready_for_test_design":false/);
+  assert.doesNotMatch(extra, /long scratchpad that must not appear/);
+
+  const extractFail = new Error("No ```json fenced block");
+  extractFail.extractFailed = true;
+  const raw = "prefix-" + "y".repeat(2500);
+  const truncated = buildRetryExtra(extractFail, raw);
+  assert.ok(truncated.includes(raw.slice(-2000)));
+  assert.ok(!truncated.includes("prefix-"));
 }
 
 console.log("agent1-analyst tests: ok");
