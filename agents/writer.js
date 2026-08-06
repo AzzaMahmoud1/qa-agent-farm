@@ -32,17 +32,26 @@ export function inferTcType(acText, index) {
   return "happy_path";
 }
 
-/** Short readable test name, prefixed with AC id. Full AC stays on `ac_text`. */
-export function shortTestTitle(acId, acText, maxNameLen = 64) {
-  let name = String(acText || "").trim().replace(/\s+/g, " ");
-  name = name
+/**
+ * Title in NAFATH / Zephyr style: always "Verify that …".
+ * Full AC stays on `ac_text`; title is the human-readable Verify-that summary.
+ */
+export function verifyThatTitle(acText) {
+  let body = String(acText || "").trim().replace(/\s+/g, " ").replace(/\.+$/, "");
+  body = body.replace(/^(verify|ensure|confirm)\s+that\s+/i, "");
+  body = body
     .replace(/^(the\s+)?(system|seha|application|app|platform)\s+(shall|must|should|will)\s+/i, "")
     .replace(/^(a\s+|an\s+|the\s+)?(user|admin|customer|operator)\s+(can|shall|must|should|will|may)\s+/i, "")
-    .replace(/^(it\s+)?(shall|must|should|will)\s+/i, "")
-    .replace(/^(ensure|verify|confirm)\s+(that\s+)?/i, "");
-  name = sentenceCase(name || String(acText || "Scenario").trim());
-  const id = String(acId || "AC").trim() || "AC";
-  return `${id} · ${clip(name, maxNameLen)}`;
+    .replace(/^(it\s+)?(shall|must|should|will)\s+/i, "");
+  body = body.trim() || "the acceptance criterion holds";
+  // Keep natural casing of the remainder (sample mixes "Seha" / "email-and-password").
+  return `Verify that ${body}`;
+}
+
+/** @deprecated Prefer verifyThatTitle — kept for callers; now returns Verify-that form. */
+export function shortTestTitle(acId, acText, maxNameLen = 120) {
+  void acId;
+  return clip(verifyThatTitle(acText), maxNameLen);
 }
 
 /** Sources: Analyst conditions, else story AC list. Carry full Analyst fields through. */
@@ -105,12 +114,6 @@ export function imperativeFromStatement(statement, acText) {
   return "Exercise the acceptance criterion";
 }
 
-export function buildWhenClause(condition) {
-  const trigger = parseWhenTrigger(condition.testable_statement);
-  if (trigger) return sentenceCase(trigger);
-  return imperativeFromStatement(condition.testable_statement, condition.ac_text || condition.text);
-}
-
 function contextHintFromAc(acText) {
   const t = String(acText || "").toLowerCase();
   if (/\blog\s*in|sign\s*in|nafath|credential|password\b/.test(t)) return "on the login page";
@@ -119,6 +122,14 @@ function contextHintFromAc(acText) {
   return "ready to exercise the scenario";
 }
 
+/** When = trigger / action from Analyst testable_statement. */
+export function buildWhenClause(condition) {
+  const trigger = parseWhenTrigger(condition.testable_statement);
+  if (trigger) return sentenceCase(trigger);
+  return imperativeFromStatement(condition.testable_statement, condition.ac_text || condition.text);
+}
+
+/** Given = role + starting state (classic GWT). */
 export function buildGivenClause(roles, acText) {
   const roleList = (roles || []).filter(Boolean);
   if (!roleList.length) {
@@ -128,6 +139,17 @@ export function buildGivenClause(roles, acText) {
   // "user" is /juː…/ — use "A", not "An".
   const article = /^(a|e|i|o|u)/i.test(role) && !/^user\b/i.test(role) ? "An" : "A";
   return `${article} ${role} is ${contextHintFromAc(acText)}`;
+}
+
+export function inferPriority(summary, type) {
+  const text = String(summary || "").toLowerCase();
+  if (/\blanguage|arabic|english|localization|accessibility|viewport|ui is designed properly|future release\b/.test(text)) {
+    return "Low";
+  }
+  if (type === "negative" || type === "security" || /\berror|fail|login|authentication|password|session|security\b/.test(text)) {
+    return "High";
+  }
+  return "Medium";
 }
 
 function isPositiveIntent(type) {
@@ -193,7 +215,7 @@ export function buildWriterOutlines(story, analystOutput) {
       || (isPositiveIntent(type) ? then : String(c.fail_evidence || "").trim() || then);
     return {
       id: `TO-${String(i + 1).padStart(2, "0")}`,
-      title: shortTestTitle(c.id, c.ac_text),
+      title: verifyThatTitle(c.ac_text),
       ac_text: c.ac_text,
       mapped_acs: [c.id],
       intent: type,
@@ -216,6 +238,7 @@ export function buildWriterTestCases(story, analystOutput) {
   const suggested = suggestTestFile(story, analystOutput);
   return acSources(story, analystOutput).map((c, i) => {
     const type = inferTcType(c.text, i);
+    const title = verifyThatTitle(c.ac_text);
     const given = buildGivenClause(c.roles, c.ac_text);
     const when = buildWhenClause(c);
     const { then, needs_detail } = buildThenClause(type, c.pass_evidence, c.fail_evidence);
@@ -223,9 +246,10 @@ export function buildWriterTestCases(story, analystOutput) {
     const tc = {
       id: c.tcId || `TC-${String(i + 1).padStart(2, "0")}`,
       ac_ref: c.id,
-      title: shortTestTitle(c.id, c.ac_text),
+      title,
       ac_text: c.ac_text,
       type,
+      priority: inferPriority(title, type),
       given,
       when,
       then,
