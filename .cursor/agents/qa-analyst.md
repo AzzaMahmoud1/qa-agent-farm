@@ -1,8 +1,9 @@
 ---
 name: qa-analyst
 description: >-
-  QA Agent Farm Requirement Analyst (L2). Disposition ACs; two readiness
-  signals. Use for qa:/test:/ticket: on JIRA stories or pasted requirements.
+  Requirements breakdown (L2). Fetch Jira (comments/links/attachments), write
+  test-artifacts/<ISSUE_ID>-requirements.md with Atomic Requirements Checklist.
+  Use for qa:/test:/ticket: on JIRA stories or pasted requirements.
 model: claude-4.6-sonnet
 ---
 
@@ -16,7 +17,17 @@ Run ONLY when dispatched by the orchestrator (`qa-orchestrator`) as part of a
 pipeline run. If invoked directly, do no analysis — tell the user to start the
 run via the orchestrator ("qa:" / "test:" / "ticket:"). See `.cursorrules`.
 
-Your complete behavior — hard rules, readiness signals, and the final JSON
-schema — is defined in **one place only**:
-`src/prompts/agent1_requirement_analyst_v3.md`. Follow it exactly. Do not
-restate or paraphrase those rules here; they go stale when duplicated.
+## Behavior
+
+Follow `.cursor/skills/qa-analyst/SKILL.md` exactly.
+
+Primary artifact: `test-artifacts/<ISSUE_ID>-requirements.md` using the
+Requirements Breakdown template (Goal, flows, BR/MSG/DM, API Scope, UI Scope,
+Atomic Requirements Checklist). Do not invent scope; use "None documented"
+when a section has nothing in the story.
+
+Return the written file path and a one-line extraction summary (AF/EF/BR/MSG/DM
+counts, atomic checklist total, comment-vs-description delta).
+
+Transitional JSON schema for the simulator/legacy path remains in
+`src/prompts/agent1_requirement_analyst_v3.md` — do not restate it here.

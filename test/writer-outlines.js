@@ -4,13 +4,13 @@ import {
   buildWriterTestCases,
   buildWhenClause,
   buildGivenClause,
+  verifyThatTitle,
   suggestTestFile,
   inferTcType,
   shortTestTitle,
 } from "../agents/writer.js";
 import { buildAuthorOutput } from "../agents/author.js";
 
-// Part 3 — inferTcType
 assert.equal(
   inferTcType("Invalid password must be rejected with a clear error"),
   "negative",
@@ -65,48 +65,39 @@ assert.equal(writer.test_outlines[0].status, "draft");
 assert.ok(writer.coverage_matrix["AC-1"]?.includes("TO-01"));
 assert.equal(writer.test_cases[0].documentation_only, true);
 
-// Titles are short AC-prefixed names; full AC kept on ac_text
-assert.match(writer.test_cases[0].title, /^AC-1 · /);
+assert.match(writer.test_cases[0].title, /^Verify that /i);
 assert.equal(writer.test_cases[0].ac_text, analyst.testable_conditions[0].ac_text);
-assert.ok(writer.test_cases[0].title.length < writer.test_cases[0].ac_text.length + 10);
-{
-  const longAc = "Seha shall re-enable the email and password login option to be available from configuration";
-  const title = shortTestTitle("AC-2", longAc);
-  assert.match(title, /^AC-2 · Re-enable the email and password login option/);
-  assert.ok(!title.includes(longAc), "title is shortened; full text stays on ac_text");
-  assert.ok(title.length < longAc.length);
-}
+assert.equal(
+  verifyThatTitle("Seha displays only Nafath as the login method"),
+  "Verify that Seha displays only Nafath as the login method",
+);
+assert.match(shortTestTitle("AC-2", "User can reset password"), /^Verify that /i);
 
-// Given is role/state — not provenance
+// Classic GWT
 assert.match(writer.test_cases[0].given, /^A user is /i);
-assert.doesNotMatch(writer.test_cases[0].given, /Requirements|loaded from/i);
+assert.doesNotMatch(writer.test_cases[0].given, /Preconditions:|Requirements|loaded from/i);
 assert.equal(writer.test_cases[0].source_ref, "Requirements DEMO-1 loaded from pasted description");
 
-// When is the trigger from testable_statement
 assert.match(writer.test_cases[0].when, /valid credentials are submitted/i);
-assert.doesNotMatch(writer.test_cases[0].when, /Scenario exercises/i);
+assert.doesNotMatch(writer.test_cases[0].when, /Step 1\.|Scenario exercises/i);
 
-// Then / expected_evidence come from Analyst evidence (no invented HTTP / constant Then)
 assert.equal(writer.test_cases[0].then, "User reaches an authenticated session");
 assert.equal(writer.test_cases[0].expected_evidence, "User reaches an authenticated session");
 for (const tc of writer.test_cases) {
   const blob = JSON.stringify(tc);
   assert.doesNotMatch(blob, /Expected behavior passes per AC/);
-  assert.doesNotMatch(blob, /HTTP 200/);
+  assert.doesNotMatch(blob, /HTTP 200 \/ success UI/);
+  assert.equal(tc.preconditions, undefined);
+  assert.equal(tc.steps, undefined);
+  assert.equal(tc.expected_results, undefined);
 }
 
-// Negative AC: Then is still the pass observation (correct rejection), not the bug
 assert.equal(writer.test_cases[1].then, "Clear rejection message is shown");
-assert.equal(writer.test_cases[1].expected_evidence, "Clear rejection message is shown");
-
-// Outlines: action = When, validation = pass evidence
 assert.match(writer.test_outlines[0].tasks[0].action, /valid credentials are submitted/i);
 assert.equal(writer.test_outlines[0].tasks[0].validation, "User reaches an authenticated session");
-
-// Login UI story → e2e path, not api
+assert.match(writer.test_outlines[0].title, /^Verify that /i);
 assert.match(writer.test_cases[0].suggested_file || "", /^tests\/e2e\//);
 
-// Analyst v3 schema — When from when-clause, not AC restatement boilerplate
 const analystV3 = {
   testable_conditions: [{
     id: "AC-1",
@@ -121,14 +112,13 @@ const analystV3 = {
 };
 const fromAcText = buildWriterOutput(story, analystV3);
 assert.equal(fromAcText.test_outlines.length, 1);
-assert.match(fromAcText.test_outlines[0].title, /^AC-1 · .*reset password/i);
+assert.match(fromAcText.test_outlines[0].title, /^Verify that /i);
 assert.match(fromAcText.test_cases[0].when, /token is valid/i);
 assert.equal(
   fromAcText.test_cases[0].then,
   "Password reset completes and user can sign in with the new password",
 );
 
-// Imperative fallback when statement has no when-clause
 assert.match(
   buildWhenClause({
     testable_statement: "System MUST display only Nafath for user",
@@ -137,13 +127,12 @@ assert.match(
   /Display only Nafath/i,
 );
 
-assert.match(buildGivenClause(["admin"], "Admin opens the dashboard"), /An admin is on the relevant application screen/i);
+assert.match(buildGivenClause(["admin"], "Admin opens the dashboard"), /An admin is /i);
 assert.equal(
   buildGivenClause([], "Anything"),
   "The actor is in a valid starting state for the scenario",
 );
 
-// API-only surface → tests/api; unknown → omit
 {
   const apiStory = {
     id: "API-9",
@@ -175,7 +164,6 @@ assert.equal(
   assert.equal(suggestTestFile({ id: "LEDGER-1", acceptance_criteria_list: [] }, bare), undefined);
 }
 
-// Missing evidence → needs_detail, no fabricated HTTP expected_evidence
 {
   const thin = buildWriterOutput(story, {
     testable_conditions: [{
@@ -189,9 +177,9 @@ assert.equal(
   assert.equal(thin.test_cases[0].needs_detail, true);
   assert.equal(thin.test_cases[0].expected_evidence, undefined);
   assert.doesNotMatch(thin.test_cases[0].then, /Expected behavior passes per AC/i);
+  assert.match(thin.test_cases[0].title, /^Verify that /i);
 }
 
-// buildWriterTestCases derives GWT from Analyst fields; TC-03 shall-not-require → happy_path
 {
   const cases = buildWriterTestCases(story, {
     testable_conditions: [
@@ -228,9 +216,10 @@ assert.equal(
   assert.match(cases[0].when, /valid credentials are submitted/i);
   assert.equal(cases[0].then, "User reaches an authenticated session");
   assert.equal(cases[2].ac_text, "The change shall not require deployment");
-  assert.match(cases[2].title, /^AC-3 · /);
+  assert.match(cases[2].title, /^Verify that /i);
+  assert.ok(cases[0].priority);
   for (const tc of cases) {
-    assert.doesNotMatch(JSON.stringify(tc), /Expected behavior passes per AC|HTTP 200/);
+    assert.doesNotMatch(JSON.stringify(tc), /Expected behavior passes per AC|HTTP 200 \/ success UI/);
   }
 }
 

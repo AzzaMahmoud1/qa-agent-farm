@@ -1,60 +1,55 @@
 ---
 name: qa-writer
 description: >-
-  QA Agent Farm Test Case Writer (L3). Writes Given/When/Then test cases from
-  Analyst JSON. Use after analyst output is validated in the farm pipeline.
+  Test case writer. Reads requirements breakdown, writes Given/When/Then test
+  cases. Never invent requirements from scratch.
 ---
 
-# Test Case Writer (L3)
+# Test Case Writer
 
-**Model:** `claude-4.6-sonnet` (Claude Sonnet) — required for this agent.
+The writer should locate the output of requirement breakdown; orchestrator should give it to him. If no requirements breakdown exists and none is provided, tell the user to run jira-requirements-breakdown first (or paste/point to the requirements) — do not invent requirements from scratch.
 
-## Input
+Look for `test-artifacts/<ISSUE_ID>-requirements.md`, or use the path the orchestrator/user provides.
 
-Agent 1 (Analyst) JSON: `testable_conditions`, `prerequisites_needed.blocking`, `coverage_gaps`, `unimplemented_rules`.
+Read the requirements breakdown fully, then write test cases from it.
 
-## Second gate (Analyst readiness)
+## Each test case has exactly these fields
 
-- Run only after Analyst output is **Validator-approved**
-- If `testable_conditions` is empty → refuse (do not invent ACs or placeholder TCs)
-- Build outlines / cases only from Analyst `testable_conditions` — never from ticket fluff the Analyst rejected
-- If Analyst `ready_for_test_design` is false or blocking asks remain → do not pretend the ticket is clear
+| Field | Content |
+|-------|---------|
+| **Title** | Must start with `Verify that …` |
+| **Given** | Starting state / role context |
+| **When** | Trigger / action |
+| **Then** | Observable outcome from Analyst `pass_evidence` (exact EN/AR copy when verifying messages/labels) |
 
-## Rules
+Write TCs to `test-artifacts/<ISSUE_ID>-test-cases.md`.
 
-- Primary artifact: **test_outlines** (human Approve before Author); GWT may be documentation
-- **Given / When / Then** for every documentation test case
-- At least one **happy_path** and one **negative** or **edge_case** when multiple ACs exist
-- Every acceptance criterion → one outline / case (`ac_ref` / `mapped_acs`)
-- One case per **blocking** coverage gap when applicable
-- **Skip** ACs in `unimplemented_rules` — set `skip_reason`
-- Prerequisites from Analyst blocking list only
-- Include `expected_evidence` from Analyst `pass_evidence` / `fail_evidence` only — never invent HTTP status codes
-- Build Given/When/Then from Analyst `roles`, `testable_statement`, and evidence fields — not provenance metadata or "Scenario exercises AC-N" boilerplate
-- `suggested_file`: `tests/api/…` only when an API surface is detected, else `tests/e2e/…` for webpage; omit when surface is unknown
+## Coverage rules
 
-## Output JSON
+Cover: happy path · alternate flows (AF##) · error flows (EF##) · empty states · language (EN & AR, from MSG##) · UI/viewport (from DM##) · accessibility
 
-```json
-{
-  "test_cases": [{
-    "id": "TC-01",
-    "ac_ref": "AC-1",
-    "title": "...",
-    "type": "happy_path | edge_case | negative | security | regression",
-    "prerequisites": [],
-    "given": "...",
-    "when": "...",
-    "then": "...",
-    "expected_evidence": "...",
-    "suggested_file": "tests/...",
-    "source_ref": "optional traceability — not used as Given",
-    "needs_detail": false,
-    "skip_reason": null
-  }]
-}
+Do not skip edge cases or business rules (BR##)
+
+Future Release items → write TCs but note "(Future Release)" in the title
+
+Every documented EN/AR pair gets a test case — none may be skipped. This applies to every message (MSG##) AND every DM## field/button/label that has distinct EN and AR values in the requirements breakdown — not just the obvious chat/error messages. Verify EN and AR together in a single test case (two steps: set language to English and observe, then set language to Arabic and observe) — never split one language pair across two separate test cases. Before finalizing, scan the requirements breakdown's DM## tables specifically for EN/AR columns and confirm every row has a corresponding language TC; this is a common place for coverage to quietly go missing.
+
+Never write a vague Then like "text matches the documented copy." Quote exact EN and AR strings verbatim from the requirements breakdown — e.g. EN: "Session disconnected. Rejoin to continue." / AR: "انقطع الاتصال. يرجى إعادة الانضمام للمتابعة."
+
+One test case = one independently-verifiable assertion. Use the requirements breakdown's "Atomic Requirements Checklist" as your source list — one checklist item should generally map to one test case. Never bundle a business-rule/data-state outcome together with a UI/navigation/display outcome in the same test case.
+
+Any API mention in the requirements breakdown means API test cases are mandatory. Check "API Scope": Not applicable → no API TCs; otherwise cover HTTP status (success + error), request design, and response structure — one assertion per TC.
+
+Every frontend/UI story always gets one "Verify that the UI is designed properly" test case — no exceptions.
+
+## Output format
+
+```markdown
+# Test Cases — <ISSUE_ID>
+
+## TC-01
+**Title:** Verify that …
+**Given:** …
+**When:** …
+**Then:** …
 ```
-
-## Code module
-
-`agents/writer.js`

@@ -5,10 +5,14 @@
 Run the QA pipeline when a message contains any of:
 "qa:", "test:", "ticket:", "write tests for", "review this ticket".
 
-## Pipeline order
+## Primary pipeline (TC generation)
 
-Analyst → Writer → Data Extractor → Author → Executor → Reviewer → Reporter.
-Each agent uses all previous agents' outputs as input.
+Analyst (requirements.md) → Writer (test cases). Orchestrator must pass the
+requirements breakdown path to Writer. If none exists, tell the user to run
+jira-requirements-breakdown first — never invent requirements.
+
+Optional execution phase after Writer: Data Extractor → Author → Executor →
+Reviewer → Reporter.
 
 ## Dependency gate
 
@@ -29,6 +33,11 @@ must be started via the orchestrator using "qa:", "test:", or "ticket:".
 
 ## Where the rules live (do not duplicate them here)
 
-- Agent 1 (Requirement Analyst) rules live in
-  src/prompts/agent1_requirement_analyst_v3.md — never restate them here.
-- All other agent rules live in .cursor/skills/qa-*/SKILL.md.
+- Analyst breakdown → `.cursor/skills/qa-analyst/SKILL.md`
+  (writes `test-artifacts/<ISSUE_ID>-requirements.md`)
+- Writer TCs → `.cursor/skills/qa-writer/SKILL.md`
+  (reads requirements.md; writes `test-artifacts/<ISSUE_ID>-test-cases.md`
+  with title / Given / When / Then)
+- Orchestrator handoffs → `.cursor/skills/qa-orchestrator/SKILL.md`
+- Transitional JSON (simulator/legacy) → `src/prompts/agent1_requirement_analyst_v3.md`
+- All other agent rules → `.cursor/skills/qa-*/SKILL.md`

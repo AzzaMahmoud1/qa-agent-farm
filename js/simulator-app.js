@@ -2055,7 +2055,7 @@ function renderWriterOutput(data) {
       ? `<div class="prereq-section-title" style="margin-top:0">Test outlines — approve before Author</div>${renderTestOutlines(outlines)}`
       : `<div class="output-empty">No outlines yet.</div>`,
     data.test_cases?.length
-      ? `<details style="margin-top:.75rem"><summary style="cursor:pointer;font-size:.72rem;color:var(--muted)">GWT docs (${data.test_cases.length}) — documentation only; Author builds from approved outlines</summary>${renderTestCases(data.test_cases)}</details>`
+      ? `<details style="margin-top:.75rem"><summary style="cursor:pointer;font-size:.72rem;color:var(--muted)">GWT docs (${data.test_cases.length}) — Given / When / Then</summary>${renderTestCases(data.test_cases)}</details>`
       : "",
   ].join("");
 }
@@ -2172,6 +2172,7 @@ function renderTestCases(cases) {
       <div class="tc-row-head">
         <span class="tc-row-id">${escapeHtml(tc.id)}</span>
         <span class="tc-type tc-type-${typeCls}">${escapeHtml(tc.type.replace("_", " "))}</span>
+        ${tc.priority ? `<span class="tc-type" style="opacity:.85">${escapeHtml(tc.priority)}</span>` : ""}
         ${tc.documentation_only ? `<span class="tc-doc-only">docs only</span>` : ""}
         <strong class="tc-title" title="${escapeHtml(hover)}">${escapeHtml(tc.title)}</strong>
       </div>
@@ -2179,7 +2180,6 @@ function renderTestCases(cases) {
         <div><strong style="color:var(--text)">Given</strong> ${escapeHtml(tc.given)}</div>
         <div><strong style="color:var(--text)">When</strong> ${escapeHtml(tc.when)}</div>
         <div><strong style="color:var(--text)">Then</strong> ${escapeHtml(tc.then)}</div>
-        ${tc.expected_evidence ? `<div style="margin-top:.3rem;font-family:monospace;font-size:.72rem"><strong>Expected:</strong> ${escapeHtml(tc.expected_evidence)}</div>` : ""}
         ${tc.needs_detail ? `<div style="margin-top:.2rem;font-size:.7rem;color:var(--warn,#b45309)">Needs detail — Analyst did not supply pass/fail evidence</div>` : ""}
       </div>
     </div>`;
