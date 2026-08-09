@@ -69,6 +69,7 @@ function acSources(story, analystOutput) {
         testable_statement: c.testable_statement || "",
         pass_evidence: c.pass_evidence || "",
         fail_evidence: c.fail_evidence || "",
+        reason: c.reason || "",
         source: c.source || "",
         tcId: c.tcId,
       };
@@ -86,6 +87,7 @@ function acSources(story, analystOutput) {
     testable_statement: "",
     pass_evidence: "",
     fail_evidence: "",
+    reason: "",
     source: "",
     tcId: ids[i],
   }));
@@ -255,6 +257,7 @@ export function buildWriterTestCases(story, analystOutput) {
       then,
       documentation_only: true,
     };
+    if (c.reason) tc.reason = c.reason;
     if (source_ref) tc.source_ref = source_ref;
     if (c.source) tc.ac_source = c.source;
     if (expected_evidence) tc.expected_evidence = expected_evidence;

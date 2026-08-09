@@ -23,10 +23,16 @@ When spawning or instructing worker agents, require them to run on **Claude Sonn
 ## Primary pipeline (TC generation)
 
 1. Assign **Analyst** → writes `test-artifacts/<ISSUE_ID>-requirements.md`
+   (includes Analyst Reasoning + per-checklist Reason)
 2. Human prerequisites (if blocking gaps / open questions)
 3. Assign **Writer** → pass the requirements breakdown path explicitly → writes `test-artifacts/<ISSUE_ID>-test-cases.md`
 
-Author / Data Extractor / Executor / Reviewer / Reporter are an **optional execution phase** after TCs exist — not required to finish TC generation.
+**Author is optional execution only** — not part of TC generation. Keep
+`qa-author` / `agents/author.js` for simulator S2 Plan→Act→Reflect when a live
+URL run is explicitly requested.
+
+Data Extractor / Author / Executor / Reviewer / Reporter are an **optional
+execution phase** after TCs exist — not required to finish TC generation.
 
 ## Writer handoff (required)
 
@@ -47,10 +53,13 @@ If no requirements breakdown exists and none is provided:
 3. Assign **Writer** → test cases (with requirements path)
 4. Human API curl / webpage (if story requires)
 5. Assign **Data Extractor** → validate
-6. Assign **Author** (Plan→Act→Reflect)
+6. Assign **Author** (Plan→Act→Reflect) — **optional**; only when live authoring is requested
 7. Assign **Executor**
 8. Assign **Reviewer**
 9. Assign **Reporter**
+
+Do not delete or dispatch Author as part of TC generation. Author remains a
+simulator/execution stub until Playwright S2.
 
 ## Rules
 
