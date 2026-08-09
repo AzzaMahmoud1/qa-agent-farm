@@ -20,9 +20,16 @@ Read the requirements breakdown fully, then write test cases from it.
 | **Title** | Must start with `Verify that …` |
 | **Given** | Starting state / role context |
 | **When** | Trigger / action |
-| **Then** | Observable outcome from Analyst `pass_evidence` (exact EN/AR copy when verifying messages/labels) |
+| **Then** | Observable outcome — prefer the checklist item's `Reason` evidence guidance and Analyst `pass_evidence`; quote exact EN/AR copy when verifying messages/labels |
 
 Write TCs to `test-artifacts/<ISSUE_ID>-test-cases.md`.
+
+## Checklist Reasons
+
+Read each Atomic Requirements Checklist line's ` — Reason: …` when drafting GWT
+(especially **Then**). Use that evidence guidance; still never invent scope.
+One TC per checklist item remains mandatory — Reason is guidance for Then /
+evidence, not a second assertion.
 
 ## Coverage rules
 
@@ -36,7 +43,7 @@ Every documented EN/AR pair gets a test case — none may be skipped. This appli
 
 Never write a vague Then like "text matches the documented copy." Quote exact EN and AR strings verbatim from the requirements breakdown — e.g. EN: "Session disconnected. Rejoin to continue." / AR: "انقطع الاتصال. يرجى إعادة الانضمام للمتابعة."
 
-One test case = one independently-verifiable assertion. Use the requirements breakdown's "Atomic Requirements Checklist" as your source list — one checklist item should generally map to one test case. Never bundle a business-rule/data-state outcome together with a UI/navigation/display outcome in the same test case.
+One test case = one independently-verifiable assertion. Use the requirements breakdown's "Atomic Requirements Checklist" as your source list — one checklist item should generally map to one test case. Use each item's Reason for Then/evidence wording. Never bundle a business-rule/data-state outcome together with a UI/navigation/display outcome in the same test case.
 
 Any API mention in the requirements breakdown means API test cases are mandatory. Check "API Scope": Not applicable → no API TCs; otherwise cover HTTP status (success + error), request design, and response structure — one assertion per TC.
 

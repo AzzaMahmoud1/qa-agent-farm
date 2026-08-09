@@ -1978,6 +1978,7 @@ function renderStructuredAnalystOutput(data) {
         <span class="muted">Testable:</span> ${escapeHtml(c.testable_statement || "—")}<br>
         <span style="color:var(--success)">Pass:</span> ${escapeHtml(c.pass_evidence || "—")}<br>
         <span style="color:#dc2626">Fail:</span> ${escapeHtml(c.fail_evidence || "—")}
+        ${c.reason ? `<br><span class="muted">Reason:</span> ${escapeHtml(c.reason)}` : ""}
         ${c.ambiguous ? `<br><span class="muted">Assumption:</span> ${escapeHtml(c.assumption || "—")}` : ""}
       </div>`).join("");
     parts.push(`<div class="output-kv-item validator"><div class="output-kv-key">Testable conditions (${conditions.length})</div><div class="output-kv-val prereq-ac-map">${rows}</div></div>`);
@@ -1985,12 +1986,22 @@ function renderStructuredAnalystOutput(data) {
 
   const reasoning = parsed.analyst_reasoning;
   if (reasoning) {
-    const rejected = (reasoning.rejected_as_non_ac || []).map((r) => `<li class="muted" style="font-size:.74rem">${escapeHtml(r)}</li>`).join("");
+    const rejected = (reasoning.rejected_as_non_ac || []).map((r) => `<li class="muted" style="font-size:.74rem">${escapeHtml(typeof r === "string" ? r : (r.text || JSON.stringify(r)))}</li>`).join("");
+    const included = (reasoning.included || []).map((line) =>
+      `<li style="font-size:.74rem">${escapeHtml(typeof line === "string" ? line : JSON.stringify(line))}</li>`
+    ).join("");
+    const evidencePlan = (reasoning.evidence_plan || []).map((line) =>
+      `<li style="font-size:.74rem">${escapeHtml(typeof line === "string" ? line : JSON.stringify(line))}</li>`
+    ).join("");
     const ambiguous = (reasoning.ambiguous_acs || []).map((a) =>
       `<li style="font-size:.74rem"><strong>${escapeHtml(a.ac_id)}</strong> — ${escapeHtml(a.issue)}<br><span class="muted">Assumption:</span> ${escapeHtml(a.assumption)}</li>`
     ).join("");
+    const conf = reasoning.confidence;
     parts.push(`<div class="output-kv-item validator"><div class="output-kv-key">Structured reasoning</div><div class="output-kv-val" style="font-size:.78rem">
       ${reasoning.ticket_read ? `<p style="margin:0 0 .45rem">${escapeHtml(reasoning.ticket_read)}</p>` : ""}
+      ${conf ? `<p style="margin:0 0 .35rem"><strong>Confidence:</strong> ${escapeHtml(conf.overall || "—")} — ${escapeHtml(conf.reason || "")}</p>` : ""}
+      ${included ? `<p style="margin:.35rem 0 .2rem;font-size:.72rem;color:var(--muted)">Included (${reasoning.included.length})</p><ul style="margin:0;padding-left:1.1rem">${included}</ul>` : ""}
+      ${evidencePlan ? `<p style="margin:.35rem 0 .2rem;font-size:.72rem;color:var(--muted)">Evidence plan</p><ul style="margin:0;padding-left:1.1rem">${evidencePlan}</ul>` : ""}
       ${(reasoning.unimplemented_rules || []).length ? `<p style="margin:0 0 .35rem"><strong>Out of scope:</strong> ${escapeHtml(reasoning.unimplemented_rules.join("; "))}</p>` : ""}
       ${rejected ? `<p style="margin:.35rem 0 .2rem;font-size:.72rem;color:var(--muted)">Rejected as non-AC (${reasoning.rejected_as_non_ac.length})</p><ul style="margin:0;padding-left:1.1rem">${rejected}</ul>` : ""}
       ${ambiguous ? `<p style="margin:.35rem 0 .2rem;font-size:.72rem;color:var(--muted)">Ambiguous ACs</p><ul style="margin:0;padding-left:1.1rem">${ambiguous}</ul>` : ""}

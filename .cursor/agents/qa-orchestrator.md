@@ -28,6 +28,7 @@ When spawning or instructing worker agents, they MUST run on **Claude Sonnet** (
 ## Primary pipeline (TC generation)
 
 1. Assign Analyst → `test-artifacts/<ISSUE_ID>-requirements.md`
+   (Analyst Reasoning + per-checklist Reason)
 2. Human prerequisites (if needed)
 3. Assign Writer → **always pass the requirements breakdown path** → `test-artifacts/<ISSUE_ID>-test-cases.md`
 
@@ -35,8 +36,9 @@ If no requirements breakdown exists and none is provided, do not invent
 requirements — tell the user to run jira-requirements-breakdown first (or
 paste/point to the requirements).
 
-Optional execution phase (Author / Data Extractor / Executor / Reviewer /
-Reporter) runs only after TCs exist and only when requested.
+**Author is optional execution only** — not part of TC generation. Optional
+execution phase (Data Extractor / Author / Executor / Reviewer / Reporter)
+runs only after TCs exist and only when requested.
 
 ## Rules
 

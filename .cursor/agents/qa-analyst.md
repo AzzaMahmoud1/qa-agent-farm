@@ -23,8 +23,11 @@ Follow `.cursor/skills/qa-analyst/SKILL.md` exactly.
 
 Primary artifact: `test-artifacts/<ISSUE_ID>-requirements.md` using the
 Requirements Breakdown template (Goal, flows, BR/MSG/DM, API Scope, UI Scope,
-Atomic Requirements Checklist). Do not invent scope; use "None documented"
-when a section has nothing in the story.
+Analyst Reasoning, Atomic Requirements Checklist with per-item Reason). Do not
+invent scope; use "None documented" when a section has nothing in the story.
+
+Always include `## Analyst Reasoning` (Included / Rejected / Evidence plan /
+Confidence). Every checklist line ends with ` — Reason: …`.
 
 Return the written file path and a one-line extraction summary (AF/EF/BR/MSG/DM
 counts, atomic checklist total, comment-vs-description delta).

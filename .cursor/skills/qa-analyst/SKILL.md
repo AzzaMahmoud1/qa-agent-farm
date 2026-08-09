@@ -123,14 +123,35 @@ Write the breakdown using this exact structure:
 ## UI Scope
 <For any story with user-facing screens/flows (i.e. not a pure backend/API story): note that a baseline "Verify that the UI is designed properly" test case is always required in addition to the specific DM##/AF/EF-driven UI test cases — this covers overall visual/layout fidelity to design as a catch-all, even when Figma/design is still pending finalization (in which case note it should be re-run once design is finalized, but the test case itself still gets written now).>
 
+## Analyst Reasoning
+<Always present. Author-style reasoning without becoming the Author — explain *why* items are testable and *what evidence* a tester would observe. Do not write live Playwright / Plan→Act→Reflect steps.>
+
+### Included
+- <what was dispositioned as testable and why, briefly — one bullet per major inclusion or group>
+
+### Rejected / non-AC
+- <lines dropped and why — no silent drops; write "None" if nothing was rejected>
+
+### Evidence plan
+- <how a tester would observe pass/fail for the story overall (UI state, API status, field value, message copy) — not executable session steps>
+
+### Confidence
+- <high | medium | low> — <one-line reason>
+
+### Open questions
+<Omit this subsection if empty. Otherwise one bullet per unresolved gap (mirrors Open Questions From Comments / blocking unknowns).>
+
 ## Atomic Requirements Checklist
-<Flat, numbered list of every independently-verifiable requirement extracted above — one line per checkable outcome (a single system action, a single business rule, a single message, a single field default/format, a single AC). Tag each with its source. This is the coverage checklist jira-test-case-writer must map one-to-one against written test cases — nothing on this list may be silently dropped. This MUST include one line per API Scope item (status code / request design / response structure — see above) when API Scope is not "Not applicable", and one line for the baseline "UI is designed properly" TC when UI Scope applies — these are standing requirements, not optional extras, so they belong on the checklist like everything else.
+<Flat, numbered list of every independently-verifiable requirement extracted above — one line per checkable outcome (a single system action, a single business rule, a single message, a single field default/format, a single AC). Tag each with its source. Every line MUST end with ` — Reason: <why independently testable / how to verify>`. This is the coverage checklist the Writer must map one-to-one against written test cases — nothing on this list may be silently dropped. This MUST include one line per API Scope item (status code / request design / response structure — see above) when API Scope is not "Not applicable", and one line for the baseline "UI is designed properly" TC when UI Scope applies — these are standing requirements, not optional extras, so they belong on the checklist like everything else.
+
+Format each line as:
+`N. [SOURCE] <outcome> — Reason: <why this is independently testable / what evidence to observe>`
 
 Worked example of splitting one flow into atomic lines (this is the level of granularity required):
-1. [AF03] Session is terminated
-2. [AF03] DM02 screen is displayed
-3. [AF03] User is redirected to Appointment Card in previous appointments
-4. [AF03] Appointment status updates to "<exact value from story>"
+1. [AF03] Session is terminated — Reason: independently observable; can fail while redirect still succeeds
+2. [AF03] DM02 screen is displayed — Reason: UI display can fail independently of session teardown
+3. [AF03] User is redirected to Appointment Card in previous appointments — Reason: navigation outcome is separately checkable
+4. [AF03] Appointment status updates to "<exact value from story>" — Reason: backend/UI status field is a distinct assertion from navigation
 — four lines, not one, because each is independently observable and each can fail without the others failing.>
 ```
 
