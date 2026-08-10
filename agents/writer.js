@@ -209,21 +209,27 @@ function sourceRefForStory(story) {
 
 export function buildWriterOutlines(story, analystOutput) {
   const src = acSources(story, analystOutput);
+  const unimplemented = new Set(
+    (analystOutput?.analyst_reasoning?.unimplemented_rules || []).map(String),
+  );
   return src.map((c, i) => {
     const when = buildWhenClause(c);
     const type = inferTcType(c.text, i);
     const { then } = buildThenClause(type, c.pass_evidence, c.fail_evidence);
     const validation = String(c.pass_evidence || "").trim()
       || (isPositiveIntent(type) ? then : String(c.fail_evidence || "").trim() || then);
+    const skip = unimplemented.has(c.ac_text) || unimplemented.has(c.id);
     return {
       id: `TO-${String(i + 1).padStart(2, "0")}`,
       title: verifyThatTitle(c.ac_text),
       ac_text: c.ac_text,
       mapped_acs: [c.id],
+      evidence_citation: c.ac_text,
       intent: type,
       preconditions: c.roles.length ? [buildGivenClause(c.roles, c.ac_text)] : [],
       tasks: [{ id: "T1", action: when, validation }],
-      status: "draft",
+      status: skip ? "skipped" : "draft",
+      skip_reason: skip ? "Listed in Analyst unimplemented_rules — out of scope" : null,
     };
   });
 }
@@ -238,6 +244,9 @@ export function buildCoverageMatrix(outlines) {
 export function buildWriterTestCases(story, analystOutput) {
   const source_ref = sourceRefForStory(story);
   const suggested = suggestTestFile(story, analystOutput);
+  const unimplemented = new Set(
+    (analystOutput?.analyst_reasoning?.unimplemented_rules || []).map(String),
+  );
   return acSources(story, analystOutput).map((c, i) => {
     const type = inferTcType(c.text, i);
     const title = verifyThatTitle(c.ac_text);
@@ -245,17 +254,21 @@ export function buildWriterTestCases(story, analystOutput) {
     const when = buildWhenClause(c);
     const { then, needs_detail } = buildThenClause(type, c.pass_evidence, c.fail_evidence);
     const expected_evidence = buildExpectedEvidence(type, c.pass_evidence, c.fail_evidence);
+    const skip = unimplemented.has(c.ac_text) || unimplemented.has(c.id);
     const tc = {
       id: c.tcId || `TC-${String(i + 1).padStart(2, "0")}`,
       ac_ref: c.id,
       title,
       ac_text: c.ac_text,
+      /** Exact Analyst AC / gap text this case cites — never paraphrase-only. */
+      evidence_citation: c.ac_text,
       type,
       priority: inferPriority(title, type),
       given,
       when,
       then,
       documentation_only: true,
+      skip_reason: skip ? "Listed in Analyst unimplemented_rules — out of scope" : null,
     };
     if (c.reason) tc.reason = c.reason;
     if (source_ref) tc.source_ref = source_ref;
@@ -267,23 +280,157 @@ export function buildWriterTestCases(story, analystOutput) {
   });
 }
 
-export function buildWriterOutput(story, analystOutput) {
+/**
+ * Explicit verdict per Analyst testable_condition and blocking coverage_gap.
+ * Mirror Analyst posture: written TC OR skip_reason — no silent drops.
+ */
+export function buildAcVerdicts(analystOutput, testCases, outlines) {
+  const cases = testCases || [];
+  const outs = outlines || [];
+  const verdicts = {};
+  const conditions = analystOutput?.testable_conditions || [];
+  for (const c of conditions) {
+    const id = c.id;
+    const tc = cases.find((t) => t.ac_ref === id || (t.mapped_acs || []).includes?.(id));
+    const outline = outs.find((o) => (o.mapped_acs || []).includes(id));
+    if (tc?.skip_reason || outline?.skip_reason) {
+      verdicts[id] = {
+        verdict: "skipped",
+        skip_reason: tc?.skip_reason || outline?.skip_reason,
+        evidence_citation: c.ac_text,
+      };
+    } else if (tc || outline) {
+      verdicts[id] = {
+        verdict: "written",
+        test_case_id: tc?.id || null,
+        outline_id: outline?.id || null,
+        evidence_citation: c.ac_text,
+      };
+    } else {
+      verdicts[id] = {
+        verdict: "skipped",
+        skip_reason: "No test case emitted — must not silently drop; flag for Writer retry",
+        evidence_citation: c.ac_text,
+      };
+    }
+  }
+
+  const gaps = (analystOutput?.coverage_gaps || []).filter((g) => g?.severity === "blocking");
+  gaps.forEach((g, i) => {
+    const key = `GAP-${i + 1}`;
+    const cite = g.gap || g.suggested_test || key;
+    const hit = cases.find((t) => t.evidence_citation === cite || t.ac_text === cite);
+    verdicts[key] = hit
+      ? { verdict: "written", test_case_id: hit.id, evidence_citation: cite }
+      : {
+        verdict: "skipped",
+        skip_reason: g.severity === "blocking"
+          ? "Blocking coverage gap not yet mapped to a dedicated TC"
+          : "Non-blocking gap deferred",
+        evidence_citation: cite,
+      };
+  });
+
+  return verdicts;
+}
+
+/** Corrective context for one Writer retry — mirrors Analyst buildRetryExtra posture. */
+export function buildWriterRetryExtra(error, priorOutput) {
+  const failures = String(error?.message || error || "validation failed");
+  const prior = priorOutput && typeof priorOutput === "object"
+    ? JSON.stringify({
+      test_cases: (priorOutput.test_cases || []).map((t) => ({
+        id: t.id, ac_ref: t.ac_ref, evidence_citation: t.evidence_citation, skip_reason: t.skip_reason,
+      })),
+      ac_verdicts: priorOutput.ac_verdicts || {},
+    })
+    : String(priorOutput || "").slice(-2000);
+  return {
+    task: "RETRY — address Writer validation failures (last attempt)",
+    failures,
+    prior_summary: prior,
+    corrections: [
+      "Cite exact Analyst AC/coverage-gap text on every test case (evidence_citation)",
+      "Emit ac_verdicts: every Analyst testable_condition must be written or skip_reason",
+      "Do not silently drop Analyst items",
+    ],
+  };
+}
+
+function writerIntegrityCheck(analystOutput, output) {
+  const conditions = analystOutput?.testable_conditions || [];
+  const verdicts = output?.ac_verdicts || {};
+  const missing = [];
+  for (const c of conditions) {
+    const v = verdicts[c.id];
+    if (!v) missing.push(`${c.id}: no ac_verdict`);
+    else if (v.verdict !== "written" && !v.skip_reason) missing.push(`${c.id}: verdict without skip_reason`);
+  }
+  for (const tc of output?.test_cases || []) {
+    if (!tc.skip_reason && !tc.evidence_citation) missing.push(`${tc.id}: missing evidence_citation`);
+  }
+  return missing;
+}
+
+export function buildWriterOutput(story, analystOutput, opts = {}) {
   if (!hasStructuredOutput("analyst", analystOutput)) {
     return {
       ...dependencyBlockedOutput("writer", "BLOCKED — Writer waiting on Analyst structured output"),
-      runner: "stub", test_cases: [], test_outlines: [], coverage_matrix: {},
+      runner: "stub", test_cases: [], test_outlines: [], coverage_matrix: {}, ac_verdicts: {},
     };
   }
-  const test_outlines = buildWriterOutlines(story, analystOutput);
-  return {
-    success: true, blocked: false, runner: "stub",
-    test_outlines,
-    coverage_matrix: buildCoverageMatrix(test_outlines),
-    test_cases: buildWriterTestCases(story, analystOutput),
-    analyst_input: {
-      testable_conditions: analystOutput.testable_conditions,
-      prerequisites_needed: analystOutput.prerequisites_needed,
-    },
-    summary: `${test_outlines.length} outline(s) drafted — approve before Author builds.`,
+
+  const buildOnce = () => {
+    const test_outlines = buildWriterOutlines(story, analystOutput);
+    const test_cases = buildWriterTestCases(story, analystOutput);
+    const ac_verdicts = buildAcVerdicts(analystOutput, test_cases, test_outlines);
+    return {
+      success: true,
+      blocked: false,
+      runner: "stub",
+      test_outlines,
+      coverage_matrix: buildCoverageMatrix(test_outlines),
+      test_cases,
+      ac_verdicts,
+      analyst_input: {
+        testable_conditions: analystOutput.testable_conditions,
+        prerequisites_needed: analystOutput.prerequisites_needed,
+      },
+      summary: `${test_outlines.filter((o) => o.status !== "skipped").length} outline(s) drafted — approve before Author builds.`,
+    };
   };
+
+  let output = buildOnce();
+  const attempts = [{ attempt: 1, output }];
+
+  // One retry with corrective context — mirrors runRequirementAnalyst.
+  let gaps = writerIntegrityCheck(analystOutput, output);
+  if (gaps.length && opts.allowRetry !== false) {
+    const retryExtra = buildWriterRetryExtra(gaps.join("; "), output);
+    // Stub rebuild is deterministic; attach corrective context for validators/orchestrator.
+    output = {
+      ...buildOnce(),
+      retry: {
+        attempted: true,
+        corrections: retryExtra.corrections,
+        prior_failures: gaps,
+      },
+    };
+    // Ensure every condition has a verdict after retry (fill silent drops explicitly)
+    const verdicts = { ...output.ac_verdicts };
+    for (const c of analystOutput.testable_conditions || []) {
+      if (!verdicts[c.id]) {
+        verdicts[c.id] = {
+          verdict: "skipped",
+          skip_reason: "Retry fill — no TC mapped; explicit skip to avoid silent drop",
+          evidence_citation: c.ac_text,
+        };
+      }
+    }
+    output.ac_verdicts = verdicts;
+    attempts.push({ attempt: 2, output, retry_extra: retryExtra });
+  }
+
+  output.attempts = attempts;
+  return output;
 }
