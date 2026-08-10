@@ -69,13 +69,16 @@ const AGENT_GUIDELINES = {
       },
       writer: {
         level: "L3",
-        required_deliverables: ["test_cases", "given_when_then", "ac_mapping"],
+        required_deliverables: ["test_cases", "given_when_then", "ac_mapping", "evidence_citation", "ac_verdicts"],
         rules: [
           "Refuse work without validated Analyst output",
           "Each test case must use Given / When / Then format",
           "At least one happy-path and one negative or edge case",
           "Every acceptance criterion must be covered by a test case",
+          "Cite exact Analyst AC/coverage-gap text on every test case (evidence_citation)",
+          "Emit ac_verdicts: every Analyst testable_condition is written OR skip_reason — no silent drops",
           "Skip ACs listed in analyst unimplemented_rules with skip_reason",
+          "On integrity failure: one corrective retry with failure context, then stop",
           "Prerequisites must reference Agent 1 blocking list only",
           "Include expected evidence (status code or observable outcome)",
         ],
@@ -150,18 +153,35 @@ const VALIDATOR_MAX_ATTEMPTS = 2;
 
 const ORCHESTRATOR_INACTIVITY_TIMEOUT_MS = 60 * 1000;
 
+/** Aggregate validator failures across agents in one run before human escalation. */
+const PIPELINE_GATE_FAILURE_STREAK_MAX = Number(process.env.PIPELINE_GATE_FAILURE_STREAK_MAX) || 4;
+
+/**
+ * Pipeline spend / wall-clock caps (env-overridable).
+ * Token/cost only enforce when real CLI usage was accumulated — stubs do not fabricate usage.
+ */
+const PIPELINE_TOKEN_BUDGET = Number(process.env.PIPELINE_TOKEN_BUDGET) || 250_000;
+const PIPELINE_COST_BUDGET_USD = Number(process.env.PIPELINE_COST_BUDGET_USD) || 5;
+/** Overall wall-clock for one ticket run — separate from human-wait inactivity timeout. */
+const PIPELINE_MAX_RUNTIME_MS = Number(process.env.PIPELINE_MAX_RUNTIME_MS) || 15 * 60 * 1000;
+/** Optional: when set, convert tokens → USD if cost_usd not in usage envelope. */
+const PIPELINE_USD_PER_MILLION_TOKENS = process.env.PIPELINE_USD_PER_MILLION_TOKENS != null
+  && process.env.PIPELINE_USD_PER_MILLION_TOKENS !== ""
+  ? Number(process.env.PIPELINE_USD_PER_MILLION_TOKENS)
+  : null;
+
 const VALIDATOR_GUIDELINES = {
-      level: "L2",
-      role: "Output Validator",
-      max_attempts_per_agent: VALIDATOR_MAX_ATTEMPTS,
-      rules: [
-        "Check worker output against role guidelines only — never rewrite agent output",
-        "Allow at most 2 validation checks per agent handoff (initial output + 1 retry)",
-        "On 1st failure: send structured feedback to orchestrator for one corrective re-instruction",
-        "On 2nd failure: apply brake — abort the entire QA run (no further retries)",
-        "Never loop or re-validate unchanged output beyond the 2-attempt limit",
-      ],
-    };
+  level: "L2",
+  role: "Output Validator",
+  max_attempts_per_agent: VALIDATOR_MAX_ATTEMPTS,
+  rules: [
+    "Check worker output against role guidelines only — never rewrite agent output",
+    "Allow at most 2 validation checks per agent handoff (initial output + 1 retry)",
+    "On 1st failure: send structured feedback to orchestrator for one corrective re-instruction",
+    "On 2nd failure: apply brake — abort the entire QA run (no further retries)",
+    "Never loop or re-validate unchanged output beyond the 2-attempt limit",
+  ],
+};
 
 const OUTPUT_ROLES = ["orchestrator", "validator", ...AGENT_ROLES];
 
@@ -173,6 +193,11 @@ export {
   AGENT_GUIDELINES,
   VALIDATOR_MAX_ATTEMPTS,
   ORCHESTRATOR_INACTIVITY_TIMEOUT_MS,
+  PIPELINE_GATE_FAILURE_STREAK_MAX,
+  PIPELINE_TOKEN_BUDGET,
+  PIPELINE_COST_BUDGET_USD,
+  PIPELINE_MAX_RUNTIME_MS,
+  PIPELINE_USD_PER_MILLION_TOKENS,
   VALIDATOR_GUIDELINES,
   OUTPUT_ROLES,
   MODEL_ORCHESTRATOR,

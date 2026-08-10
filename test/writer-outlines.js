@@ -64,6 +64,9 @@ assert.equal(writer.test_outlines.length, 2);
 assert.equal(writer.test_outlines[0].status, "draft");
 assert.ok(writer.coverage_matrix["AC-1"]?.includes("TO-01"));
 assert.equal(writer.test_cases[0].documentation_only, true);
+assert.equal(writer.test_cases[0].evidence_citation, analyst.testable_conditions[0].ac_text);
+assert.equal(writer.ac_verdicts["AC-1"].verdict, "written");
+assert.equal(writer.ac_verdicts["AC-2"].verdict, "written");
 
 assert.match(writer.test_cases[0].title, /^Verify that /i);
 assert.equal(writer.test_cases[0].ac_text, analyst.testable_conditions[0].ac_text);

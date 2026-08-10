@@ -21,8 +21,32 @@ Read the requirements breakdown fully, then write test cases from it.
 | **Given** | Starting state / role context |
 | **When** | Trigger / action |
 | **Then** | Observable outcome — prefer the checklist item's `Reason` evidence guidance and Analyst `pass_evidence`; quote exact EN/AR copy when verifying messages/labels |
+| **evidence_citation** | Exact Analyst AC / coverage-gap text this case came from (verbatim clause — no silent paraphrase) |
+| **skip_reason** | Required when not writing a TC for an Analyst item |
 
 Write TCs to `test-artifacts/<ISSUE_ID>-test-cases.md`.
+
+## Evidence citation (Analyst rigor baseline)
+
+Every test case **must** cite the exact Analyst `ac_text` or coverage-gap text it
+came from (`evidence_citation`). Prefer a complete verbatim clause. Do not present
+paraphrase as the citation.
+
+## Explicit verdict — no silent drops
+
+Mirror the Analyst posture rule: every Analyst `testable_conditions[]` item (and
+each blocking `coverage_gaps[]` item) gets an explicit verdict in `ac_verdicts`:
+
+- `written` — a test case / outline was produced, **or**
+- `skipped` with a non-empty `skip_reason` (e.g. unimplemented_rules)
+
+Never silently drop an Analyst item.
+
+## Retry (one corrective pass)
+
+If integrity checks fail (missing citations or silent drops), retry **once** with
+corrective context (failures + compact prior output), mirroring
+`runRequirementAnalyst`'s one-retry pattern. Do not loop beyond that.
 
 ## Checklist Reasons
 

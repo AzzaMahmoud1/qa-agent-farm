@@ -4,12 +4,24 @@ export const SKILL_PATH = ".cursor/skills/qa-orchestrator/SKILL.md";
 export const SKILL_FOLDER = ".cursor/skills/qa-orchestrator";
 
 import { farmCtx } from "./ctx-bridge.js";
-import { AGENT_META, AGENT_ROLES, AGENT_GUIDELINES, VALIDATOR_MAX_ATTEMPTS, ORCHESTRATOR_INACTIVITY_TIMEOUT_MS, VALIDATOR_GUIDELINES } from "./registry.js";
+import { AGENT_META, AGENT_ROLES, AGENT_GUIDELINES, VALIDATOR_MAX_ATTEMPTS, ORCHESTRATOR_INACTIVITY_TIMEOUT_MS, VALIDATOR_GUIDELINES, PIPELINE_GATE_FAILURE_STREAK_MAX } from "./registry.js";
 import { buildAnalystOutputPayload, buildAnalystPrerequisitePayload } from "./analyst.js";
 import { inferTcType, buildWriterTestCases, buildWriterOutput } from "./writer.js";
 import { buildAuthorOutput } from "./author.js";
 import { inferHumanInputNeeds } from "../lib/human-input.js";
 import { getLiveRequirements } from "../lib/requirements.js";
+import {
+  summarizePriorMemoryForOrchestrator,
+  recordRunOutcome,
+  inferOutcomeFromEvents,
+} from "../lib/farm-state.js";
+import {
+  createBudgetTracker,
+  seedBudgetFromStory,
+  checkBudget,
+  budgetExceededEvents,
+  budgetSnapshot,
+} from "../lib/pipeline-budget.js";
 import {
   buildValidationResult,
   validateAnalystOutputLive,
@@ -287,7 +299,81 @@ export function escalateAnalystToHumanEvents(story, validation) {
   ];
 }
 
-export function abortRunEvents(targetAgent, phase, story, validation) {
+/**
+ * Orbit-style thrashing brake: too many gate failures across stages in one run.
+ * Escalates to human review instead of another per-agent retry.
+ */
+export function escalateGateFailureStreakEvents(targetAgent, phase, story, validation, streak) {
+  const meta = AGENT_META[targetAgent] || { label: targetAgent };
+  const count = streak?.count ?? PIPELINE_GATE_FAILURE_STREAK_MAX;
+  const max = PIPELINE_GATE_FAILURE_STREAK_MAX;
+  const detail = `Gate failure streak ${count}/${max} — thrashing across stages (last fail: ${meta.label}). Human review required before further retries.`;
+  const ask = {
+    type: "ASK_HUMAN",
+    target: "human",
+    detail,
+    blocking: true,
+    requires_value: true,
+    source: "gate_failure_streak",
+  };
+  return [
+    {
+      kind: "gate_failure_streak_brake",
+      phase,
+      role: "orchestrator",
+      target_agent: targetAgent,
+      message: detail,
+      validation,
+      gate_failure_streak: count,
+      gate_failure_streak_max: max,
+      pipeline_state: PIPELINE_STATE.NEEDS_INPUT,
+      orchestrator_actions: [ask],
+      orchestrator_memory: mem(story, {
+        phase,
+        awaiting: "human_after_gate_streak",
+        gate_failure_streak: count,
+        failed_agent: targetAgent,
+      }),
+      agent_context: { brake: true, escalate_to_human: true, gate_failure_streak: count, validation },
+      agent_returns: validation,
+      decision: "escalate to human — gate failure streak exceeded (Orbit thrashing signal)",
+    },
+    {
+      kind: "prerequisite_input_request",
+      phase,
+      pipeline_state: PIPELINE_STATE.NEEDS_INPUT,
+      orchestrator_actions: [ask],
+      prerequisite_need: {
+        needed: true,
+        items: [],
+        summary: detail,
+        blocking: [],
+        non_blocking: [],
+      },
+      message: detail,
+      role: null,
+      orchestrator_memory: mem(story, {
+        phase,
+        pipeline_state: PIPELINE_STATE.NEEDS_INPUT,
+        awaiting: "human_gate_streak_escalation",
+        gate_failure_streak: count,
+      }),
+      agent_context: {
+        pipeline_state: PIPELINE_STATE.NEEDS_INPUT,
+        orchestrator_actions: [ask],
+        source: "gate_failure_streak",
+      },
+      agent_returns: { success: false, reason: "gate_failure_streak", streak: count },
+      decision: "NEEDS_INPUT — human must review after gate-failure streak",
+    },
+  ];
+}
+
+export function abortRunEvents(targetAgent, phase, story, validation, opts = {}) {
+  const streak = opts.gateFailureStreak;
+  if (streak && streak.count >= PIPELINE_GATE_FAILURE_STREAK_MAX) {
+    return escalateGateFailureStreakEvents(targetAgent, phase, story, validation, streak);
+  }
   const meta = AGENT_META[targetAgent];
   // Analyst readiness failures escalate to human instead of hard abort.
   if (targetAgent === "analyst") {
@@ -335,6 +421,7 @@ export function validationGateEvents(targetAgent, phase, story, agentReturns, op
   const g = AGENT_GUIDELINES[targetAgent];
   // Honest labeling: default timeline approve is SIMULATED_GATE unless caller marks LIVE
   const gateMode = opts.gate_mode || "SIMULATED_GATE";
+  const streak = opts.gateFailureStreak || { count: 0 };
   let passValidation = opts.passValidation || buildValidationResult(targetAgent, true, null, null, {
     gate_mode: gateMode,
   });
@@ -358,6 +445,15 @@ export function validationGateEvents(targetAgent, phase, story, agentReturns, op
   const failAttempts = new Set(opts.failAttempts || (opts.failFirst ? [1] : []));
   const events = [];
 
+  function recordGateFailure() {
+    streak.count = (streak.count || 0) + 1;
+    return streak.count;
+  }
+
+  function streakExceeded() {
+    return streak.count >= PIPELINE_GATE_FAILURE_STREAK_MAX;
+  }
+
   function assignEv(attemptNum, outputSnapshot) {
     return {
       kind: "validator_assign",
@@ -371,6 +467,8 @@ export function validationGateEvents(targetAgent, phase, story, agentReturns, op
         target_agent: targetAgent,
         attempt: attemptNum,
         max_attempts: VALIDATOR_MAX_ATTEMPTS,
+        gate_failure_streak: streak.count,
+        gate_failure_streak_max: PIPELINE_GATE_FAILURE_STREAK_MAX,
         validator_guidelines: VALIDATOR_GUIDELINES.rules,
         worker_guidelines: g.rules,
         required_deliverables: g.required_deliverables,
@@ -391,6 +489,7 @@ export function validationGateEvents(targetAgent, phase, story, agentReturns, op
       validation,
       attempt: attemptNum,
       brake_applied: !!brake,
+      gate_failure_streak: streak.count,
       message: passed
         ? `Validation PASSED for ${meta.label} on attempt ${attemptNum}/${VALIDATOR_MAX_ATTEMPTS} (${validation.score})`
         : brake
@@ -401,8 +500,14 @@ export function validationGateEvents(targetAgent, phase, story, agentReturns, op
         validation: passed ? "passed" : brake ? "brake" : "failed",
         target: targetAgent,
         attempt: attemptNum,
+        gate_failure_streak: streak.count,
       }),
-      agent_context: { validation, attempt: attemptNum, attempts_remaining: passed ? 0 : VALIDATOR_MAX_ATTEMPTS - attemptNum },
+      agent_context: {
+        validation,
+        attempt: attemptNum,
+        attempts_remaining: passed ? 0 : VALIDATOR_MAX_ATTEMPTS - attemptNum,
+        gate_failure_streak: streak.count,
+      },
       agent_returns: validation,
       decision: passed
         ? "approve — orchestrator may proceed"
@@ -433,6 +538,7 @@ export function validationGateEvents(targetAgent, phase, story, agentReturns, op
         attempt: attemptNum,
         orch_action: decision.action,
         quality: decision.io_summary?.quality?.overall,
+        gate_failure_streak: streak.count,
       }),
       agent_context: { orchestrator_decision: decision, gate_mode: validation.gate_mode || gateMode },
       agent_returns: validation,
@@ -445,6 +551,13 @@ export function validationGateEvents(targetAgent, phase, story, agentReturns, op
 
   events.push(assignEv(1));
   if (failAttempts.has(1)) {
+    recordGateFailure();
+    // Aggregate thrashing brake — stop before another per-agent retry.
+    if (streakExceeded()) {
+      events.push(returnEv(false, failValidation, 1, true));
+      events.push(...escalateGateFailureStreakEvents(targetAgent, phase, story, failValidation, streak));
+      return events;
+    }
     events.push(returnEv(false, failValidation, 1, false));
     events.push({
       kind: "orchestrator_reinstruct",
@@ -453,7 +566,12 @@ export function validationGateEvents(targetAgent, phase, story, agentReturns, op
       message: `Orchestrator re-instructs ${meta.label} (1 retry remaining before run abort)`,
       instructions: opts.retryInstructions,
       validation_feedback: failValidation,
-      orchestrator_memory: mem(story, { phase: "orchestrator", action: "reinstruct_" + targetAgent, retries_left: 1 }),
+      orchestrator_memory: mem(story, {
+        phase: "orchestrator",
+        action: "reinstruct_" + targetAgent,
+        retries_left: 1,
+        gate_failure_streak: streak.count,
+      }),
       agent_context: opts.retryInstructions,
       agent_returns: failValidation,
       decision: `retry ${targetAgent} — last chance: ${failValidation.failures[0]}`,
@@ -462,8 +580,9 @@ export function validationGateEvents(targetAgent, phase, story, agentReturns, op
 
     events.push(assignEv(2, opts.retryOutput || agentReturns));
     if (failAttempts.has(2)) {
+      recordGateFailure();
       events.push(returnEv(false, failValidation2, 2, true));
-      events.push(...abortRunEvents(targetAgent, phase, story, failValidation2));
+      events.push(...abortRunEvents(targetAgent, phase, story, failValidation2, { gateFailureStreak: streak }));
       return events;
     }
     events.push(returnEv(true, passValidation, 2, false));
@@ -612,9 +731,90 @@ export function buildRequirementsFailureDemo(story) {
 }
 
 export function resolvePipelineEvents(story, runOptions) {
-  const opts = runOptions || {};
-  if (opts.demo === "requirements") return buildRequirementsFailureDemo(story);
-  return buildEvents(story);
+  const opts = { ...(runOptions || {}) };
+  opts.budgetTracker = opts.budgetTracker || createBudgetTracker({
+    startedAt: opts.startedAt || Date.now(),
+  });
+  opts.gateFailureStreak = opts.gateFailureStreak || { count: 0 };
+  seedBudgetFromStory(opts.budgetTracker, story);
+
+  const early = checkBudget(opts.budgetTracker);
+  if (!early.ok) {
+    return finalizePipelineRun(story, budgetExceededEvents(story, opts.budgetTracker, early), opts);
+  }
+
+  if (opts.demo === "requirements") {
+    return finalizePipelineRun(story, buildRequirementsFailureDemo(story), opts);
+  }
+  return finalizePipelineRun(story, buildEvents(story, opts), opts);
+}
+
+/**
+ * Attach prior-run farm memory to run_start and persist outcome after the timeline is built.
+ * Additive — agent JSON contracts unchanged.
+ */
+export function finalizePipelineRun(story, events, runOptions = {}) {
+  const list = Array.isArray(events) ? events.map((e) => ({ ...e })) : [];
+  const prior = summarizePriorMemoryForOrchestrator(story?.id, runOptions.statePath);
+  const budget = runOptions.budgetTracker
+    ? budgetSnapshot(runOptions.budgetTracker)
+    : null;
+  const startIdx = list.findIndex((e) => e.kind === "run_start");
+  if (startIdx >= 0) {
+    const ev = list[startIdx];
+    ev.orchestrator_memory = {
+      ...(ev.orchestrator_memory || {}),
+      farm_memory: prior,
+      budget,
+      gate_failure_streak: runOptions.gateFailureStreak?.count ?? 0,
+      gate_failure_streak_max: PIPELINE_GATE_FAILURE_STREAK_MAX,
+    };
+    ev.farm_memory = prior;
+    ev.budget = budget;
+    if (prior.prior_run && prior.known_blocking_prerequisites?.length) {
+      ev.message = `${ev.message || "Run start"} · prior memory: ${prior.known_blocking_prerequisites.length} known blocking prereq(s)`;
+    }
+  }
+
+  // Wall-clock / spend check after timeline build (additive halt if exceeded)
+  if (
+    runOptions.budgetTracker
+    && !runOptions._budgetFinalized
+    && !list.some((e) => e.kind === "budget_exceeded")
+  ) {
+    const late = checkBudget(runOptions.budgetTracker);
+    if (!late.ok) {
+      const halted = [
+        ...list.filter((e) => e.kind !== "run_end" && e.kind !== "run_failed"),
+        ...budgetExceededEvents(story, runOptions.budgetTracker, late),
+      ];
+      return finalizePipelineRun(story, halted, { ...runOptions, _budgetFinalized: true });
+    }
+  }
+
+  if (runOptions.persistState === false) return list;
+
+  const outcome = inferOutcomeFromEvents(list);
+  const analyst = buildAnalystOutputPayload(story);
+  const blocking = (analyst?.prerequisites_needed?.blocking || [])
+    .filter((b) => b && b.satisfied_by_ticket === false);
+  const blockingToStore = blocking.length
+    ? blocking
+    : (prior.known_blocking_prerequisites || []);
+
+  const lastDecision = [...list].reverse().find((e) => e.decision)?.decision
+    || outcome;
+  recordRunOutcome({
+    ticketId: story?.id,
+    finalGateOutcome: outcome,
+    blockingPrerequisites: blockingToStore,
+    decision: lastDecision,
+    why: prior.prior_run
+      ? `Run finished (${outcome}); prior outcome was ${prior.final_gate_outcome || "unknown"}`
+      : `First recorded run finished (${outcome})`,
+  }, runOptions.statePath);
+
+  return list;
 }
 
 export function buildPrerequisiteInputEvents(story, analystParsed) {
@@ -1000,13 +1200,14 @@ export function enrichEventForDisplay(e) {
   return e;
 }
 
-export function buildEvents(story) {
+export function buildEvents(story, runOptions = {}) {
   const s = story.id;
   const tc = story.test_cases.length;
   const gapSummary = story.gaps + " (" + story.blocking_gaps + " blocking)";
   const acList = story.acceptance_criteria_list || [];
   const acPreview = acList.slice(0, 2).join("; ") || story.acceptance_criteria + " criteria";
   const component = (story.components || [])[0] || "general";
+  const priorMemory = summarizePriorMemoryForOrchestrator(s, runOptions.statePath);
 
   const analystInstructions = {
     target_agent: "Agent 1 — Requirement Analyst (L3 — Cursor Agent · Sonnet 5 high)",
@@ -1110,10 +1311,27 @@ export function buildEvents(story) {
     };
   }
 
-  const analystGate = validationGateEvents("analyst", "gap_analysis", story, analystFeedback, analystGateOpts);
+  const analystGate = validationGateEvents("analyst", "gap_analysis", story, analystFeedback, {
+    ...analystGateOpts,
+    gateFailureStreak: runOptions.gateFailureStreak || { count: 0 },
+  });
 
   const coreStart = [
-    { kind: "run_start", phase: "init", message: "Orchestrator received ticket " + s + (story.from_jira ? " (live from JIRA)" : ""), role: null, orchestrator_memory: mem(story, { phase: "init", source: story.from_jira ? "jira" : "mock" }), agent_context: {}, agent_returns: {}, decision: "begin QA pipeline — orchestrator leads" },
+    {
+      kind: "run_start",
+      phase: "init",
+      message: "Orchestrator received ticket " + s + (story.from_jira ? " (live from JIRA)" : ""),
+      role: null,
+      orchestrator_memory: mem(story, {
+        phase: "init",
+        source: story.from_jira ? "jira" : "mock",
+        farm_memory: priorMemory,
+      }),
+      farm_memory: priorMemory,
+      agent_context: {},
+      agent_returns: {},
+      decision: "begin QA pipeline — orchestrator leads",
+    },
 
     { kind: "orchestrator_stage", phase: "orchestrator", message: "Stage 1: Orchestrator validates ticket (" + story.acceptance_criteria + " AC · " + story.issueType + " · " + story.priority + ")", role: null, orchestrator_memory: mem(story, { phase: "orchestrator", stage: "1", validation: "valid", component }), agent_context: {}, agent_returns: {}, decision: "assign Requirement Analyst — analyze prerequisites" },
 
@@ -1171,14 +1389,16 @@ export function buildEvents(story) {
   }
 
   // Analyst validated in coreStart — append unlocked downstream phases only.
-  return [...coreStart, ...prerequisiteEvents, ...buildDownstreamPhases(story, analystWithActions)];
+  return [...coreStart, ...prerequisiteEvents, ...buildDownstreamPhases(story, analystWithActions, runOptions)];
 }
 
 /**
  * Writer → … phases, truncated when an agent is not approvable (e.g. blocked Author).
  * Call only after Analyst is validated and human prerequisite gate (if any) is cleared.
  */
-export function buildDownstreamPhases(story, analystParsed) {
+export function buildDownstreamPhases(story, analystParsed, runOptions = {}) {
+  const streak = runOptions.gateFailureStreak || { count: 0 };
+  const withStreak = (gateOpts) => ({ ...gateOpts, gateFailureStreak: streak });
   const s = story.id;
   const acList = story.acceptance_criteria_list || [];
   const tc = story.test_cases.length;
@@ -1213,7 +1433,7 @@ export function buildDownstreamPhases(story, analystParsed) {
     ctx: { story, analyst: analystWithActions, writer: writerReturns },
     validation: writerLive,
   });
-  const writerGate = validationGateEvents("writer", "test_case_writing", story, writerReturns, {
+  const writerGate = validationGateEvents("writer", "test_case_writing", story, writerReturns, withStreak({
     gate_mode: "LIVE",
     passValidation: writerLive.passed ? writerLive : undefined,
     failAttempts: writerLive.passed ? [] : [1, 2],
@@ -1240,7 +1460,7 @@ export function buildDownstreamPhases(story, analystParsed) {
         "Cover every Analyst AC with at least one outline",
       ],
     },
-  });
+  }));
 
   // If Writer IO fails hard, do not continue the simulated downstream as if approved.
   if (!writerLive.passed) {
@@ -1277,11 +1497,11 @@ export function buildDownstreamPhases(story, analystParsed) {
     source: "story context",
     rows_extracted: Math.max(tc, outlineCount),
   };
-  const dataGate = validationGateEvents("test_data_extractor", "test_data_extraction", story, dataExtractorReturns, {
+  const dataGate = validationGateEvents("test_data_extractor", "test_data_extraction", story, dataExtractorReturns, withStreak({
     gate_mode: "SIMULATED_GATE",
     simulation_note: "Stub datasets without per-TC linkage — LIVE resolve may fail IO fidelity",
     gateDecision: "proceed to test_authoring (SIMULATED_GATE until live datasets)",
-  });
+  }));
 
   events.push(
     { kind: "phase_start", phase: "test_data_extraction", message: "Enter phase: test_data_extraction", role: null, orchestrator_memory: mem(story, { phase: "test_data_extraction", test_cases: String(tc) }), agent_context: {}, agent_returns: {}, decision: null },
@@ -1327,14 +1547,14 @@ export function buildDownstreamPhases(story, analystParsed) {
   }
 
   const authorLive = validateAuthorOutputLive(story, authorReturns, writerReturns, analystWithActions);
-  const authorGate = validationGateEvents("author", "test_authoring", story, authorReturns, {
+  const authorGate = validationGateEvents("author", "test_authoring", story, authorReturns, withStreak({
     gate_mode: "LIVE",
     passValidation: authorLive,
     decisionRecord: authorLive.orchestrator_decision,
     handoff: HANDOFF.DATA_AUTHOR,
     ioCtx: { story, analyst: analystWithActions, writer: writerReturns, author: authorReturns },
     gateDecision: "proceed to test_execution",
-  });
+  }));
   events.push(...authorGate);
 
   const executorReturns = {
@@ -1351,11 +1571,11 @@ export function buildDownstreamPhases(story, analystParsed) {
     human_api_used: requiresApi && farmCtx.humanApiInput.ok,
     human_webpage_used: requiresWeb && farmCtx.humanWebpageInput.ok,
   };
-  const executorGate = validationGateEvents("test_executor", "test_execution", story, executorReturns, {
+  const executorGate = validationGateEvents("test_executor", "test_execution", story, executorReturns, withStreak({
     gate_mode: "SIMULATED_GATE",
     simulation_note: "Executor still stubbed (S2) — simulated gate only",
     gateDecision: "proceed to qa_review (SIMULATED_GATE)",
-  });
+  }));
 
   const reviewerReturns = {
     success: true,
@@ -1363,18 +1583,18 @@ export function buildDownstreamPhases(story, analystParsed) {
     impact: story.priority === "High" ? "High" : "Medium",
     fix: "See analyst gaps + JIRA AC",
   };
-  const reviewerGate = validationGateEvents("reviewer", "qa_review", story, reviewerReturns, {
+  const reviewerGate = validationGateEvents("reviewer", "qa_review", story, reviewerReturns, withStreak({
     gate_mode: "SIMULATED_GATE",
     simulation_note: "Reviewer score from story fixture — not evidence-cited LIVE review",
     gateDecision: "proceed to report_generation (SIMULATED_GATE)",
-  });
+  }));
 
   const reporterReturns = { success: true, final_report: "Test Summary Report · " + s, ticket_key: s };
-  const reporterGate = validationGateEvents("reporter", "report_generation", story, reporterReturns, {
+  const reporterGate = validationGateEvents("reporter", "report_generation", story, reporterReturns, withStreak({
     gate_mode: "SIMULATED_GATE",
     simulation_note: "Reporter stub summary — not a LIVE artifact rollup",
     gateDecision: "proceed to goal_check (SIMULATED_GATE)",
-  });
+  }));
 
   events.push(
     { kind: "phase_start", phase: "test_execution", message: "Enter phase: test_execution", role: null, orchestrator_memory: mem(story, { phase: "test_execution", test_cases: String(tc) }), agent_context: {}, agent_returns: {}, decision: null },
@@ -1399,18 +1619,20 @@ export function buildDownstreamPhases(story, analystParsed) {
 }
 
 /** After human prereqs accepted: received event + unlocked downstream phases. */
-export function buildEventsAfterHumanPrerequisites(story, analystParsed) {
+export function buildEventsAfterHumanPrerequisites(story, analystParsed, runOptions = {}) {
   const parsed = ensureAnalystReportActions(
     analystParsed || buildAnalystOutputPayload(story),
   );
-  return [
+  return finalizePipelineRun(story, [
     buildPrerequisiteReceivedEvent(story, parsed),
-    ...buildDownstreamPhases(story, parsed),
-  ];
+    ...buildDownstreamPhases(story, parsed, runOptions),
+  ], runOptions);
 }
 
 /** After human API/webpage input: continue from Data (Writer already validated). */
-export function buildEventsAfterHumanApiInput(story, analystParsed, writerOutput) {
+export function buildEventsAfterHumanApiInput(story, analystParsed, writerOutput, runOptions = {}) {
+  const streak = runOptions.gateFailureStreak || { count: 0 };
+  const withStreak = (gateOpts) => ({ ...gateOpts, gateFailureStreak: streak });
   const parsed = ensureAnalystReportActions(
     analystParsed || buildAnalystOutputPayload(story),
   );
@@ -1445,11 +1667,11 @@ export function buildEventsAfterHumanApiInput(story, analystParsed, writerOutput
     source: `human ${humanNeed.types.join("+")}`,
     rows_extracted: tc,
   };
-  const dataGate = validationGateEvents("test_data_extractor", "test_data_extraction", story, dataExtractorReturns, {
+  const dataGate = validationGateEvents("test_data_extractor", "test_data_extraction", story, dataExtractorReturns, withStreak({
     gate_mode: "SIMULATED_GATE",
     simulation_note: "Stub datasets without per-TC linkage — LIVE resolve may fail IO fidelity",
     gateDecision: "proceed to test_authoring (SIMULATED_GATE until live datasets)",
-  });
+  }));
   const webpage = farmCtx.humanWebpageInput?.ok ? farmCtx.humanWebpageInput : null;
   const authorReturns = buildAuthorOutput(story, writerFull, parsed, webpage);
 
@@ -1482,20 +1704,20 @@ export function buildEventsAfterHumanApiInput(story, analystParsed, writerOutput
       authorReturns,
       authorReturns.blocked_reason || "Author output blocked — Executor will not run",
     ));
-    return events;
+    return finalizePipelineRun(story, events, runOptions);
   }
 
   void prevApi;
   void prevWeb;
-  events.push(...validationGateEvents("author", "test_authoring", story, authorReturns, {
+  events.push(...validationGateEvents("author", "test_authoring", story, authorReturns, withStreak({
     gateDecision: "proceed to test_execution",
-  }));
+  })));
   // Executor+ only when Author approvable — reuse tail via a minimal continue
-  const rest = buildDownstreamPhases(story, parsed);
+  const rest = buildDownstreamPhases(story, parsed, runOptions);
   // buildDownstreamPhases always starts at Writer; strip through Author gate and keep Executor+
   const execIdx = rest.findIndex((e) => e.kind === "phase_start" && e.phase === "test_execution");
   if (execIdx >= 0) events.push(...rest.slice(execIdx));
-  return events;
+  return finalizePipelineRun(story, events, runOptions);
 }
 
 export function buildOrchestratorInactivityFailureEvents(story) {
