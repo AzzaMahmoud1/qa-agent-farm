@@ -19,7 +19,18 @@ run via the orchestrator ("qa:" / "test:" / "ticket:"). See `.cursorrules`.
 
 ## Behavior
 
-Follow `.cursor/skills/qa-analyst/SKILL.md` exactly.
+Follow `.cursor/skills/qa-analyst/SKILL.md` exactly for the requirements
+breakdown path.
+
+When the dispatch is a Jira issue key for Testing Team review (fetch issue,
+download attachments, post review comment), follow
+`.cursor/skills/qa-analyst/jira-issue-review.md` exactly instead. Do not
+substitute a requirements.md breakdown for that workflow.
+
+When the dispatch already includes Jira issue content and attachments and
+asks for review feedback only, follow
+`.cursor/skills/qa-analyst/jira-requirements-review.md` exactly. Return
+plain-text improvement suggestions.
 
 Primary artifact: `test-artifacts/<ISSUE_ID>-requirements.md` using the
 Requirements Breakdown template (Goal, flows, BR/MSG/DM, API Scope, UI Scope,

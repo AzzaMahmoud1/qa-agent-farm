@@ -160,3 +160,9 @@ Worked example of splitting one flow into atomic lines (this is the level of gra
 `agents/analyst.js` · stub logic in `lib/prerequisites.js`
 
 Transitional JSON schema (simulator / legacy pipeline): `src/prompts/agent1_requirement_analyst_v3.md`
+
+Jira fetch → attachments → Testing Team review comment (separate workflow):
+`.cursor/skills/qa-analyst/jira-issue-review.md`
+
+Review issue content + attachments → plain-text improvement suggestions:
+`.cursor/skills/qa-analyst/jira-requirements-review.md`
