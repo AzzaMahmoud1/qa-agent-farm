@@ -1,14 +1,17 @@
 /**
- * Agent 1 — Requirement Analyst (headless Cursor Agent CLI).
+ * Agent 1 — Requirement Analyst (pluggable runner).
  *
  * Vite/bundler (exact import from the Agent 1 spec):
  *   import ANALYST_PROMPT from '../prompts/agent1_requirement_analyst_v3.md?raw';
  *
  * This Node simulator has no bundler, so the same file is loaded from disk below.
  *
- * Runner: `cursor-agent -p ... --model claude-sonnet-5[effort=…]`.
- * Auth: uses the Cursor CLI login (`cursor-agent login` / CURSOR_API_KEY),
- * NOT ANTHROPIC_API_KEY. Routes through Cursor's endpoints.
+ * Two runners, selected by ANALYST_RUNNER (default: cursor_agent_cli):
+ * - cursor_agent_cli: `cursor-agent -p ... --model claude-sonnet-5[effort=…]`.
+ *   Auth via Cursor CLI login (`cursor-agent login` / CURSOR_API_KEY), NOT
+ *   ANTHROPIC_API_KEY. Routes through Cursor's endpoints.
+ * - anthropic_api: direct call to api.anthropic.com/v1/messages. Auth via
+ *   ANTHROPIC_API_KEY. No cursor-agent install/login required.
  */
 
 import { execFile } from "node:child_process";
@@ -18,6 +21,7 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { extractFinalJson } from "./utils/extractFinalJson.js";
 import { checkAnalystPromptContract } from "../../agents/analyst-contract.js";
+import { resolveActiveProvider } from "../../lib/llm-settings.js";
 
 const PROMPT_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -72,6 +76,17 @@ export function effortForAttempt(attempt) {
 export function modelSpecForEffort(effort) {
   const e = String(effort || "").trim();
   return e ? `${ANALYST_MODEL}[effort=${e}]` : ANALYST_MODEL;
+}
+
+/**
+ * Resolve which transport calls the Analyst LLM. Read fresh (not cached at
+ * module load) so a Settings-page change or per-call env override takes
+ * effect on the next call, no restart needed. Order: explicit ANALYST_RUNNER
+ * env var > saved Settings-page choice > default (cursor_agent_cli) — this
+ * preserves today's behavior for existing env-var-based setups.
+ */
+export function resolveAnalystRunner() {
+  return resolveActiveProvider().runner;
 }
 
 const REQUIRED_TOP_KEYS = [
@@ -370,6 +385,201 @@ async function callClaudeCode(fullPrompt, effort, meta = {}) {
   return { text, usage, effort, promptChars, responseChars };
 }
 
+const ANTHROPIC_API_VERSION = "2023-06-01";
+const ANTHROPIC_MAX_TOKENS = Number(process.env.ANALYST_MAX_TOKENS) || 8192;
+
+/**
+ * Map an Anthropic Messages API response body into { text, usage }. Pure
+ * function — exported so the shape is unit-testable without a live call.
+ * @param {unknown} body — parsed JSON response body
+ * @returns {{ text: string, usage: object|null }}
+ */
+export function parseAnthropicMessage(body) {
+  if (!body || typeof body !== "object") {
+    throw new Error("Anthropic API returned a non-object response");
+  }
+  if (body.type === "error" || body.error) {
+    const msg = body.error?.message || body.message || JSON.stringify(body).slice(0, 500);
+    throw new Error(`Anthropic API error: ${String(msg).trim()}`);
+  }
+  const blocks = Array.isArray(body.content) ? body.content : [];
+  const text = blocks
+    .filter((b) => b && b.type === "text" && typeof b.text === "string")
+    .map((b) => b.text)
+    .join("");
+  if (!text.trim()) {
+    throw new Error("Anthropic API returned no text content");
+  }
+  const usage = body.usage
+    ? {
+      input_tokens: body.usage.input_tokens ?? null,
+      output_tokens: body.usage.output_tokens ?? null,
+      cache_read_input_tokens: body.usage.cache_read_input_tokens ?? null,
+      source: "envelope",
+    }
+    : null;
+  return { text, usage };
+}
+
+/**
+ * Direct Anthropic Messages API call — alternative to the Cursor Agent CLI
+ * runner, selected via ANALYST_RUNNER=anthropic_api or the Settings page.
+ * Requires an Anthropic API key; no cursor-agent install/login needed.
+ *
+ * `effort` is logged only — the Messages API has no bracket-style effort
+ * spec like Cursor's model string. Mapping effort to extended-thinking
+ * budgets is a possible future enhancement, not implemented here.
+ *
+ * @param {string} fullPrompt
+ * @param {string} effort
+ * @param {{ attempt?: number }} [meta]
+ * @param {{ apiKey: string, model: string, baseUrl: string }} provider
+ * @returns {Promise<{ text: string, usage: object|null, effort: string, promptChars: number, responseChars: number }>}
+ */
+async function callAnthropicApi(fullPrompt, effort, meta, provider) {
+  if (!provider.apiKey) {
+    throw new Error(
+      "Anthropic runner requires an API key — set it on the Settings page or ANTHROPIC_API_KEY (create one at console.anthropic.com).",
+    );
+  }
+
+  let response;
+  try {
+    response = await fetch(provider.baseUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": provider.apiKey,
+        "anthropic-version": ANTHROPIC_API_VERSION,
+      },
+      body: JSON.stringify({
+        model: provider.model,
+        max_tokens: ANTHROPIC_MAX_TOKENS,
+        messages: [{ role: "user", content: fullPrompt }],
+      }),
+    });
+  } catch (err) {
+    throw new Error(`Anthropic API request failed: ${err?.message || err}`);
+  }
+
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const msg = body?.error?.message || `HTTP ${response.status}`;
+    throw new Error(`Anthropic API error (${response.status}): ${msg}`);
+  }
+
+  const { text, usage } = parseAnthropicMessage(body);
+  const promptChars = String(fullPrompt).length;
+  const responseChars = String(text).length;
+  logAttemptMetrics({ attempt: meta.attempt || 1, effort, promptChars, responseChars, usage });
+  return { text, usage, effort, promptChars, responseChars };
+}
+
+/**
+ * Map an OpenAI-compatible chat-completions response body into { text, usage }.
+ * Shared by openai_api, openrouter_api, and custom_openai_compatible — all
+ * three speak this dialect (OpenRouter and most local/alternative servers are
+ * OpenAI-compatible by convention). Pure function — unit-testable.
+ * @param {unknown} body
+ * @returns {{ text: string, usage: object|null }}
+ */
+export function parseOpenAiCompatibleMessage(body) {
+  if (!body || typeof body !== "object") {
+    throw new Error("API returned a non-object response");
+  }
+  if (body.error) {
+    const msg = typeof body.error === "string" ? body.error : body.error?.message;
+    throw new Error(`API error: ${String(msg || JSON.stringify(body.error)).trim()}`);
+  }
+  const choice = Array.isArray(body.choices) ? body.choices[0] : null;
+  const text = choice?.message?.content;
+  if (typeof text !== "string" || !text.trim()) {
+    throw new Error("API returned no message content");
+  }
+  const usage = body.usage
+    ? {
+      input_tokens: body.usage.prompt_tokens ?? null,
+      output_tokens: body.usage.completion_tokens ?? null,
+      cache_read_input_tokens: body.usage.prompt_tokens_details?.cached_tokens ?? null,
+      source: "envelope",
+    }
+    : null;
+  return { text, usage };
+}
+
+/**
+ * OpenAI-compatible chat-completions call — used for openai_api,
+ * openrouter_api, and custom_openai_compatible (the "any other option"
+ * catch-all: most self-hosted/alternative LLM servers — Ollama, LM Studio,
+ * vLLM, Groq, Together, etc. — speak this same dialect).
+ * @param {string} fullPrompt
+ * @param {string} effort — logged only, not sent (no standard equivalent)
+ * @param {{ attempt?: number }} meta
+ * @param {{ apiKey: string, model: string, baseUrl: string, runner: string }} provider
+ */
+async function callOpenAiCompatibleApi(fullPrompt, effort, meta, provider) {
+  if (!provider.baseUrl) {
+    throw new Error(
+      `${provider.runner} requires a base URL — set it on the Settings page (or CUSTOM_LLM_BASE_URL for custom_openai_compatible).`,
+    );
+  }
+  if (!provider.apiKey) {
+    throw new Error(
+      `${provider.runner} requires an API key — set it on the Settings page.`,
+    );
+  }
+  if (!provider.model) {
+    throw new Error(
+      `${provider.runner} requires a model name — set it on the Settings page.`,
+    );
+  }
+
+  let response;
+  try {
+    response = await fetch(provider.baseUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${provider.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: provider.model,
+        messages: [{ role: "user", content: fullPrompt }],
+        max_tokens: ANTHROPIC_MAX_TOKENS,
+      }),
+    });
+  } catch (err) {
+    throw new Error(`${provider.runner} request failed: ${err?.message || err}`);
+  }
+
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const msg = body?.error?.message || body?.error || `HTTP ${response.status}`;
+    throw new Error(`${provider.runner} error (${response.status}): ${msg}`);
+  }
+
+  const { text, usage } = parseOpenAiCompatibleMessage(body);
+  const promptChars = String(fullPrompt).length;
+  const responseChars = String(text).length;
+  logAttemptMetrics({ attempt: meta.attempt || 1, effort, promptChars, responseChars, usage });
+  return { text, usage, effort, promptChars, responseChars };
+}
+
+/**
+ * Dispatch to whichever runner is active (Settings page or ANALYST_RUNNER).
+ * @param {string} fullPrompt
+ * @param {string} effort
+ * @param {{ attempt?: number }} [meta]
+ */
+async function callAgentRunner(fullPrompt, effort, meta = {}) {
+  const provider = resolveActiveProvider();
+  if (provider.runner === "anthropic_api") return callAnthropicApi(fullPrompt, effort, meta, provider);
+  if (provider.runner === "openai_api" || provider.runner === "openrouter_api" || provider.runner === "custom_openai_compatible") {
+    return callOpenAiCompatibleApi(fullPrompt, effort, meta, provider);
+  }
+  return callClaudeCode(fullPrompt, effort, meta);
+}
+
 /**
  * @param {string} fullText
  * @returns {{ scratchpad: string, parsed: object, fullText: string }}
@@ -431,7 +641,7 @@ export async function runRequirementAnalyst(ticketText) {
   const attempts = [];
   const basePrompt = buildFullPrompt(ticketText);
   const effort1 = effortForAttempt(1);
-  const call1 = await callClaudeCode(basePrompt, effort1, { attempt: 1 });
+  const call1 = await callAgentRunner(basePrompt, effort1, { attempt: 1 });
   attempts.push({
     attempt: 1,
     effort: call1.effort,
@@ -449,7 +659,7 @@ export async function runRequirementAnalyst(ticketText) {
     try {
       const retryPrompt = buildFullPrompt(ticketText, buildRetryExtra(error, fullText));
       const effort2 = effortForAttempt(2);
-      const call2 = await callClaudeCode(retryPrompt, effort2, { attempt: 2 });
+      const call2 = await callAgentRunner(retryPrompt, effort2, { attempt: 2 });
       attempts.push({
         attempt: 2,
         effort: call2.effort,
@@ -472,4 +682,4 @@ export async function runRequirementAnalyst(ticketText) {
   }
 }
 
-export { ANALYST_PROMPT, extractFinalJson };
+export { ANALYST_PROMPT, ANALYST_MODEL, extractFinalJson };

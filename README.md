@@ -1,6 +1,6 @@
 # QA Agent Farm
 
-Browser-based QA planning simulator with a multi-agent pipeline, JIRA live fetch, and requirements paste mode. Agent 1 (Requirement Analyst) runs live via the Cursor Agent CLI.
+Browser-based QA planning simulator with a multi-agent pipeline, JIRA live fetch, and requirements paste mode. Agent 1 (Requirement Analyst) runs live via a pluggable runner — the Cursor Agent CLI (default) or a direct Anthropic API call.
 
 Inspired by mabl-style **Plan → Approve → Author (Plan→Act→Reflect)** — without cloning proprietary auto-heal. The farm owns its own durable gates, honest terminal states, and evidence-based execution.
 
@@ -210,7 +210,9 @@ Configured in `agents/registry.js` (`AGENT_MODEL_ROUTING`) and `.cursor/agents/*
 - **Node.js >= 18.18** with `"type": "module"` in `package.json`
 - Browser classic scripts (`lib/prerequisites.js`) stay CJS-compatible; Node loads `lib/prerequisites.cjs` via `createRequire`
 - Optional: JIRA credentials in `.env` for live ticket fetch
-- For Cursor agent runs: enable **Claude Fable 5** and **Claude Sonnet** in Cursor Models settings
+- Agent 1 runner (`ANALYST_RUNNER`, default `cursor_agent_cli`):
+  - `cursor_agent_cli` — enable **Claude Fable 5** and **Claude Sonnet** in Cursor Models settings, `cursor-agent login`
+  - `anthropic_api` — set `ANTHROPIC_API_KEY` (console.anthropic.com); no Cursor install needed
 
 ## Honest execution semantics (v0.3)
 
@@ -249,6 +251,11 @@ Open http://127.0.0.1:5173/simulator.html
 | `JIRA_URL` | JIRA base URL |
 | `JIRA_USERNAME` | JIRA user email |
 | `JIRA_API_TOKEN` | JIRA API token |
+| `ANALYST_RUNNER` | Agent 1 transport: `cursor_agent_cli` (default) or `anthropic_api` |
+| `ANTHROPIC_API_KEY` | Required only when `ANALYST_RUNNER=anthropic_api` |
+| `CURSOR_AGENT_BIN` | Optional — path to a specific `cursor-agent` binary (`cursor_agent_cli` runner) |
+| `ANALYST_MODEL` | Agent 1 model id (default `claude-sonnet-5`) |
+| `ANALYST_EFFORT` | Reasoning effort — `cursor_agent_cli` runner only (default `high`) |
 | `EXECUTOR_ALLOWLIST` | Comma-separated hosts allowed for `/api/execute` (default: localhost only) |
 | `PORT` | Server port (default `5173`) |
 

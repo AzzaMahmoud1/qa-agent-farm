@@ -32,6 +32,7 @@ const types = {
 const PUBLIC_DIRS = new Set(["agents", "js", "lib", "templates"]);
 const PUBLIC_FILES = new Set([
   "simulator.html",
+  "settings.html",
   "index.html",
   "report-docx.js",
 ]);
@@ -253,14 +254,74 @@ http
     }
 
     if (pathname === "/api/agents/analyst/health" && req.method === "GET") {
-      sendJson(res, req, 200, {
-        ok: true,
-        runner: "cursor_agent_cli",
-        binary: process.env.CURSOR_AGENT_BIN || "cursor-agent (auto-detected)",
-        model: process.env.ANALYST_MODEL || "claude-sonnet-5",
-        effort: process.env.ANALYST_EFFORT || "high",
-        note: "Uses Cursor Agent CLI login (cursor-agent login) — routes through Cursor, not api.anthropic.com",
-      });
+      const { resolveActiveProvider } = await import("./lib/llm-settings.js");
+      let provider;
+      let runnerError = null;
+      try {
+        provider = resolveActiveProvider();
+      } catch (err) {
+        runnerError = err.message;
+      }
+      const notes = {
+        cursor_agent_cli: "Uses Cursor Agent CLI login (cursor-agent login) — routes through Cursor, not api.anthropic.com",
+        anthropic_api: "Direct api.anthropic.com/v1/messages call",
+        openai_api: "Direct api.openai.com/v1/chat/completions call",
+        openrouter_api: "Direct openrouter.ai/api/v1/chat/completions call",
+        custom_openai_compatible: "Direct call to a user-configured OpenAI-compatible endpoint",
+      };
+      const info = !provider
+        ? {}
+        : provider.runner === "cursor_agent_cli"
+          ? {
+            runner: provider.runner,
+            binary: process.env.CURSOR_AGENT_BIN || "cursor-agent (auto-detected)",
+            model: provider.model,
+            effort: provider.effort,
+            note: notes[provider.runner],
+          }
+          : {
+            runner: provider.runner,
+            model: provider.model,
+            base_url: provider.baseUrl,
+            api_key_configured: Boolean(provider.apiKey),
+            note: notes[provider.runner],
+          };
+      sendJson(res, req, 200, { ok: !runnerError, ...info, ...(runnerError ? { error: runnerError } : {}) });
+      return;
+    }
+
+    if (pathname === "/api/settings/llm" && req.method === "GET") {
+      if (!isLocalRequester(req)) {
+        sendJson(res, req, 403, { error: "Settings API is local-only" });
+        return;
+      }
+      const { publicSettings } = await import("./lib/llm-settings.js");
+      sendJson(res, req, 200, publicSettings());
+      return;
+    }
+
+    if (pathname === "/api/settings/llm" && req.method === "POST") {
+      if (!isLocalRequester(req)) {
+        sendJson(res, req, 403, { error: "Settings API is local-only" });
+        return;
+      }
+      try {
+        const body = await readBody(req);
+        const { KNOWN_RUNNERS, saveSettings, publicSettings } = await import("./lib/llm-settings.js");
+        if (body.runner !== undefined && !KNOWN_RUNNERS.includes(body.runner)) {
+          sendJson(res, req, 400, { error: `runner must be one of: ${KNOWN_RUNNERS.join(", ")}` });
+          return;
+        }
+        if (body.providers && typeof body.providers !== "object") {
+          sendJson(res, req, 400, { error: "providers must be an object" });
+          return;
+        }
+        saveSettings({ runner: body.runner, providers: body.providers });
+        sendJson(res, req, 200, publicSettings());
+      } catch (err) {
+        const status = err.message?.includes("exceeds") || err.message?.includes("Invalid JSON") ? 400 : 500;
+        sendJson(res, req, status, { error: err.message });
+      }
       return;
     }
 
