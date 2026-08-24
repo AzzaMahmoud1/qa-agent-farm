@@ -166,3 +166,6 @@ Jira fetch → attachments → Testing Team review comment (separate workflow):
 
 Review issue content + attachments → plain-text improvement suggestions:
 `.cursor/skills/qa-analyst/jira-requirements-review.md`
+
+Story → Atomic Requirements Checklist breakdown file (standalone extraction skill):
+`.cursor/skills/qa-analyst/requirements-extraction.md`
