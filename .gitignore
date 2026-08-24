@@ -5,5 +5,4 @@ node_modules/
 scripts/_*
 .farm/
 .data/
-.claude/
 .tooling/

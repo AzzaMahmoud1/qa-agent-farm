@@ -63,6 +63,18 @@ Cursor IDE dispatch config — **not** the simulator runtime. Code changes live 
 
 Analyst rules stay in **one place:** `src/prompts/agent1_requirement_analyst_v3.md` — `.cursor/skills/qa-analyst` is a pointer only.
 
+## `.claude/` folder (keep it)
+
+Claude Code dispatch config — the same interactive pipeline as `.cursor/`, mirrored so it also runs from Claude Code chat, not just Cursor. Additive: `.cursor/` is untouched and Cursor still works unchanged.
+
+| Path | Purpose |
+|------|---------|
+| `.claude/agents/*.md` | Subagent entrypoints Claude Code can dispatch (`qa-orchestrator`, `qa-analyst`, …) |
+| `.claude/skills/qa-*/SKILL.md` | Per-role rules for those subagents |
+| `CLAUDE.md` | Triggers (`qa:` / `test:` / `ticket:`) + "orchestrator-only dispatch" |
+
+**Do not remove.** Without it, Claude Code cannot run the farm as subagents. Keep both `.cursor/` and `.claude/` in sync when the pipeline's rules change — they describe the same behavior for two different IDEs.
+
 ## Hard gates (P0)
 
 **Analyst prompt owns readiness (MAIN GATE in the prompt).** The same contract is a **second gate** in Validator (+ Writer/Author/Reviewer refuse invalid readiness). Orchestrator executes only **validated** actions. Vague ASK / bad PROCEED → Validator reject → retry → escalate to human.
@@ -198,12 +210,12 @@ Rules:
 
 ## Model routing
 
-| Role | Model ID |
-|------|----------|
-| Orchestrator | `claude-fable-5` (Claude Fable 5) |
-| Validator + all worker agents | `claude-4.6-sonnet` (Claude Sonnet) |
+| Role | Cursor model ID | Claude Code model ID |
+|------|------------------|-----------------------|
+| Orchestrator | `claude-fable-5` (Claude Fable 5) | `claude-fable-5` (Claude Fable 5) |
+| Validator + all worker agents | `claude-4.6-sonnet` (Claude Sonnet) | `claude-sonnet-5` (Claude Sonnet) |
 
-Configured in `agents/registry.js` (`AGENT_MODEL_ROUTING`) and `.cursor/agents/*.md`.
+Configured in `agents/registry.js` (`AGENT_MODEL_ROUTING`), `.cursor/agents/*.md`, and `.claude/agents/*.md`.
 
 ## Requirements
 
@@ -273,6 +285,8 @@ agents/            # Pipeline agents (orchestrator, analyst, writer, author, …
 lib/               # Requirements parser, human-input, redaction, executor
 js/                # Browser simulator entry
 .cursor/skills/    # Per-agent qa-*/SKILL.md for Cursor
+.claude/agents/    # Per-agent subagent entrypoints for Claude Code
+.claude/skills/    # Per-agent qa-*/SKILL.md for Claude Code
 src/prompts/       # Agent 1 (Requirement Analyst) prompt — single source of truth
 simulator.html     # UI shell
 server.js          # Local dev server + JIRA proxy + execution endpoint
