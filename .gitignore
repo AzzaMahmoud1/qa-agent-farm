@@ -6,3 +6,8 @@ scripts/_*
 .farm/
 .data/
 .tooling/
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/

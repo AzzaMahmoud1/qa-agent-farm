@@ -1,0 +1,20 @@
+[project]
+name = "analyst-agent"
+version = "0.1.0"
+description = "Standalone Python QA Analyst agent (parallel to the JS/prompt-driven Analyst) — requirements, source, risk, test-gap, and root-cause analysis skills."
+requires-python = ">=3.9"
+dependencies = [
+    "pydantic>=2,<3",
+    "httpx>=0.27",
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["analyst_agent*"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
