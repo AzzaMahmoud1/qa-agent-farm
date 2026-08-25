@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qa-agent-farm.local/schemas/requirements_analysis_result.json",
+  "title": "RequirementsAnalysisResult",
+  "description": "Mirrors analyst_agent/models.py:RequirementsAnalysisResult, itself ported from src/prompts/agent1_requirement_analyst_v3.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "success",
+    "analyst_reasoning",
+    "prerequisites_needed",
+    "analysis_complete",
+    "ready_for_test_design",
+    "analyst_report",
+    "summary"
+  ],
+  "properties": {
+    "success": { "type": "boolean" },
+    "analyst_reasoning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ticket_read"],
+      "properties": {
+        "ticket_read": { "type": "string" },
+        "unimplemented_rules": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["text", "reason"],
+            "properties": {
+              "text": { "type": "string" },
+              "reason": { "type": "string" }
+            }
+          }
+        },
+        "ambiguous_acs": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["issue", "question_for_human"],
+            "properties": {
+              "ac_id": { "type": ["string", "null"] },
+              "source_line": { "type": ["string", "null"] },
+              "issue": { "type": "string" },
+              "question_for_human": { "type": "string" }
+            }
+          }
+        },
+        "rejected_as_non_ac": {
+          "type": "array",
+          "default": [],
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "testable_conditions": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "source", "ac_text", "testable_statement", "pass_evidence", "fail_evidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "source": { "enum": ["Business Rules", "Alternative Flow", "Exception Flow"] },
+          "ac_text": { "type": "string" },
+          "roles": { "type": "array", "default": [], "items": { "type": "string" } },
+          "testable_statement": { "type": "string" },
+          "pass_evidence": { "type": "string" },
+          "fail_evidence": { "type": "string" }
+        }
+      }
+    },
+    "prerequisites_needed": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "blocking": { "type": "array", "default": [], "items": { "$ref": "#/$defs/prerequisiteItem" } },
+        "non_blocking": { "type": "array", "default": [], "items": { "$ref": "#/$defs/prerequisiteItem" } }
+      }
+    },
+    "coverage_gaps": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gap", "category", "severity", "suggested_test"],
+        "properties": {
+          "gap": { "type": "string" },
+          "category": {
+            "enum": ["boundary", "negative", "security", "concurrency", "integration", "regression", "performance", "ui"]
+          },
+          "severity": { "enum": ["blocking", "non-blocking"] },
+          "suggested_test": { "type": "string" }
+        }
+      }
+    },
+    "affected_components": { "type": "array", "default": [], "items": { "type": "string" } },
+    "analysis_complete": { "type": "boolean" },
+    "ready_for_test_design": { "type": "boolean" },
+    "analyst_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["confidence"],
+      "properties": {
+        "what_i_did": { "type": "array", "default": [], "items": { "type": "string" } },
+        "why": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["decision", "reason", "impact_if_wrong"],
+            "properties": {
+              "decision": { "type": "string" },
+              "reason": { "type": "string" },
+              "impact_if_wrong": { "type": "string" }
+            }
+          }
+        },
+        "assumptions_made": { "type": "array", "default": [], "items": { "type": "string" } },
+        "orchestrator_actions": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["action", "target", "detail", "blocking"],
+            "properties": {
+              "action": { "enum": ["PROCEED", "HOLD", "ASK_HUMAN", "FETCH_DEPENDENCY", "RETRY_WITH_INFO"] },
+              "target": { "type": "string" },
+              "detail": { "type": "string" },
+              "blocking": { "type": "boolean" },
+              "requires_value": { "type": ["boolean", "null"] },
+              "prereq_id": { "type": ["string", "null"] },
+              "expected_shape": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "confidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["overall", "reason"],
+          "properties": {
+            "overall": { "enum": ["high", "medium", "low"] },
+            "reason": { "type": "string" }
+          }
+        }
+      }
+    },
+    "summary": { "type": "string" }
+  },
+  "$defs": {
+    "prerequisiteItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "item", "category"],
+      "properties": {
+        "id": { "type": "string" },
+        "item": { "type": "string" },
+        "category": { "enum": ["data", "environment", "access", "dependency", "knowledge", "other"] },
+        "blocks": { "enum": ["design", "execution", null] },
+        "expected_shape": { "type": ["string", "null"] },
+        "derived_from": { "type": ["string", "null"] },
+        "satisfied_by_ticket": { "type": "boolean", "default": false },
+        "if_not_satisfied": { "type": ["string", "null"] },
+        "must_be_provided_by": { "type": ["string", "null"] }
+      }
+    }
+  }
+}
