@@ -19,7 +19,7 @@ prone to confident invention, not less, so two extra disciplines apply:
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal, Optional
+from typing import ClassVar, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -82,6 +82,25 @@ class BaseAnalysisResult(BaseModel):
     """Shape shared by every skill's output."""
 
     model_config = ConfigDict(extra="forbid")
+
+    #: True for skills whose output is a *judgment* rather than an extraction.
+    #:
+    #: Grounding verifies that a finding's quote exists in the evidence — it
+    #: proves the finding's *subject* is real. For an extraction skill the
+    #: quote very nearly is the claim, so that is close to sufficient. For a
+    #: judgment skill the claim is a predicate hung off the quote ("this is
+    #: high risk", "this caused that"), which the quote does not establish at
+    #: all. A model can pick any loosely-related real quote and attach an
+    #: invented judgment to it, and every grounding check still passes.
+    #:
+    #: Self-consistency catches the divergent case (two passes invent
+    #: different things), but is blind to the convergent one — two passes
+    #: making the same plausible leap read as agreement.
+    #:
+    #: So advisory results never route onward unreviewed, regardless of how
+    #: confident the model is. This is a deliberate trade of automation for
+    #: honesty about what the gates can actually guarantee.
+    ADVISORY: ClassVar[bool] = False
 
     status: AnalystStatus
     missing_information: list[str] = Field(
@@ -224,6 +243,8 @@ class RiskFinding(GroundedFinding):
 
 
 class RiskAnalysisResult(BaseAnalysisResult):
+    ADVISORY: ClassVar[bool] = True
+
     risks: list[RiskFinding] = Field(default_factory=list)
 
     def findings(self) -> list[GroundedFinding]:
@@ -281,6 +302,8 @@ class TestGap(GroundedFinding):
 
 
 class TestGapAnalysisResult(BaseAnalysisResult):
+    ADVISORY: ClassVar[bool] = True
+
     gaps: list[TestGap] = Field(default_factory=list)
 
     def findings(self) -> list[GroundedFinding]:
@@ -364,6 +387,8 @@ class RootCause(GroundedFinding):
 
 
 class RootCauseAnalysisResult(BaseAnalysisResult):
+    ADVISORY: ClassVar[bool] = True
+
     root_causes: list[RootCause] = Field(default_factory=list)
 
     def findings(self) -> list[GroundedFinding]:

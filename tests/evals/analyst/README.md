@@ -55,6 +55,27 @@ labels a fabricated quote as evidence.
   injections followed). The eval must fail on these; `tests/test_eval_harness.py`
   asserts it does.
 
+## Advisory skills
+
+`risk_analysis`, `test_gap_analysis`, and `root_cause_analysis` are marked
+**advisory** (`BaseAnalysisResult.ADVISORY`): their findings always force
+`requires_human_review` and never route onward with PROCEED, at any
+confidence.
+
+The reason is a real limitation, demonstrated rather than assumed. Grounding
+proves a finding's quote exists — the *subject* of the claim. For extraction
+the quote very nearly **is** the claim. For a judgment the claim is a
+predicate hung off the quote, which the quote does not establish. A ticket
+reading "add a tooltip to the Save button" can yield a `critical`
+document-corruption risk that passes grounding, coherence, and confidence
+checks cleanly, because the quote is real and only the judgment is invented.
+
+Self-consistency partly covers the gap — two passes over thin evidence tend
+to invent *different* things, and reconciliation abstains. But it is blind to
+convergent invention: when both passes make the same plausible leap, they
+read as agreement. So the trade is automation for honesty about what the
+gates can actually guarantee. Extraction skills keep their automation.
+
 ## What this does and does not do
 
 These gates reduce hallucination **risk** and make it measurable. They do not
@@ -67,7 +88,7 @@ unflagged, two passes silently disagreeing, and — via the dispatch gate — an
 ungrounded or abstaining result being routed onward to the Writer.
 
 What they do not catch: a real quote paired with a wrong or subtly distorted
-`statement` (grounding checks the quote, not the inference drawn from it);
-a plausible-but-wrong criterion that both passes agree on; and anything the
-golden dataset doesn't represent. Grounding is necessary, not sufficient —
+claim (grounding checks the quote, not the inference drawn from it) — which
+is why the judgment skills are advisory; a plausible-but-wrong finding that
+both passes converge on; and anything the golden dataset doesn't represent. Grounding is necessary, not sufficient —
 `requires_human_review` is the backstop, and it is deliberately hard to clear.

@@ -51,6 +51,10 @@ def enforce_confidence_gate(
     """
     needs_review = (
         result.requires_human_review
+        # Judgment skills are advisory: grounding cannot verify the predicate
+        # they assert, so their output never clears review on confidence
+        # alone. See BaseAnalysisResult.ADVISORY.
+        or (type(result).ADVISORY and bool(result.findings()))
         or result.overall_confidence < threshold
         or result.status in ABSTAIN_STATUSES
         or any(f.confidence < threshold for f in result.findings())

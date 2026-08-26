@@ -221,6 +221,30 @@ def decide(
             rationale="success status with zero findings (should be unreachable)",
         )
 
+    # Advisory (judgment) skills never PROCEED on their own. Grounding
+    # verifies the subject of a judgment, never the judgment itself, so a
+    # quote-shopped risk or causal chain can clear every other gate. Routing
+    # them onward unreviewed would be automation the gates cannot justify.
+    if type(result).ADVISORY:
+        return DispatchDecision(
+            actions=[
+                OrchestratorAction(
+                    action=Action.HOLD,
+                    target="human",
+                    detail=(
+                        f"{len(findings)} advisory finding(s) produced. This analysis is a "
+                        "judgment, not an extraction — grounding confirms each finding's "
+                        "evidence exists but cannot confirm the judgment drawn from it. "
+                        "A human must review before this drives test work."
+                    ),
+                    blocking=True,
+                    requires_value=False,
+                )
+            ],
+            ready_for_test_design=False,
+            rationale="advisory skill — judgment output requires human review",
+        )
+
     # Low confidence or an explicit review flag blocks the handoff. This is
     # the whole point of the confidence gate — it must change routing, not
     # just annotate it.
