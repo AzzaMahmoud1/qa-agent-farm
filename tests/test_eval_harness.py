@@ -109,3 +109,18 @@ def test_adversarial_run_reports_each_gate_firing():
     # Dispatch caught the cases that would have wrongly routed to the Writer.
     assert "dispatch: PROCEED emitted on a case that must abstain" in out
     assert "dispatch routing correct ...... 100.0%" not in out
+
+
+def test_each_skill_specific_gate_fires_on_adversarial_input():
+    """Every skill's own discipline must be provably enforceable, not just
+    the shared grounding/abstention gates."""
+    out = _run("--mock", "--responses", "mock_responses_adversarial.json").stdout
+    # source_analysis: a change nobody can observe is not a surface.
+    assert "not a testable surface" in out
+    # risk_analysis: an all-critical matrix has no prioritization signal.
+    assert "no prioritization signal" in out
+    # test_gap_analysis: one lens applied repeatedly is not gap analysis.
+    assert "apply the other design lenses" in out
+    # root_cause_analysis: speculation cannot masquerade as evidence.
+    assert "claims to be evidenced" in out
+    assert "entire chain is hypothesis" in out

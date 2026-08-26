@@ -31,7 +31,7 @@ from .models import (
     CONFIDENCE_REVIEW_THRESHOLD,
     AnalystFailure,
     AnalystStatus,
-    RequirementsAnalysisResult,
+    BaseAnalysisResult,
 )
 
 # Mirrors agents/analyst-contract.js `VAGUE_ASK_RE` — an ask that trips this
@@ -132,7 +132,7 @@ def _asks_from_missing(missing: list[str], limit: int = 5) -> list[OrchestratorA
 
 
 def decide(
-    result: RequirementsAnalysisResult,
+    result: BaseAnalysisResult,
     *,
     threshold: float = CONFIDENCE_REVIEW_THRESHOLD,
 ) -> DispatchDecision:
@@ -180,7 +180,7 @@ def decide(
         return DispatchDecision(
             actions=asks,
             ready_for_test_design=False,
-            rationale="evidence does not support any grounded criterion",
+            rationale="evidence does not support any grounded finding",
         )
 
     if result.status is AnalystStatus.VALIDATION_FAILED:
@@ -203,7 +203,8 @@ def decide(
 
     # --- success path ---------------------------------------------------
 
-    if not result.acceptance_criteria:
+    findings = result.findings()
+    if not findings:
         # Defensive: the coherence gate rejects this, so it should be
         # unreachable. Never let an empty success PROCEED.
         return DispatchDecision(
@@ -211,13 +212,13 @@ def decide(
                 OrchestratorAction(
                     action=Action.HOLD,
                     target="human",
-                    detail="No acceptance criteria were produced; test design cannot start.",
+                    detail="No findings were produced; downstream work cannot start.",
                     blocking=True,
                     requires_value=False,
                 )
             ],
             ready_for_test_design=False,
-            rationale="success status with zero criteria (should be unreachable)",
+            rationale="success status with zero findings (should be unreachable)",
         )
 
     # Low confidence or an explicit review flag blocks the handoff. This is
@@ -229,7 +230,7 @@ def decide(
                 action=Action.HOLD,
                 target="human",
                 detail=(
-                    f"{len(result.acceptance_criteria)} grounded criterion(s) extracted, but "
+                    f"{len(findings)} grounded finding(s) extracted, but "
                     f"confidence is {result.overall_confidence:.2f} and human review is "
                     "required before test design."
                 ),
@@ -244,7 +245,7 @@ def decide(
         return DispatchDecision(
             actions=actions,
             ready_for_test_design=False,
-            rationale="grounded criteria, but flagged for human review",
+            rationale="grounded findings, but flagged for human review",
         )
 
     # Ready. Non-blocking asks may accompany PROCEED — matching the JS
@@ -254,8 +255,7 @@ def decide(
             action=Action.PROCEED,
             target="writer",
             detail=(
-                f"Proceed to test design with {len(result.acceptance_criteria)} "
-                "grounded acceptance criterion(s)."
+                f"Proceed to test design with {len(findings)} grounded finding(s)."
             ),
             blocking=False,
             requires_value=False,

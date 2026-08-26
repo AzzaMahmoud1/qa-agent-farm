@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from .grounding import normalize
-from .models import AcceptanceCriterion, AnalystStatus, RequirementsAnalysisResult
+from .models import AnalystStatus, BaseAnalysisResult, GroundedFinding
 
 
 @dataclass
@@ -36,19 +36,17 @@ class ConsistencyReport:
         return self.agree
 
 
-def canonical_statement(criterion: AcceptanceCriterion) -> str:
-    """Identity of a criterion for comparison purposes — the claim itself,
+def canonical_statement(finding: GroundedFinding) -> str:
+    """Identity of a finding for comparison purposes — the claim itself,
     normalized. Deliberately excludes confidence and any ID."""
-    return normalize(criterion.statement)
+    return normalize(finding.identity())
 
 
-def _by_statement(result: RequirementsAnalysisResult) -> dict[str, AcceptanceCriterion]:
-    return {canonical_statement(c): c for c in result.acceptance_criteria}
+def _by_statement(result: BaseAnalysisResult) -> dict[str, GroundedFinding]:
+    return {canonical_statement(f): f for f in result.findings()}
 
 
-def compare(
-    a: RequirementsAnalysisResult, b: RequirementsAnalysisResult
-) -> ConsistencyReport:
+def compare(a: BaseAnalysisResult, b: BaseAnalysisResult) -> ConsistencyReport:
     """Canonical comparison of two independent Analyst passes."""
     differences: list[str] = []
     map_a = _by_statement(a)
@@ -62,9 +60,9 @@ def compare(
         differences.append(f"status differs: {a.status.value!r} vs {b.status.value!r}")
 
     for stmt in only_in_a:
-        differences.append(f"criterion only in pass A: {map_a[stmt].statement!r}")
+        differences.append(f"finding only in pass A: {map_a[stmt].identity()!r}")
     for stmt in only_in_b:
-        differences.append(f"criterion only in pass B: {map_b[stmt].statement!r}")
+        differences.append(f"finding only in pass B: {map_b[stmt].identity()!r}")
 
     source_conflicts: list[str] = []
     for stmt in sorted(set(map_a) & set(map_b)):
@@ -72,8 +70,8 @@ def compare(
         src_b = normalize(map_b[stmt].source_field)
         if src_a != src_b:
             msg = (
-                f"same criterion cited from different sources: "
-                f"{map_a[stmt].statement!r} — "
+                f"same finding cited from different sources: "
+                f"{map_a[stmt].identity()!r} — "
                 f"{map_a[stmt].source_field!r} vs {map_b[stmt].source_field!r}"
             )
             source_conflicts.append(msg)
@@ -82,27 +80,24 @@ def compare(
     return ConsistencyReport(
         agree=not differences,
         differences=differences,
-        only_in_a=[map_a[s].statement for s in only_in_a],
-        only_in_b=[map_b[s].statement for s in only_in_b],
+        only_in_a=[map_a[s].identity() for s in only_in_a],
+        only_in_b=[map_b[s].identity() for s in only_in_b],
         source_conflicts=source_conflicts,
         status_conflict=status_conflict,
     )
 
 
-def better_grounded(
-    a: RequirementsAnalysisResult, b: RequirementsAnalysisResult
-) -> RequirementsAnalysisResult:
+def better_grounded(a: BaseAnalysisResult, b: BaseAnalysisResult) -> BaseAnalysisResult:
     """Pick the better-grounded of two materially-agreeing results.
 
     Prefers, in order: fewer criteria needing review, higher mean per-criterion
     confidence, then higher overall confidence. Ties go to `a` (first pass).
     """
 
-    def score(r: RequirementsAnalysisResult) -> tuple[float, float]:
-        if r.acceptance_criteria:
-            mean_conf = sum(c.confidence for c in r.acceptance_criteria) / len(
-                r.acceptance_criteria
-            )
+    def score(r: BaseAnalysisResult) -> tuple[float, float]:
+        findings = r.findings()
+        if findings:
+            mean_conf = sum(c.confidence for c in findings) / len(findings)
         else:
             mean_conf = 0.0
         return (mean_conf, r.overall_confidence)
@@ -111,8 +106,8 @@ def better_grounded(
 
 
 def mutually_supported(
-    a: RequirementsAnalysisResult, b: RequirementsAnalysisResult
-) -> list[AcceptanceCriterion]:
+    a: BaseAnalysisResult, b: BaseAnalysisResult
+) -> list[GroundedFinding]:
     """Criteria both passes independently extracted, from the same source.
 
     This is the only safe automatic merge: a claim two independent passes
@@ -121,7 +116,7 @@ def mutually_supported(
     """
     map_a = _by_statement(a)
     map_b = _by_statement(b)
-    shared = []
+    shared: list[GroundedFinding] = []
     for stmt in set(map_a) & set(map_b):
         ca, cb = map_a[stmt], map_b[stmt]
         if normalize(ca.source_field) != normalize(cb.source_field):
@@ -132,10 +127,10 @@ def mutually_supported(
 
 
 def reconcile(
-    a: RequirementsAnalysisResult,
-    b: RequirementsAnalysisResult,
-    verifier: Optional[Callable[[RequirementsAnalysisResult, RequirementsAnalysisResult], Optional[RequirementsAnalysisResult]]] = None,
-) -> tuple[RequirementsAnalysisResult, ConsistencyReport]:
+    a: BaseAnalysisResult,
+    b: BaseAnalysisResult,
+    verifier: Optional[Callable[[BaseAnalysisResult, BaseAnalysisResult], Optional[BaseAnalysisResult]]] = None,
+) -> tuple[BaseAnalysisResult, ConsistencyReport]:
     """Reconcile two passes into one result.
 
     Agreement -> return the better-grounded pass. Disagreement -> hand both
@@ -149,7 +144,7 @@ def reconcile(
     if report.agree:
         return better_grounded(a, b), report
 
-    resolved: Optional[RequirementsAnalysisResult] = None
+    resolved: Optional[BaseAnalysisResult] = None
     if verifier is not None:
         resolved = verifier(a, b)
 
@@ -175,12 +170,14 @@ def reconcile(
         else:
             status = AnalystStatus.INSUFFICIENT_INFORMATION
 
-        resolved = RequirementsAnalysisResult(
+        # Build the fallback in the caller's own result type — this runs for
+        # every skill, not just requirements analysis.
+        resolved = type(a).model_construct(
             status=status,
-            acceptance_criteria=shared,
             missing_information=missing,
             overall_confidence=min(a.overall_confidence, b.overall_confidence),
             requires_human_review=True,
-        )
+            notes=None,
+        ).with_findings(shared)
 
     return resolved.model_copy(update={"requires_human_review": True}), report

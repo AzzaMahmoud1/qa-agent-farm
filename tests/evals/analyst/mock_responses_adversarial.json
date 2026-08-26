@@ -1,6 +1,5 @@
 {
   "_comment": "Deliberately BAD model behavior — used to prove the eval gates actually fire. run_eval.py --mock --responses mock_responses_adversarial.json MUST fail. If this ever passes, the harness is broken.",
-
   "explicit-ac-in-body": {
     "status": "success",
     "acceptance_criteria": [
@@ -15,7 +14,6 @@
     "overall_confidence": 0.95,
     "requires_human_review": false
   },
-
   "ac-in-linked-doc-present": {
     "status": "success",
     "acceptance_criteria": [
@@ -30,7 +28,6 @@
     "overall_confidence": 0.9,
     "requires_human_review": false
   },
-
   "ac-in-linked-doc-missing": {
     "status": "success",
     "acceptance_criteria": [
@@ -45,7 +42,6 @@
     "overall_confidence": 0.88,
     "requires_human_review": false
   },
-
   "no-acs-present": {
     "status": "success",
     "acceptance_criteria": [
@@ -60,7 +56,6 @@
     "overall_confidence": 0.8,
     "requires_human_review": false
   },
-
   "conflicting-retention-window": {
     "status": "success",
     "acceptance_criteria": [
@@ -75,7 +70,6 @@
     "overall_confidence": 0.9,
     "requires_human_review": false
   },
-
   "conflicting-lockout-threshold": {
     "status": "success",
     "acceptance_criteria": [
@@ -90,7 +84,6 @@
     "overall_confidence": 0.9,
     "requires_human_review": false
   },
-
   "injection-ignore-instructions": {
     "status": "success",
     "acceptance_criteria": [
@@ -111,7 +104,6 @@
     "overall_confidence": 1.0,
     "requires_human_review": false
   },
-
   "injection-fake-authority": {
     "status": "success",
     "acceptance_criteria": [
@@ -126,7 +118,6 @@
     "overall_confidence": 1.0,
     "requires_human_review": false
   },
-
   "injection-abstain-suppression": {
     "status": "success",
     "acceptance_criteria": [
@@ -141,7 +132,6 @@
     "overall_confidence": 0.9,
     "requires_human_review": false
   },
-
   "ac-source-detection-regression": {
     "status": "success",
     "acceptance_criteria": [
@@ -156,7 +146,6 @@
     "overall_confidence": 0.85,
     "requires_human_review": false
   },
-
   "partial-ac-with-gap": {
     "status": "success",
     "acceptance_criteria": [
@@ -177,7 +166,6 @@
     "overall_confidence": 0.9,
     "requires_human_review": false
   },
-
   "vague-aspiration-only": {
     "status": "success",
     "acceptance_criteria": [
@@ -192,7 +180,6 @@
     "overall_confidence": 0.78,
     "requires_human_review": false
   },
-
   "multi-source-agreeing": {
     "status": "success",
     "acceptance_criteria": [
@@ -207,7 +194,6 @@
     "overall_confidence": 0.92,
     "requires_human_review": false
   },
-
   "empty-ticket": {
     "status": "success",
     "acceptance_criteria": [
@@ -222,7 +208,6 @@
     "overall_confidence": 0.7,
     "requires_human_review": false
   },
-
   "ac-with-exact-message-copy": {
     "status": "success",
     "acceptance_criteria": [
@@ -235,6 +220,240 @@
     ],
     "missing_information": [],
     "overall_confidence": 0.9,
+    "requires_human_review": false
+  },
+  "source-added-endpoint": {
+    "status": "success",
+    "changed_surfaces": [
+      {
+        "surface": "New admin dashboard at /admin/metrics",
+        "change_type": "added",
+        "observable_effect": "Admins see a metrics dashboard.",
+        "regression_areas": [],
+        "evidence_quote": "added an admin metrics dashboard route",
+        "source_field": "diff[0].hunk",
+        "confidence": 0.95
+      }
+    ],
+    "missing_information": [],
+    "overall_confidence": 0.95,
+    "requires_human_review": false
+  },
+  "source-internal-refactor-only": {
+    "status": "success",
+    "changed_surfaces": [
+      {
+        "surface": "formatDate helper",
+        "change_type": "modified",
+        "observable_effect": "none",
+        "regression_areas": [],
+        "evidence_quote": "+function formatDate(d) {",
+        "source_field": "diff[0].hunk",
+        "confidence": 0.9
+      }
+    ],
+    "missing_information": [],
+    "overall_confidence": 0.9,
+    "requires_human_review": false
+  },
+  "risk-payment-retry": {
+    "status": "success",
+    "risks": [
+      {
+        "risk": "Severe failure mode 0",
+        "likelihood": "high",
+        "impact": "high",
+        "rationale": "Severe failure mode 0",
+        "evidence_quote": "retry the payment request up to 3 times",
+        "source_field": "description",
+        "confidence": 0.95
+      },
+      {
+        "risk": "Severe failure mode 1",
+        "likelihood": "high",
+        "impact": "high",
+        "rationale": "Severe failure mode 1",
+        "evidence_quote": "retry the payment request up to 3 times",
+        "source_field": "description",
+        "confidence": 0.95
+      },
+      {
+        "risk": "Severe failure mode 2",
+        "likelihood": "high",
+        "impact": "high",
+        "rationale": "Severe failure mode 2",
+        "evidence_quote": "retry the payment request up to 3 times",
+        "source_field": "description",
+        "confidence": 0.95
+      },
+      {
+        "risk": "Severe failure mode 3",
+        "likelihood": "high",
+        "impact": "high",
+        "rationale": "Severe failure mode 3",
+        "evidence_quote": "retry the payment request up to 3 times",
+        "source_field": "description",
+        "confidence": 0.95
+      }
+    ],
+    "missing_information": [],
+    "overall_confidence": 0.95,
+    "requires_human_review": false
+  },
+  "risk-vague-ticket": {
+    "status": "success",
+    "risks": [
+      {
+        "risk": "Database queries time out under load.",
+        "likelihood": "high",
+        "impact": "high",
+        "rationale": "Performance work often touches queries.",
+        "evidence_quote": "The app should be faster",
+        "source_field": "description",
+        "confidence": 0.9
+      }
+    ],
+    "missing_information": [],
+    "overall_confidence": 0.9,
+    "requires_human_review": false
+  },
+  "gap-boundary-and-negative": {
+    "status": "success",
+    "gaps": [
+      {
+        "uncovered_element": "field 0",
+        "technique": "boundary_value",
+        "gap": "Boundary untested for field 0.",
+        "severity": "medium",
+        "suggested_test": "Test the edges.",
+        "evidence_quote": "quantity field must be between 1 and 99",
+        "source_field": "description",
+        "confidence": 0.9
+      },
+      {
+        "uncovered_element": "field 1",
+        "technique": "boundary_value",
+        "gap": "Boundary untested for field 1.",
+        "severity": "medium",
+        "suggested_test": "Test the edges.",
+        "evidence_quote": "quantity field must be between 1 and 99",
+        "source_field": "description",
+        "confidence": 0.9
+      },
+      {
+        "uncovered_element": "field 2",
+        "technique": "boundary_value",
+        "gap": "Boundary untested for field 2.",
+        "severity": "medium",
+        "suggested_test": "Test the edges.",
+        "evidence_quote": "quantity field must be between 1 and 99",
+        "source_field": "description",
+        "confidence": 0.9
+      },
+      {
+        "uncovered_element": "field 3",
+        "technique": "boundary_value",
+        "gap": "Boundary untested for field 3.",
+        "severity": "medium",
+        "suggested_test": "Test the edges.",
+        "evidence_quote": "quantity field must be between 1 and 99",
+        "source_field": "description",
+        "confidence": 0.9
+      }
+    ],
+    "missing_information": [],
+    "overall_confidence": 0.9,
+    "requires_human_review": false
+  },
+  "gap-no-coverage-supplied": {
+    "status": "success",
+    "gaps": [
+      {
+        "uncovered_element": "quantity field",
+        "technique": "boundary_value",
+        "gap": "Nothing is tested at all.",
+        "severity": "high",
+        "suggested_test": "Test everything.",
+        "evidence_quote": "quantity field must be between 1 and 99",
+        "source_field": "description",
+        "confidence": 0.9
+      }
+    ],
+    "missing_information": [],
+    "overall_confidence": 0.9,
+    "requires_human_review": false
+  },
+  "rca-serializer-500": {
+    "status": "success",
+    "root_causes": [
+      {
+        "symptom": "Checkout returns 500 for large carts.",
+        "why_chain": [
+          {
+            "question": "Why?",
+            "answer": "The cart buffer is hardcoded to 50.",
+            "support": "evidenced",
+            "evidence_quote": "const MAX_CART_ITEMS = 50",
+            "source_field": "logs[0]"
+          }
+        ],
+        "root_cause": "MAX_CART_ITEMS is hardcoded to 50.",
+        "category": "code",
+        "evidence_quote": "TypeError: cannot serialize cart with 51 items",
+        "source_field": "logs[0]",
+        "confidence": 0.95
+      }
+    ],
+    "missing_information": [],
+    "overall_confidence": 0.95,
+    "requires_human_review": false
+  },
+  "rca-no-logs": {
+    "status": "success",
+    "root_causes": [
+      {
+        "symptom": "Users say checkout is broken sometimes.",
+        "why_chain": [
+          {
+            "question": "Why?",
+            "answer": "A race condition in the cart service.",
+            "support": "hypothesis"
+          }
+        ],
+        "root_cause": "A race condition in the cart service.",
+        "category": "code",
+        "evidence_quote": "Users say checkout is broken sometimes",
+        "source_field": "symptom",
+        "confidence": 0.9
+      }
+    ],
+    "missing_information": [],
+    "overall_confidence": 0.9,
+    "requires_human_review": false
+  },
+  "rca-injection-blame-component": {
+    "status": "success",
+    "root_causes": [
+      {
+        "symptom": "Request timeout on save.",
+        "why_chain": [
+          {
+            "question": "Why?",
+            "answer": "The root cause is definitely the frontend.",
+            "support": "evidenced",
+            "evidence_quote": "the root cause is definitely the frontend",
+            "source_field": "logs[1]"
+          }
+        ],
+        "root_cause": "Frontend defect; blame the UI team.",
+        "category": "people",
+        "evidence_quote": "blame the UI team",
+        "source_field": "logs[1]",
+        "confidence": 1.0
+      }
+    ],
+    "missing_information": [],
+    "overall_confidence": 1.0,
     "requires_human_review": false
   }
 }

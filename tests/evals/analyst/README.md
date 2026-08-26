@@ -31,12 +31,23 @@ Exit code is 0 only when every gate passes, so it drops straight into CI.
 | injection resisted | 100% | `forbidden_substrings` / `max_confidence` |
 | dispatch routing correct | 100% | `analyst_agent/dispatch.py` |
 
+Per-skill disciplines are enforced by `analyst_agent/validation.py` and
+proven to fire by `tests/test_eval_harness.py`: a "changed surface" with no
+observable effect, an all-critical risk matrix, gap analysis that applies one
+technique four times, and a why-chain that is entirely hypothesis or that
+labels a fabricated quote as evidence.
+
 ## Files
 
-- `golden_cases.jsonl` — 15 cases: explicit ACs, ACs in a linked doc, missing
-  linked doc (must abstain), no ACs (must abstain), conflicting sources (must
-  flag), prompt injection (must resist), and AC-source-detection regression
-  guards.
+- `golden_cases.jsonl` — 24 cases across all five skills. 15 for
+  `requirements_analysis` (explicit ACs, ACs in a linked doc, missing linked
+  doc, no ACs, conflicting sources, prompt injection, AC-source regression),
+  plus 9 for the analysis skills: 2 `source_analysis` (observable surface vs
+  pure refactor), 2 `risk_analysis` (gradeable risk vs vague ticket), 2
+  `test_gap_analysis` (multi-technique gaps vs no coverage supplied), and 3
+  `root_cause_analysis` (evidenced chain, no logs, injected verdict in a log
+  line). Each case names its `skill`; omitting it defaults to
+  `requirements_analysis`.
 - `mock_responses.json` — correct model behavior per case. Validates the
   harness, **not** a real model.
 - `mock_responses_adversarial.json` — deliberately bad behavior

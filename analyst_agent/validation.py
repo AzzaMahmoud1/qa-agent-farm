@@ -1,23 +1,25 @@
 """Post-schema validation gates for Analyst output.
 
-Pydantic (`models.py`) enforces *shape*. This module enforces *coherence*:
-that status, criteria, confidence, and the human-review flag tell a
-consistent story, and that low confidence actually gates downstream
-behavior rather than being decorative.
+Pydantic (`models.py`) enforces *shape*. Grounding (`grounding.py`) enforces
+*traceability*. This module enforces *coherence*: that status, findings,
+confidence, and the human-review flag tell a consistent story, and that each
+skill's own discipline held.
 
-Grounding (does each quote really exist in the evidence?) lives separately
-in `grounding.py`.
+Each skill's gate is written against the specific way that skill tends to go
+wrong — a risk analysis where everything is "critical", a gap analysis that
+only ever names one technique, a why-chain that is pure speculation.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 from .models import (
     ABSTAIN_STATUSES,
     CONFIDENCE_REVIEW_THRESHOLD,
+    PRIORITY_ORDER,
     AnalystStatus,
+    BaseAnalysisResult,
     RequirementsAnalysisResult,
     RiskAnalysisResult,
     RootCauseAnalysisResult,
@@ -37,9 +39,9 @@ class GateResult:
 
 
 def enforce_confidence_gate(
-    result: RequirementsAnalysisResult,
+    result: BaseAnalysisResult,
     threshold: float = CONFIDENCE_REVIEW_THRESHOLD,
-) -> RequirementsAnalysisResult:
+) -> BaseAnalysisResult:
     """Force `requires_human_review` on when confidence is below threshold.
 
     Applied in code rather than trusted from the model, so a model that
@@ -51,29 +53,28 @@ def enforce_confidence_gate(
         result.requires_human_review
         or result.overall_confidence < threshold
         or result.status in ABSTAIN_STATUSES
-        or any(c.confidence < threshold for c in result.acceptance_criteria)
+        or any(f.confidence < threshold for f in result.findings())
     )
     if needs_review == result.requires_human_review:
         return result
     return result.model_copy(update={"requires_human_review": needs_review})
 
 
-def check_requirements_analysis_gate(result: RequirementsAnalysisResult) -> GateResult:
-    """Status/criteria/confidence coherence checks."""
+def _check_common(result: BaseAnalysisResult, finding_name: str) -> list[str]:
+    """Status/finding/confidence coherence shared by every skill."""
     failures: list[str] = []
+    findings = result.findings()
 
-    if result.status == AnalystStatus.SUCCESS and not result.acceptance_criteria:
+    if result.status == AnalystStatus.SUCCESS and not findings:
         failures.append(
-            "status 'success' with zero acceptance_criteria — use "
+            f"status 'success' with zero {finding_name} — use "
             "'insufficient_information' to abstain instead"
         )
 
-    if result.status in ABSTAIN_STATUSES and result.acceptance_criteria:
-        # Abstaining while still asserting criteria is contradictory: either
-        # the evidence supported them or it didn't.
+    if result.status in ABSTAIN_STATUSES and findings:
         failures.append(
-            f"status {result.status.value!r} but {len(result.acceptance_criteria)} "
-            "acceptance_criteria returned — abstention must not assert criteria"
+            f"status {result.status.value!r} but {len(findings)} {finding_name} "
+            "returned — abstention must not assert findings"
         )
 
     if result.status == AnalystStatus.INSUFFICIENT_INFORMATION and not result.missing_information:
@@ -99,29 +100,138 @@ def check_requirements_analysis_gate(result: RequirementsAnalysisResult) -> Gate
             f"overall_confidence ({result.overall_confidence})"
         )
 
+    return failures
+
+
+# --- requirements_analysis --------------------------------------------
+
+
+def check_requirements_analysis_gate(result: RequirementsAnalysisResult) -> GateResult:
+    failures = _check_common(result, "acceptance_criteria")
     return GateResult(ok=not failures, failures=failures)
 
 
-# --- pass-through validators for the 4 placeholder skills ---
-#
-# No defined contract yet (see models.py) so there's nothing to gate beyond
-# what Pydantic already enforces on construction.
+# --- source_analysis ---------------------------------------------------
 
 
 def check_source_analysis_gate(result: SourceAnalysisResult) -> GateResult:
-    return GateResult(ok=True, failures=[])
+    """A "changed surface" with no observable effect is a refactor note, not
+    a testable finding — the whole point of this skill is to hand testers
+    something they can exercise."""
+    failures = _check_common(result, "changed_surfaces")
+
+    for i, surface in enumerate(result.changed_surfaces):
+        effect = surface.observable_effect.strip().lower()
+        if effect in {"none", "n/a", "nothing", "no change", "-"}:
+            failures.append(
+                f"changed_surfaces[{i}]: observable_effect is empty ({effect!r}) — "
+                "a change with no observable effect is not a testable surface "
+                "and should be omitted"
+            )
+        if surface.change_type == "removed" and not surface.regression_areas:
+            failures.append(
+                f"changed_surfaces[{i}]: a 'removed' surface must name at least one "
+                "regression area — removals are the most common source of silent breakage"
+            )
+
+    return GateResult(ok=not failures, failures=failures)
+
+
+# --- risk_analysis -----------------------------------------------------
+
+#: If every risk lands at the top of the scale the analysis has no signal —
+#: prioritization that ranks everything first ranks nothing.
+_MAX_CRITICAL_SHARE = 0.5
 
 
 def check_risk_analysis_gate(result: RiskAnalysisResult) -> GateResult:
-    return GateResult(ok=True, failures=[])
+    failures = _check_common(result, "risks")
+
+    risks = result.risks
+    if len(risks) >= 3:
+        top = [r for r in risks if PRIORITY_ORDER[r.priority] >= PRIORITY_ORDER["critical"]]
+        if len(top) / len(risks) > _MAX_CRITICAL_SHARE:
+            failures.append(
+                f"{len(top)}/{len(risks)} risks scored 'critical' — a matrix where "
+                "most items are top priority provides no prioritization signal; "
+                "re-judge likelihood and impact independently"
+            )
+
+    for i, risk in enumerate(risks):
+        # The rationale must justify the scoring, not restate the risk.
+        if risk.rationale.strip().lower() == risk.risk.strip().lower():
+            failures.append(
+                f"risks[{i}]: rationale merely restates the risk — it must explain "
+                "why this likelihood and this impact"
+            )
+
+    return GateResult(ok=not failures, failures=failures)
+
+
+# --- test_gap_analysis -------------------------------------------------
 
 
 def check_test_gap_analysis_gate(result: TestGapAnalysisResult) -> GateResult:
-    return GateResult(ok=True, failures=[])
+    """Guards the most common failure mode: restating the same gap under one
+    technique instead of genuinely applying different design lenses."""
+    failures = _check_common(result, "gaps")
+
+    gaps = result.gaps
+    if len(gaps) >= 4 and len(result.techniques_covered()) == 1:
+        only = next(iter(result.techniques_covered()))
+        failures.append(
+            f"all {len(gaps)} gaps use the same technique ({only!r}) — apply the "
+            "other design lenses (boundary, negative, state transition, error "
+            "handling) or explain in missing_information why they do not apply"
+        )
+
+    seen: dict[tuple[str, str], int] = {}
+    for i, gap in enumerate(gaps):
+        key = (gap.uncovered_element.strip().lower(), gap.technique)
+        if key in seen:
+            failures.append(
+                f"gaps[{i}] duplicates gaps[{seen[key]}] — same element and technique"
+            )
+        else:
+            seen[key] = i
+
+    return GateResult(ok=not failures, failures=failures)
+
+
+# --- root_cause_analysis ----------------------------------------------
+
+#: A chain that is entirely speculation is a guess wearing a method's
+#: clothing. At least one link must touch real evidence.
+_MIN_EVIDENCED_STEPS = 1
 
 
 def check_root_cause_analysis_gate(result: RootCauseAnalysisResult) -> GateResult:
-    return GateResult(ok=True, failures=[])
+    failures = _check_common(result, "root_causes")
+
+    for i, cause in enumerate(result.root_causes):
+        if not cause.why_chain:
+            failures.append(
+                f"root_causes[{i}]: why_chain is empty — a root cause asserted "
+                "without a chain is an unexplained guess"
+            )
+            continue
+
+        evidenced = sum(1 for s in cause.why_chain if s.support == "evidenced")
+        if evidenced < _MIN_EVIDENCED_STEPS:
+            failures.append(
+                f"root_causes[{i}]: no step in the why_chain is evidenced — the "
+                "entire chain is hypothesis, which cannot support a root-cause claim"
+            )
+
+        # A conclusion resting only on speculation must not read as confident.
+        if cause.hypothesis_steps > evidenced and cause.confidence >= CONFIDENCE_REVIEW_THRESHOLD:
+            failures.append(
+                f"root_causes[{i}]: {cause.hypothesis_steps} hypothesis step(s) vs "
+                f"{evidenced} evidenced, but confidence is {cause.confidence} — a "
+                "mostly-speculative chain cannot be high confidence"
+            )
+
+    return GateResult(ok=not failures, failures=failures)
 
 
 GATE_CHECKS = {

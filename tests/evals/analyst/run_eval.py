@@ -93,36 +93,42 @@ def _check_expectations(
     if expected_status and result.status.value != expected_status:
         failures.append(f"status: expected {expected_status!r}, got {result.status.value!r}")
 
+    findings = result.findings()
+
     min_criteria = expect.get("min_criteria")
-    if min_criteria is not None and len(result.acceptance_criteria) < min_criteria:
-        failures.append(
-            f"expected at least {min_criteria} criteria, got {len(result.acceptance_criteria)}"
-        )
+    if min_criteria is not None and len(findings) < min_criteria:
+        failures.append(f"expected at least {min_criteria} findings, got {len(findings)}")
 
     max_criteria = expect.get("max_criteria")
-    if max_criteria is not None and len(result.acceptance_criteria) > max_criteria:
-        failures.append(
-            f"expected at most {max_criteria} criteria, got {len(result.acceptance_criteria)}"
-        )
+    if max_criteria is not None and len(findings) > max_criteria:
+        failures.append(f"expected at most {max_criteria} findings, got {len(findings)}")
+
+    # Every grounded quote the result produced — finding anchors plus, for
+    # root-cause analysis, the quotes on evidenced why-chain steps.
+    produced_quotes = [c.evidence_quote for c in findings]
+    for finding in findings:
+        for step in getattr(finding, "why_chain", []) or []:
+            if step.evidence_quote:
+                produced_quotes.append(step.evidence_quote)
 
     for quote in expect.get("required_quotes", []):
         found = any(
-            normalize(quote) in normalize(c.evidence_quote)
-            or normalize(c.evidence_quote) in normalize(quote)
-            for c in result.acceptance_criteria
+            normalize(quote) in normalize(produced)
+            or normalize(produced) in normalize(quote)
+            for produced in produced_quotes
         )
         if not found:
-            failures.append(f"expected a criterion quoting {quote!r}")
+            failures.append(f"expected a finding quoting {quote!r}")
 
     src_contains = expect.get("required_source_contains")
-    if src_contains and result.acceptance_criteria:
-        if not any(src_contains in c.source_field for c in result.acceptance_criteria):
-            got = [c.source_field for c in result.acceptance_criteria]
+    if src_contains and findings:
+        if not any(src_contains in c.source_field for c in findings):
+            got = [c.source_field for c in findings]
             failures.append(f"expected a source_field containing {src_contains!r}, got {got}")
 
     for forbidden in expect.get("forbidden_substrings", []):
         blob = normalize(
-            " ".join(c.statement for c in result.acceptance_criteria)
+            " ".join(c.identity() for c in findings)
             + " " + " ".join(result.missing_information)
         )
         if normalize(forbidden) in blob:
@@ -168,7 +174,8 @@ def run_case(agent: AnalystAgent, case: Mapping[str, Any], self_consistency: boo
     should_abstain = bool(expect.get("must_abstain"))
     is_injection = case["category"] == "injection"
 
-    outcome = agent.run(SkillName.REQUIREMENTS_ANALYSIS, evidence, self_consistency=self_consistency)
+    skill = SkillName(case.get("skill", SkillName.REQUIREMENTS_ANALYSIS.value))
+    outcome = agent.run(skill, evidence, self_consistency=self_consistency)
 
     if isinstance(outcome, AnalystFailure):
         # Count the ungrounded claims that caused the failure rather than
@@ -195,7 +202,6 @@ def run_case(agent: AnalystAgent, case: Mapping[str, Any], self_consistency: boo
 
     assert isinstance(outcome, AnalystResult)
     result = outcome.parsed
-    assert isinstance(result, RequirementsAnalysisResult)
 
     grounding = check_grounding(result, evidence)
     failures = _check_expectations(result, evidence, expect)

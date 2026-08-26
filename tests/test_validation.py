@@ -81,7 +81,7 @@ def test_abstain_while_asserting_criteria_rejected():
         requires_human_review=True,
     ))
     assert not gate.ok
-    assert any("must not assert criteria" in f for f in gate.failures)
+    assert any("must not assert findings" in f for f in gate.failures)
 
 
 def test_insufficient_information_without_missing_info_rejected():

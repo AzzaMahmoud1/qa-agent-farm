@@ -15,6 +15,12 @@ dev = ["pytest>=8"]
 [tool.setuptools.packages.find]
 include = ["analyst_agent*"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# TestGapAnalysisResult / TestGap are domain models, not test classes — stop
+# pytest trying to collect them just because of the "Test" prefix.
+python_classes = ["Test*Case"]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"

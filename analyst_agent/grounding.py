@@ -18,7 +18,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Mapping, Optional
 
-from .models import AcceptanceCriterion, RequirementsAnalysisResult
+from .models import BaseAnalysisResult, GroundedFinding, RootCauseAnalysisResult
 
 #: Quotes shorter than this are too weak to establish grounding — a
 #: three-character "the" appears in any document.
@@ -133,53 +133,73 @@ def check_quote_grounded(
 
 
 def check_grounding(
-    result: RequirementsAnalysisResult, evidence: Mapping[str, object]
+    result: BaseAnalysisResult, evidence: Mapping[str, object]
 ) -> GroundingReport:
-    """Verify every acceptance criterion against the real evidence."""
+    """Verify every finding against the real evidence.
+
+    Works across all skills via `BaseAnalysisResult.findings()`. For
+    root-cause analysis it additionally walks each why-chain, since a step
+    claiming to be 'evidenced' must carry a quote that actually resolves —
+    otherwise the chain launders a hypothesis into a fact.
+    """
     flat = flatten_evidence(evidence)
     failures: list[str] = []
     ungrounded: list[int] = []
 
-    for i, criterion in enumerate(result.acceptance_criteria):
+    findings = result.findings()
+    for i, finding in enumerate(findings):
         ok, reason = check_quote_grounded(
-            criterion.evidence_quote, criterion.source_field, flat
+            finding.evidence_quote, finding.source_field, flat
         )
         if not ok:
             ungrounded.append(i)
-            failures.append(f"acceptance_criteria[{i}]: {reason}")
+            failures.append(f"findings[{i}]: {reason}")
+
+    if isinstance(result, RootCauseAnalysisResult):
+        for i, cause in enumerate(result.root_causes):
+            for j, step in enumerate(cause.why_chain):
+                if step.support != "evidenced":
+                    continue
+                ok, reason = check_quote_grounded(
+                    step.evidence_quote or "", step.source_field or "", flat
+                )
+                if not ok:
+                    if i not in ungrounded:
+                        ungrounded.append(i)
+                    failures.append(
+                        f"root_causes[{i}].why_chain[{j}] claims to be evidenced: {reason}"
+                    )
 
     return GroundingReport(
         ok=not failures,
         failures=failures,
-        ungrounded_indices=ungrounded,
-        checked=len(result.acceptance_criteria),
+        ungrounded_indices=sorted(ungrounded),
+        checked=len(findings),
     )
 
 
 def strip_ungrounded(
-    result: RequirementsAnalysisResult, report: GroundingReport
-) -> RequirementsAnalysisResult:
+    result: BaseAnalysisResult, report: GroundingReport
+) -> BaseAnalysisResult:
     """Drop criteria that failed grounding, so nothing unsupported is ever
     returned as verified. Callers still surface the failure — this is for the
     degraded path where a partially-valid result is better than nothing."""
     if report.ok:
         return result
-    keep = [
-        c for i, c in enumerate(result.acceptance_criteria)
-        if i not in set(report.ungrounded_indices)
-    ]
-    return result.model_copy(update={"acceptance_criteria": keep})
+    bad = set(report.ungrounded_indices)
+    keep = [f for i, f in enumerate(result.findings()) if i not in bad]
+    return result.with_findings(keep)
 
 
 def unsupported_claim_count(
-    result: RequirementsAnalysisResult, evidence: Mapping[str, object]
+    result: BaseAnalysisResult, evidence: Mapping[str, object]
 ) -> int:
-    """Convenience for eval scoring: how many criteria are ungrounded."""
+    """Convenience for eval scoring: how many findings are ungrounded."""
     return len(check_grounding(result, evidence).ungrounded_indices)
 
 
 def criterion_is_grounded(
-    criterion: AcceptanceCriterion, evidence: Mapping[str, object]
+    criterion: GroundedFinding, evidence: Mapping[str, object]
 ) -> bool:
     ok, _reason = check_quote_grounded(
         criterion.evidence_quote, criterion.source_field, flatten_evidence(evidence)
