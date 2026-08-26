@@ -37,6 +37,7 @@ from .models import (
     SKILL_RESULT_MODELS,
     AnalystFailure,
     AnalystStatus,
+    BaseAnalysisResult,
     RequirementsAnalysisResult,
     SkillName,
 )
@@ -54,15 +55,7 @@ MAX_ATTEMPTS = 2
 _FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.IGNORECASE | re.DOTALL)
 _BARE_OBJ_RE = re.compile(r"\{.*\}", re.DOTALL)
 
-_SCHEMA_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "skills"
-    / "requirements_analysis"
-    / "schemas"
-    / "output.schema.json"
-)
-
-TOOL_NAME = "emit_requirements_analysis"
+_SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
 
 
 class AnalystAgentError(RuntimeError):
@@ -88,9 +81,8 @@ class AnalystResult:
         """The farm's next-step decision, derived from the grounded result.
 
         Computed rather than stored so it can never drift from `parsed`.
-        `None` for the placeholder skills, which have no dispatch semantics.
         """
-        if not isinstance(self.parsed, RequirementsAnalysisResult):
+        if not isinstance(self.parsed, BaseAnalysisResult):
             return None
         return decide(self.parsed)
 
@@ -98,21 +90,33 @@ class AnalystResult:
 AnalystOutcome = Union[AnalystResult, AnalystFailure]
 
 
-def load_output_schema() -> dict:
-    return json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+def tool_name_for(skill_name: SkillName) -> str:
+    return f"emit_{skill_name.value}"
 
 
-def _tool_schema() -> dict:
+def load_output_schema(skill_name: SkillName = SkillName.REQUIREMENTS_ANALYSIS) -> dict:
+    """The skill's hand-written JSON Schema when it ships one, else one
+    generated from its Pydantic model.
+
+    Only `requirements_analysis` carries a checked-in schema file; the rest
+    derive theirs from `models.py`, which keeps the two from drifting apart.
+    """
+    path = _SKILLS_DIR / skill_name.value / "schemas" / "output.schema.json"
+    if path.is_file():
+        return json.loads(path.read_text(encoding="utf-8"))
+    return SKILL_RESULT_MODELS[skill_name].model_json_schema()
+
+
+def _tool_schema(skill_name: SkillName = SkillName.REQUIREMENTS_ANALYSIS) -> dict:
     """Anthropic tool definition wrapping the output JSON Schema."""
-    schema = load_output_schema()
+    schema = load_output_schema(skill_name)
     schema.pop("$schema", None)
     schema.pop("$id", None)
     return {
-        "name": TOOL_NAME,
+        "name": tool_name_for(skill_name),
         "description": (
-            "Emit the requirements analysis result. Every acceptance criterion "
-            "must include a verbatim evidence_quote copied from the named "
-            "source_field."
+            f"Emit the {skill_name.value} result. Every finding must include a "
+            "verbatim evidence_quote copied from the named source_field."
         ),
         "input_schema": schema,
     }
@@ -267,7 +271,7 @@ class AnalystAgent:
         failures: list[str] = []
         grounding: Optional[GroundingReport] = None
 
-        if isinstance(parsed, RequirementsAnalysisResult):
+        if isinstance(parsed, BaseAnalysisResult):
             grounding = check_grounding(parsed, evidence)
             failures.extend(grounding.failures)
             parsed = enforce_confidence_gate(parsed)
@@ -285,7 +289,7 @@ class AnalystAgent:
         """One pass, with up to `max_attempts` attempts (initial + retries)."""
         name = SkillName(skill_name) if not isinstance(skill_name, SkillName) else skill_name
         skill = load_skill(name)
-        tool = _tool_schema()
+        tool = _tool_schema(name)
 
         corrective = ""
         previous_raw: Optional[str] = None
@@ -329,14 +333,14 @@ class AnalystAgent:
     # --- self-consistency ------------------------------------------------
 
     def _verifier(
-        self, evidence: Mapping[str, Any], skill: Skill
-    ) -> Callable[[RequirementsAnalysisResult, RequirementsAnalysisResult], Optional[RequirementsAnalysisResult]]:
+        self, evidence: Mapping[str, Any], skill: Skill, skill_name: SkillName
+    ) -> Callable[[BaseAnalysisResult, BaseAnalysisResult], Optional[BaseAnalysisResult]]:
         """Third call: sees both candidates plus the evidence, must pick one,
         merge only mutually-supported claims, or escalate. It may not invent."""
 
         def verify(
-            a: RequirementsAnalysisResult, b: RequirementsAnalysisResult
-        ) -> Optional[RequirementsAnalysisResult]:
+            a: BaseAnalysisResult, b: BaseAnalysisResult
+        ) -> Optional[BaseAnalysisResult]:
             prompt = "\n\n---\n\n".join([
                 skill.instructions,
                 "## Verifier task\n\n"
@@ -347,7 +351,7 @@ class AnalystAgent:
                 "(b) return only the claims BOTH candidates support and that "
                 "you can verify against the evidence, or (c) escalate by "
                 "returning `insufficient_information` / `conflicting_evidence`.\n\n"
-                "You may NOT introduce any criterion that does not appear in "
+                "You may NOT introduce any finding that does not appear in "
                 "at least one candidate AND trace to a verbatim quote in the "
                 "evidence. Inventing a new answer is a failure.\n\n"
                 "Set `requires_human_review` to true.",
@@ -356,24 +360,24 @@ class AnalystAgent:
                 f"## Evidence\n\n```json\n{format_evidence(evidence)}\n```",
             ])
             try:
-                payload = self.client.complete_structured(prompt, _tool_schema())
+                payload = self.client.complete_structured(prompt, _tool_schema(skill_name))
             except AnalystAgentError:
                 return None
 
             parsed, failures, _grounding, _gate = self.validate_payload(
-                SkillName.REQUIREMENTS_ANALYSIS, payload, evidence
+                skill_name, payload, evidence
             )
             if parsed is None or failures:
                 return None
 
-            # Guard against the verifier inventing: every returned criterion
+            # Guard against the verifier inventing: every returned finding
             # must exist in at least one candidate.
             from .consistency import canonical_statement
 
-            allowed = {canonical_statement(c) for c in a.acceptance_criteria}
-            allowed |= {canonical_statement(c) for c in b.acceptance_criteria}
-            assert isinstance(parsed, RequirementsAnalysisResult)
-            if any(canonical_statement(c) not in allowed for c in parsed.acceptance_criteria):
+            allowed = {canonical_statement(c) for c in a.findings()}
+            allowed |= {canonical_statement(c) for c in b.findings()}
+            assert isinstance(parsed, BaseAnalysisResult)
+            if any(canonical_statement(c) not in allowed for c in parsed.findings()):
                 return None
 
             return parsed
@@ -394,8 +398,6 @@ class AnalystAgent:
         first = self.run_once(name, evidence)
         if not self_consistency or isinstance(first, AnalystFailure):
             return first
-        if name != SkillName.REQUIREMENTS_ANALYSIS:
-            return first
 
         second = self.run_once(name, evidence)
         if isinstance(second, AnalystFailure):
@@ -413,7 +415,7 @@ class AnalystAgent:
 
         skill = load_skill(name)
         resolved, report = reconcile(
-            first.parsed, second.parsed, verifier=self._verifier(evidence, skill)
+            first.parsed, second.parsed, verifier=self._verifier(evidence, skill, name)
         )
         resolved = enforce_confidence_gate(resolved)
         gate = GATE_CHECKS[name](resolved)
