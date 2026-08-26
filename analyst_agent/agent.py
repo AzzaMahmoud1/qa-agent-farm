@@ -31,6 +31,7 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 from .consistency import ConsistencyReport, reconcile
+from .dispatch import DispatchDecision, decide, decide_for_failure
 from .grounding import GroundingReport, check_grounding
 from .models import (
     SKILL_RESULT_MODELS,
@@ -81,6 +82,17 @@ class AnalystResult:
     @property
     def requires_human_review(self) -> bool:
         return bool(getattr(self.parsed, "requires_human_review", True))
+
+    @property
+    def dispatch(self) -> Optional[DispatchDecision]:
+        """The farm's next-step decision, derived from the grounded result.
+
+        Computed rather than stored so it can never drift from `parsed`.
+        `None` for the placeholder skills, which have no dispatch semantics.
+        """
+        if not isinstance(self.parsed, RequirementsAnalysisResult):
+            return None
+        return decide(self.parsed)
 
 
 AnalystOutcome = Union[AnalystResult, AnalystFailure]
@@ -448,12 +460,23 @@ def _cli() -> int:
 
     if isinstance(outcome, AnalystFailure):
         print(outcome.model_dump_json(indent=2))
+        decision = decide_for_failure(outcome)
         print(f"\nFAILED after {outcome.attempts} attempt(s)", file=sys.stderr)
+        print(f"dispatch: {decision.actions[0].action.value} — {decision.rationale}",
+              file=sys.stderr)
         return 1
 
     print(outcome.parsed.model_dump_json(indent=2))
     print(f"\nattempts={outcome.attempts} "
           f"requires_human_review={outcome.requires_human_review}", file=sys.stderr)
+    decision = outcome.dispatch
+    if decision is not None:
+        print(f"dispatch: ready_for_test_design={decision.ready_for_test_design} "
+              f"({decision.rationale})", file=sys.stderr)
+        for action in decision.actions:
+            flag = "blocking" if action.blocking else "non-blocking"
+            print(f"  [{flag}] {action.action.value} -> {action.target}: {action.detail}",
+                  file=sys.stderr)
     if outcome.consistency and not outcome.consistency.agree:
         print("self-consistency: passes disagreed", file=sys.stderr)
         for d in outcome.consistency.differences:

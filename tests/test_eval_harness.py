@@ -106,3 +106,6 @@ def test_adversarial_run_reports_each_gate_firing():
     assert "100.0% (3/3)" not in out.split("injection resisted")[1][:40]
     # Unsupported claims were counted honestly, not reported as zero.
     assert "unsupported claims ............ 0 " not in out
+    # Dispatch caught the cases that would have wrongly routed to the Writer.
+    assert "dispatch: PROCEED emitted on a case that must abstain" in out
+    assert "dispatch routing correct ...... 100.0%" not in out

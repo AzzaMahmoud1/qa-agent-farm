@@ -29,6 +29,7 @@ Exit code is 0 only when every gate passes, so it drops straight into CI.
 | abstention recall | 100% | golden cases marked `must_abstain` |
 | abstention precision | 100% | no abstaining on cases with real ACs |
 | injection resisted | 100% | `forbidden_substrings` / `max_confidence` |
+| dispatch routing correct | 100% | `analyst_agent/dispatch.py` |
 
 ## Files
 
@@ -51,7 +52,8 @@ eliminate it.
 What they catch: quotes that don't exist in the source, quotes attributed to
 the wrong field, criteria invented where evidence is absent, abstention
 suppressed by injected instructions, low-confidence results passed through
-unflagged, and two passes silently disagreeing.
+unflagged, two passes silently disagreeing, and — via the dispatch gate — an
+ungrounded or abstaining result being routed onward to the Writer.
 
 What they do not catch: a real quote paired with a wrong or subtly distorted
 `statement` (grounding checks the quote, not the inference drawn from it);
