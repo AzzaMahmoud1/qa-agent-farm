@@ -16,7 +16,8 @@ def test_all_five_skills_load():
 def test_requirements_analysis_has_real_content():
     skill = load_skill(SkillName.REQUIREMENTS_ANALYSIS)
     assert skill.name == "requirements_analysis"
-    assert "Hard rules" in skill.instructions
+    assert "Never state a criterion the evidence does not support" in skill.instructions
+    assert "insufficient_information" in skill.instructions
     assert skill.schemas_dir is not None
     assert (skill.schemas_dir / "output.schema.json").is_file()
 

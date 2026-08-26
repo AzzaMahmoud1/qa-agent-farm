@@ -1,11 +1,14 @@
 """Pydantic models for the Analyst agent's skill outputs.
 
-`RequirementsAnalysisResult` mirrors the JSON contract in
-`skills/requirements_analysis/SKILL.md` (ported verbatim from
-`src/prompts/agent1_requirement_analyst_v3.md`, the JS pipeline's existing
-"Agent 1" prompt) field-for-field, so `validation.py`'s gate logic — itself
-ported from `agents/analyst-contract.js` — has something structurally sound
-to check.
+`RequirementsAnalysisResult` is the strict output contract every Analyst
+response must satisfy. It is deliberately grounding-first: every acceptance
+criterion must carry a verbatim `evidence_quote` lifted from the source
+text, plus the `source_field` it came from, so `grounding.py` can verify the
+claim actually appears in the evidence rather than trusting the model.
+
+`status` makes abstention a first-class, expected outcome — not an error.
+A model that lacks grounded detail must return `insufficient_information`
+rather than inventing plausible-sounding criteria.
 
 The other four skills (source/risk/test_gap/root_cause analysis) have no
 defined contract yet anywhere in this repo, so their result models are
@@ -15,9 +18,13 @@ deliberately minimal placeholders — see each skill's SKILL.md for why.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal, Optional
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+# Below this overall confidence, `requires_human_review` is forced true by
+# `enforce_confidence_gate` in validation.py. Confidence is not decorative.
+CONFIDENCE_REVIEW_THRESHOLD = 0.75
 
 
 class SkillName(str, Enum):
@@ -28,164 +35,83 @@ class SkillName(str, Enum):
     ROOT_CAUSE_ANALYSIS = "root_cause_analysis"
 
 
-# --- requirements_analysis: ported field-for-field from agent1_requirement_analyst_v3.md ---
+class AnalystStatus(str, Enum):
+    SUCCESS = "success"
+    INSUFFICIENT_INFORMATION = "insufficient_information"
+    CONFLICTING_EVIDENCE = "conflicting_evidence"
+    VALIDATION_FAILED = "validation_failed"
 
 
-class UnimplementedRule(BaseModel):
+#: Statuses where returning zero acceptance criteria is correct behavior,
+#: not a failure. Abstaining is an expected outcome.
+ABSTAIN_STATUSES = frozenset(
+    {AnalystStatus.INSUFFICIENT_INFORMATION, AnalystStatus.CONFLICTING_EVIDENCE}
+)
+
+
+class AcceptanceCriterion(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    text: str = Field(..., description="Verbatim ticket line")
-    reason: str = Field(..., description="Why it is out of scope / unimplemented")
 
-
-class AmbiguousAc(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    ac_id: Optional[str] = None
-    source_line: Optional[str] = Field(
-        None, description="Verbatim ticket line when not also in testable_conditions"
+    statement: str = Field(
+        ...,
+        min_length=1,
+        description="The testable criterion, stated as an assertion about system behavior.",
     )
-    issue: str
-    question_for_human: str = Field(
-        ..., description="Concrete question — not an invented assumption that patches the gap"
+    evidence_quote: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Verbatim span copied from the source evidence that supports this "
+            "criterion. Must appear character-for-character in the named "
+            "source_field — paraphrase is rejected by grounding validation."
+        ),
     )
-
-
-class AnalystReasoning(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    ticket_read: str = Field(..., description="One sentence")
-    unimplemented_rules: list[UnimplementedRule] = Field(default_factory=list)
-    ambiguous_acs: list[AmbiguousAc] = Field(default_factory=list)
-    rejected_as_non_ac: list[str] = Field(
-        default_factory=list,
-        description='Each entry: "<verbatim ticket line> — <reason>"',
+    source_field: str = Field(
+        ...,
+        min_length=1,
+        description="Which evidence field the quote came from (e.g. 'description', 'comments[2]').",
     )
-
-
-AcSource = Literal["Business Rules", "Alternative Flow", "Exception Flow"]
-
-
-class TestableCondition(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    id: str = Field(..., description='e.g. "AC-1"')
-    source: AcSource
-    ac_text: str = Field(..., description="Complete verbatim clause from ticket (>= ~12 characters)")
-    roles: list[str] = Field(default_factory=list)
-    testable_statement: str = Field(
-        ..., description="System MUST [verb] [object] when [trigger] for [role]"
+    confidence: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Per-criterion confidence that this criterion is correctly grounded and testable.",
     )
-    pass_evidence: str
-    fail_evidence: str
-
-
-PrereqCategory = Literal["data", "environment", "access", "dependency", "knowledge", "other"]
-PrereqBlocks = Literal["design", "execution"]
-
-
-class PrerequisiteItem(BaseModel):
-    """Shape shared by blocking and non_blocking prerequisite items.
-
-    `if_not_satisfied` / `must_be_provided_by` are only emitted by the prompt
-    for blocking items, so they stay optional here rather than two models.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-    id: str = Field(..., description="Stable slug from item")
-    item: str
-    category: PrereqCategory
-    blocks: Optional[PrereqBlocks] = None
-    expected_shape: Optional[str] = Field(
-        None, description='e.g. "url", "api_access", "email", "credentials", "text"'
-    )
-    derived_from: Optional[str] = Field(None, description="Ticket phrase or 'explicit section'")
-    satisfied_by_ticket: bool = False
-    if_not_satisfied: Optional[str] = None
-    must_be_provided_by: Optional[str] = None
-
-
-class PrerequisitesNeeded(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    blocking: list[PrerequisiteItem] = Field(default_factory=list)
-    non_blocking: list[PrerequisiteItem] = Field(default_factory=list)
-
-
-CoverageGapCategory = Literal[
-    "boundary", "negative", "security", "concurrency", "integration", "regression", "performance", "ui"
-]
-CoverageGapSeverity = Literal["blocking", "non-blocking"]
-
-
-class CoverageGap(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    gap: str = Field(..., description="Description grounded in ticket")
-    category: CoverageGapCategory
-    severity: CoverageGapSeverity
-    suggested_test: str = Field(..., description="One line")
-
-
-class WhyEntry(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    decision: str = Field(..., description="Only genuinely non-obvious decisions")
-    reason: str = Field(..., description="Ticket evidence")
-    impact_if_wrong: str
-
-
-OrchestratorActionKind = Literal["PROCEED", "HOLD", "ASK_HUMAN", "FETCH_DEPENDENCY", "RETRY_WITH_INFO"]
-
-
-class OrchestratorAction(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    action: OrchestratorActionKind
-    target: str = Field(..., description="Next agent | human | ticket id")
-    detail: str = Field(
-        ..., description="Imperative naming the artifact + form (not ticket deficiency)"
-    )
-    blocking: bool
-    requires_value: Optional[bool] = Field(
-        None,
-        description="Required on ASK_HUMAN/FETCH_DEPENDENCY that expect a typed value",
-    )
-    prereq_id: Optional[str] = Field(
-        None, description="Same id as the prerequisites_needed item this ask is for"
-    )
-    expected_shape: Optional[str] = None
-
-
-class ConfidenceLevel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    overall: Literal["high", "medium", "low"]
-    reason: str
-
-
-class AnalystReport(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    what_i_did: list[str] = Field(default_factory=list, description="At most 2 short lines")
-    why: list[WhyEntry] = Field(default_factory=list, description="At most 2 entries; [] ok")
-    assumptions_made: list[str] = Field(
-        default_factory=list,
-        description="Every inference beyond literal ticket text; [] when nothing was assumed",
-    )
-    orchestrator_actions: list[OrchestratorAction] = Field(default_factory=list)
-    confidence: ConfidenceLevel
 
 
 class RequirementsAnalysisResult(BaseModel):
-    """Top-level output of the `requirements_analysis` skill.
+    """Strict output contract for the `requirements_analysis` skill."""
 
-    Field-for-field port of the JSON schema in
-    `src/prompts/agent1_requirement_analyst_v3.md` / validated on the JS side
-    by `validateAnalystOutput` (`src/agents/requirementAnalyst.js`).
+    model_config = ConfigDict(extra="forbid")
+
+    status: AnalystStatus
+    acceptance_criteria: list[AcceptanceCriterion] = Field(default_factory=list)
+    missing_information: list[str] = Field(
+        default_factory=list,
+        description="What the evidence would need to contain for a confident answer.",
+    )
+    overall_confidence: float = Field(..., ge=0.0, le=1.0)
+    requires_human_review: bool
+    notes: Optional[str] = Field(
+        None, description="Optional short free-text context; never a substitute for evidence."
+    )
+
+
+class AnalystFailure(BaseModel):
+    """Typed failure returned when the Analyst cannot produce a valid result.
+
+    Returned instead of raising (or worse, passing bad data downstream) when
+    schema validation, grounding validation, or retry exhaustion fails.
     """
 
     model_config = ConfigDict(extra="forbid")
-    success: bool
-    analyst_reasoning: AnalystReasoning
-    testable_conditions: list[TestableCondition] = Field(default_factory=list)
-    prerequisites_needed: PrerequisitesNeeded
-    coverage_gaps: list[CoverageGap] = Field(default_factory=list)
-    affected_components: list[str] = Field(default_factory=list)
-    analysis_complete: bool
-    ready_for_test_design: bool
-    analyst_report: AnalystReport
-    summary: str
+
+    status: AnalystStatus = AnalystStatus.VALIDATION_FAILED
+    reason: str
+    failures: list[str] = Field(default_factory=list)
+    attempts: int = 0
+    requires_human_review: bool = True
+    raw_text: Optional[str] = None
 
 
 # --- placeholder result models for the 4 not-yet-defined skills ---

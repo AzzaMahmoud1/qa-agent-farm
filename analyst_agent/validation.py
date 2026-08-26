@@ -1,23 +1,23 @@
-"""Ports the Analyst "MAIN GATE" from `agents/analyst-contract.js`
-(`checkAnalystPromptContract`) plus the "Gate checklist" section of
-`src/prompts/agent1_requirement_analyst_v3.md`.
+"""Post-schema validation gates for Analyst output.
 
-Same shape as the JS gate: returns `(ok, failures)` rather than raising, so a
-caller can see every violation at once instead of stopping at the first one.
+Pydantic (`models.py`) enforces *shape*. This module enforces *coherence*:
+that status, criteria, confidence, and the human-review flag tell a
+consistent story, and that low confidence actually gates downstream
+behavior rather than being decorative.
 
-Disposition-coverage cross-checking against the raw ticket
-(`agents/disposition-coverage.js`, the `story` param in the JS version) is
-out of scope here — this only enforces the readiness-signal contract, which
-is the part `models.py` gives us a typed object for.
+Grounding (does each quote really exist in the evidence?) lives separately
+in `grounding.py`.
 """
 
 from __future__ import annotations
 
-import re
+from dataclasses import dataclass, field
 from typing import Optional
 
 from .models import (
-    PrerequisiteItem,
+    ABSTAIN_STATUSES,
+    CONFIDENCE_REVIEW_THRESHOLD,
+    AnalystStatus,
     RequirementsAnalysisResult,
     RiskAnalysisResult,
     RootCauseAnalysisResult,
@@ -26,130 +26,80 @@ from .models import (
     TestGapAnalysisResult,
 )
 
-VAGUE_ASK_RE = re.compile(
-    r"\b(need more info|more information|clarify|unclear|tbd|todo|n/a|please clarify|"
-    r"not (enough|clear)|requirements?\s+unclear)\b",
-    re.IGNORECASE,
-)
 
-_POSITIVE_SIGNAL_RE = re.compile(
-    r"\b(url|uri|credential|password|token|api|curl|env|environment|staging|uat|role|"
-    r"account|username|confirm|provide|supply|decision|ticket|id)\b",
-    re.IGNORECASE,
-)
-
-
+@dataclass
 class GateResult:
-    def __init__(self, ok: bool, failures: list[str]):
-        self.ok = ok
-        self.failures = failures
+    ok: bool
+    failures: list[str] = field(default_factory=list)
 
     def __bool__(self) -> bool:
         return self.ok
 
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return f"GateResult(ok={self.ok}, failures={self.failures!r})"
 
+def enforce_confidence_gate(
+    result: RequirementsAnalysisResult,
+    threshold: float = CONFIDENCE_REVIEW_THRESHOLD,
+) -> RequirementsAnalysisResult:
+    """Force `requires_human_review` on when confidence is below threshold.
 
-def _missing_blocking(result: RequirementsAnalysisResult) -> list[PrerequisiteItem]:
-    return [b for b in result.prerequisites_needed.blocking if not b.satisfied_by_ticket]
-
-
-def is_design_blocking_prereq(item: PrerequisiteItem) -> bool:
-    """Prefer explicit `blocks`; fall back to category (access/environment
-    -> execution only, everything else -> design)."""
-    if item.blocks == "design":
-        return True
-    if item.blocks == "execution":
-        return False
-    return item.category not in ("access", "environment")
-
-
-def _design_blocking_missing(result: RequirementsAnalysisResult) -> list[PrerequisiteItem]:
-    return [b for b in _missing_blocking(result) if is_design_blocking_prereq(b)]
-
-
-def is_vague_ask_detail(detail: Optional[str]) -> bool:
-    d = (detail or "").strip()
-    if len(d) < 16:
-        return True
-    if VAGUE_ASK_RE.search(d):
-        return True
-    if not _POSITIVE_SIGNAL_RE.search(d):
-        return True
-    return False
+    Applied in code rather than trusted from the model, so a model that
+    reports low confidence but claims no review is needed cannot wave itself
+    through. Never flips the flag *off* — a model asking for review always
+    gets it.
+    """
+    needs_review = (
+        result.requires_human_review
+        or result.overall_confidence < threshold
+        or result.status in ABSTAIN_STATUSES
+        or any(c.confidence < threshold for c in result.acceptance_criteria)
+    )
+    if needs_review == result.requires_human_review:
+        return result
+    return result.model_copy(update={"requires_human_review": needs_review})
 
 
 def check_requirements_analysis_gate(result: RequirementsAnalysisResult) -> GateResult:
-    """MAIN GATE — same checks, same order, as `checkAnalystPromptContract`
-    in `agents/analyst-contract.js`."""
-
+    """Status/criteria/confidence coherence checks."""
     failures: list[str] = []
 
-    actions = result.analyst_report.orchestrator_actions
-    missing = _missing_blocking(result)
-    design_missing = _design_blocking_missing(result)
-    has_proceed = any(a.action == "PROCEED" for a in actions)
-    blocking_acts = [a for a in actions if a.blocking is True]
-    confidence = (result.analyst_report.confidence.overall or "").lower()
-
-    if not actions:
+    if result.status == AnalystStatus.SUCCESS and not result.acceptance_criteria:
         failures.append(
-            "MAIN GATE: orchestrator_actions must be non-empty (Analyst readiness proposal required)"
+            "status 'success' with zero acceptance_criteria — use "
+            "'insufficient_information' to abstain instead"
         )
 
-    if len(result.testable_conditions) == 0 and has_proceed:
-        failures.append("MAIN GATE: PROCEED forbidden when testable_conditions is empty")
-
-    if len(result.testable_conditions) == 0 and result.ready_for_test_design is True:
+    if result.status in ABSTAIN_STATUSES and result.acceptance_criteria:
+        # Abstaining while still asserting criteria is contradictory: either
+        # the evidence supported them or it didn't.
         failures.append(
-            "MAIN GATE: ready_for_test_design true forbidden when testable_conditions is empty"
+            f"status {result.status.value!r} but {len(result.acceptance_criteria)} "
+            "acceptance_criteria returned — abstention must not assert criteria"
         )
 
-    if result.ready_for_test_design is True and result.analysis_complete is False:
-        failures.append("MAIN GATE: ready_for_test_design true requires analysis_complete true")
-
-    if result.ready_for_test_design is True and not has_proceed:
-        failures.append("MAIN GATE: ready_for_test_design true requires a PROCEED action")
-
-    if has_proceed and result.ready_for_test_design is not True:
-        failures.append("MAIN GATE: PROCEED requires ready_for_test_design true")
-
-    if has_proceed and blocking_acts:
-        failures.append("MAIN GATE: cannot emit PROCEED together with blocking orchestrator_actions")
-
-    if has_proceed and design_missing:
+    if result.status == AnalystStatus.INSUFFICIENT_INFORMATION and not result.missing_information:
         failures.append(
-            f"MAIN GATE: PROCEED while {len(design_missing)} design-blocking prerequisite(s) still missing"
+            "status 'insufficient_information' requires a non-empty "
+            "missing_information list naming what is absent"
         )
 
-    if result.ready_for_test_design is True and design_missing:
+    if result.status == AnalystStatus.VALIDATION_FAILED:
         failures.append(
-            "MAIN GATE: ready_for_test_design true while design-blocking prerequisites are missing"
+            "model must not self-report 'validation_failed' — that status is "
+            "reserved for the harness"
         )
 
-    if missing and not blocking_acts and not has_proceed:
+    if result.status in ABSTAIN_STATUSES and not result.requires_human_review:
         failures.append(
-            "MAIN GATE: every missing blocking prerequisite must map to a blocking "
-            "ASK_HUMAN / FETCH_DEPENDENCY / HOLD"
+            f"status {result.status.value!r} must set requires_human_review true"
         )
 
-    if confidence == "low" and has_proceed:
+    if result.overall_confidence >= CONFIDENCE_REVIEW_THRESHOLD and result.status in ABSTAIN_STATUSES:
         failures.append(
-            "MAIN GATE: low confidence cannot PROCEED — emit a blocking ASK_HUMAN or HOLD instead"
+            f"status {result.status.value!r} is inconsistent with high "
+            f"overall_confidence ({result.overall_confidence})"
         )
 
-    for action in actions:
-        if action.action != "ASK_HUMAN":
-            continue
-        if is_vague_ask_detail(action.detail):
-            detail_preview = (action.detail or "")[:80]
-            failures.append(
-                f"MAIN GATE: vague ASK_HUMAN rejected (escalate with a concrete artifact) — "
-                f'"{detail_preview}"'
-            )
-
-    return GateResult(ok=len(failures) == 0, failures=failures)
+    return GateResult(ok=not failures, failures=failures)
 
 
 # --- pass-through validators for the 4 placeholder skills ---
