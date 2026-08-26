@@ -2,175 +2,62 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://qa-agent-farm.local/schemas/requirements_analysis_result.json",
   "title": "RequirementsAnalysisResult",
-  "description": "Mirrors analyst_agent/models.py:RequirementsAnalysisResult, itself ported from src/prompts/agent1_requirement_analyst_v3.md.",
+  "description": "Strict output contract for the requirements_analysis skill. Mirrors analyst_agent/models.py:RequirementsAnalysisResult. Every acceptance criterion must carry a verbatim evidence quote that analyst_agent/grounding.py verifies against the real source text.",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "success",
-    "analyst_reasoning",
-    "prerequisites_needed",
-    "analysis_complete",
-    "ready_for_test_design",
-    "analyst_report",
-    "summary"
-  ],
+  "required": ["status", "overall_confidence", "requires_human_review"],
   "properties": {
-    "success": { "type": "boolean" },
-    "analyst_reasoning": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["ticket_read"],
-      "properties": {
-        "ticket_read": { "type": "string" },
-        "unimplemented_rules": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["text", "reason"],
-            "properties": {
-              "text": { "type": "string" },
-              "reason": { "type": "string" }
-            }
-          }
-        },
-        "ambiguous_acs": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["issue", "question_for_human"],
-            "properties": {
-              "ac_id": { "type": ["string", "null"] },
-              "source_line": { "type": ["string", "null"] },
-              "issue": { "type": "string" },
-              "question_for_human": { "type": "string" }
-            }
-          }
-        },
-        "rejected_as_non_ac": {
-          "type": "array",
-          "default": [],
-          "items": { "type": "string" }
-        }
-      }
+    "status": {
+      "description": "success requires >=1 criterion; both abstain statuses require acceptance_criteria to be empty. validation_failed is reserved for the harness and must not be emitted by the model.",
+      "enum": ["success", "insufficient_information", "conflicting_evidence", "validation_failed"]
     },
-    "testable_conditions": {
+    "acceptance_criteria": {
       "type": "array",
       "default": [],
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "source", "ac_text", "testable_statement", "pass_evidence", "fail_evidence"],
+        "required": ["statement", "evidence_quote", "source_field", "confidence"],
         "properties": {
-          "id": { "type": "string" },
-          "source": { "enum": ["Business Rules", "Alternative Flow", "Exception Flow"] },
-          "ac_text": { "type": "string" },
-          "roles": { "type": "array", "default": [], "items": { "type": "string" } },
-          "testable_statement": { "type": "string" },
-          "pass_evidence": { "type": "string" },
-          "fail_evidence": { "type": "string" }
-        }
-      }
-    },
-    "prerequisites_needed": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "blocking": { "type": "array", "default": [], "items": { "$ref": "#/$defs/prerequisiteItem" } },
-        "non_blocking": { "type": "array", "default": [], "items": { "$ref": "#/$defs/prerequisiteItem" } }
-      }
-    },
-    "coverage_gaps": {
-      "type": "array",
-      "default": [],
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["gap", "category", "severity", "suggested_test"],
-        "properties": {
-          "gap": { "type": "string" },
-          "category": {
-            "enum": ["boundary", "negative", "security", "concurrency", "integration", "regression", "performance", "ui"]
+          "statement": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The testable criterion, as an assertion about system behavior."
           },
-          "severity": { "enum": ["blocking", "non-blocking"] },
-          "suggested_test": { "type": "string" }
-        }
-      }
-    },
-    "affected_components": { "type": "array", "default": [], "items": { "type": "string" } },
-    "analysis_complete": { "type": "boolean" },
-    "ready_for_test_design": { "type": "boolean" },
-    "analyst_report": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["confidence"],
-      "properties": {
-        "what_i_did": { "type": "array", "default": [], "items": { "type": "string" } },
-        "why": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["decision", "reason", "impact_if_wrong"],
-            "properties": {
-              "decision": { "type": "string" },
-              "reason": { "type": "string" },
-              "impact_if_wrong": { "type": "string" }
-            }
-          }
-        },
-        "assumptions_made": { "type": "array", "default": [], "items": { "type": "string" } },
-        "orchestrator_actions": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["action", "target", "detail", "blocking"],
-            "properties": {
-              "action": { "enum": ["PROCEED", "HOLD", "ASK_HUMAN", "FETCH_DEPENDENCY", "RETRY_WITH_INFO"] },
-              "target": { "type": "string" },
-              "detail": { "type": "string" },
-              "blocking": { "type": "boolean" },
-              "requires_value": { "type": ["boolean", "null"] },
-              "prereq_id": { "type": ["string", "null"] },
-              "expected_shape": { "type": ["string", "null"] }
-            }
-          }
-        },
-        "confidence": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["overall", "reason"],
-          "properties": {
-            "overall": { "enum": ["high", "medium", "low"] },
-            "reason": { "type": "string" }
+          "evidence_quote": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Verbatim span copied from source_field. Paraphrase is rejected by grounding validation. Minimum 12 characters after whitespace normalization."
+          },
+          "source_field": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Evidence field the quote came from, e.g. 'description', 'comments[2]'."
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
           }
         }
       }
     },
-    "summary": { "type": "string" }
-  },
-  "$defs": {
-    "prerequisiteItem": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "item", "category"],
-      "properties": {
-        "id": { "type": "string" },
-        "item": { "type": "string" },
-        "category": { "enum": ["data", "environment", "access", "dependency", "knowledge", "other"] },
-        "blocks": { "enum": ["design", "execution", null] },
-        "expected_shape": { "type": ["string", "null"] },
-        "derived_from": { "type": ["string", "null"] },
-        "satisfied_by_ticket": { "type": "boolean", "default": false },
-        "if_not_satisfied": { "type": ["string", "null"] },
-        "must_be_provided_by": { "type": ["string", "null"] }
-      }
+    "missing_information": {
+      "type": "array",
+      "default": [],
+      "description": "Required non-empty when status is insufficient_information.",
+      "items": { "type": "string" }
+    },
+    "overall_confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Below 0.75, requires_human_review is forced true in code by enforce_confidence_gate."
+    },
+    "requires_human_review": { "type": "boolean" },
+    "notes": {
+      "type": ["string", "null"],
+      "description": "Optional brief context; never a substitute for evidence."
     }
   }
 }
