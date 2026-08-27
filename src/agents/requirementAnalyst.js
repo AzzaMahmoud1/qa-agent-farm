@@ -179,9 +179,10 @@ export function validateAnalystOutput(parsed) {
   return true;
 }
 
-function buildFullPrompt(ticketText, extra = "") {
+function buildFullPrompt(ticketText, extra = "", prior = "") {
   return (
     ANALYST_PROMPT
+    + (prior ? "\n\n" + String(prior) : "")
     + "\n\nAnalyze this ticket:\n\n"
     + String(ticketText ?? "")
     + (extra ? "\n\n" + extra : "")
@@ -683,7 +684,8 @@ export async function runRequirementAnalyst(ticketText, opts = {}) {
       ? "Image/PDF attachments were not analyzed — the active runner is text-only. Switch to the Anthropic runner in Settings to analyze them."
       : null,
   };
-  const basePrompt = buildFullPrompt(ticketText);
+  const prior = String(opts.priorKnowledge || "");
+  const basePrompt = buildFullPrompt(ticketText, "", prior);
   const effort1 = effortForAttempt(1);
   const call1 = await callAgentRunner(basePrompt, effort1, { attempt: 1 }, sentImages, sentDocuments);
   attempts.push({
@@ -701,7 +703,7 @@ export async function runRequirementAnalyst(ticketText, opts = {}) {
   } catch (firstErr) {
     const error = firstErr instanceof Error ? firstErr : new Error(String(firstErr));
     try {
-      const retryPrompt = buildFullPrompt(ticketText, buildRetryExtra(error, fullText));
+      const retryPrompt = buildFullPrompt(ticketText, buildRetryExtra(error, fullText), prior);
       const effort2 = effortForAttempt(2);
       const call2 = await callAgentRunner(retryPrompt, effort2, { attempt: 2 }, sentImages, sentDocuments);
       attempts.push({

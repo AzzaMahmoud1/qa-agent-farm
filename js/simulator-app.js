@@ -943,6 +943,32 @@ function attachmentsBlock(story) {
     + attachments.map((a) => `- ${a.filename}${a.isImage ? " [image]" : a.isPdf ? " [pdf]" : ` (${a.mimeType || "file"})`}`).join("\n");
 }
 
+/**
+ * Persist the analyzed requirements to the knowledge base. The live analyst
+ * path already persists server-side (via /api/agents/analyst), so this only
+ * saves the local/deterministic breakdown — best-effort, never blocks the UI.
+ */
+function persistRequirementsKnowledge(story) {
+  if (!story?.id || story.live_analyst_output) return;
+  const breakdown = storyOutputs?.analyst;
+  if (!breakdown || !Array.isArray(breakdown.testable_conditions) || !breakdown.testable_conditions.length) return;
+  fetch("/api/knowledge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ticketId: story.id, title: story.title, breakdown }),
+  }).catch(() => { /* offline / file:// — knowledge base is a server feature */ });
+}
+
+async function searchKnowledgeBase(query, excludeId) {
+  try {
+    const res = await fetch(`/api/knowledge/search?q=${encodeURIComponent(query)}${excludeId ? "&exclude=" + encodeURIComponent(excludeId) : ""}`);
+    const data = await res.json().catch(() => ({}));
+    return Array.isArray(data.results) ? data.results : [];
+  } catch {
+    return [];
+  }
+}
+
 function ticketTextForAnalyst(story) {
   if (!story) return "";
   const base = story.requirements_raw
@@ -976,7 +1002,7 @@ async function runAgent1(story) {
   const res = await fetch("/api/agents/analyst", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ticketText, imageAttachments, documentAttachments }),
+    body: JSON.stringify({ ticketText, imageAttachments, documentAttachments, ticketId: story.id, title: story.title }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.success === false) {
@@ -1048,6 +1074,7 @@ function loadStory(story, runOptions) {
   const opts = runOptions || currentRunOptions || {};
   currentRunOptions = opts;
   storyOutputs = buildAgentOutputs(story);
+  persistRequirementsKnowledge(story);
   EVENTS = resolvePipelineEvents(story, opts);
   initAgentOutputState();
   // Seed Analyst (and any precomputed) outputs so humans can open tabs before Play.
@@ -1172,6 +1199,22 @@ el("req-attachments")?.addEventListener("change", async (e) => {
   await handleAttachmentFiles(e.target.files);
   e.target.value = ""; // reset so the same file can be re-added after removal
 });
+
+async function runKnowledgeSearch() {
+  const q = (el("kb-search-input")?.value || "").trim();
+  const host = el("kb-search-results");
+  if (!host) return;
+  if (q.length < 3) { host.innerHTML = `<span class="muted">Type at least 3 characters.</span>`; return; }
+  host.innerHTML = `<span class="muted">Searching…</span>`;
+  const results = await searchKnowledgeBase(q, currentStory?.id);
+  if (!results.length) { host.innerHTML = `<span class="muted">No stored requirements match "${escapeHtml(q)}" yet.</span>`; return; }
+  host.innerHTML = results.map((r) => `<div style="border:1px solid var(--border,#e2e8f0);border-radius:6px;padding:.35rem .5rem;margin-bottom:.35rem">`
+    + `<div><strong>${escapeHtml(r.id)}</strong> ${escapeHtml(r.title || "")} <span class="muted">· ${(r.matched_acs || []).length} match(es)</span></div>`
+    + (r.matched_acs || []).slice(0, 3).map((t) => `<div class="muted" style="font-size:.72rem">· ${escapeHtml(t)}</div>`).join("")
+    + `</div>`).join("");
+}
+el("kb-search-btn")?.addEventListener("click", runKnowledgeSearch);
+el("kb-search-input")?.addEventListener("keydown", (e) => { if (e.key === "Enter") runKnowledgeSearch(); });
 el("tab-source-jira")?.addEventListener("click", () => setInputSource("jira"));
 el("tab-source-requirements")?.addEventListener("click", () => setInputSource("requirements"));
 el("jira-url").addEventListener("keydown", (e) => {

@@ -359,6 +359,17 @@ a { color: var(--text-accent); }
           </div>
         </div>
 
+        <div class="panel-card" id="knowledge-panel">
+          <div class="panel-head"><i class="ti ti-database-search"></i> Requirements knowledge base</div>
+          <div class="panel-body">
+            <div style="display:flex;gap:.4rem">
+              <input type="search" id="kb-search-input" class="input" placeholder="Search past requirements (e.g. reset token, lockout)…" style="flex:1">
+              <button type="button" class="btn" id="kb-search-btn"><i class="ti ti-search"></i></button>
+            </div>
+            <div id="kb-search-results" style="margin-top:.5rem;font-size:.74rem"></div>
+          </div>
+        </div>
+
         <div class="panel-card" id="ticket-panel">
           <div class="panel-head"><i class="ti ti-file-description"></i> <span id="ticket-panel-label">Live ticket</span></div>
           <div class="panel-body">
