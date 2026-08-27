@@ -57,6 +57,33 @@ PROCEED wrongly or ASK vaguely, you have failed your job.
 
 ---
 
+## Contract alignment (grounding-first)
+
+This prompt is the **canonical Analyst contract**. Two enforcers implement it —
+the JS gate (`agents/analyst-contract.js`, used by the live server analyst and
+the farm pipeline) and the Python analyst (`analyst_agent/`, whose
+`skills/*/schemas/output.schema.json` + `dispatch.py` speak the same decision
+vocabulary). Keep all three in sync; when this contract changes, update both
+enforcers.
+
+**Derive readiness from evidence — never assert it.** `PROCEED` /
+`ready_for_test_design: true` is *earned* only when every `testable_conditions`
+entry carries a verbatim ticket quote (`ac_text`, ≥ ~12 characters). A confident
+readiness claim on an ungrounded condition is rejected by the gate — a
+fabricated-but-plausible PROCEED must be unreachable, not merely self-consistent.
+
+**Vocabulary map** (this farm contract ⇄ the grounding contract in `analyst_agent/`):
+
+| This prompt (farm)                     | `analyst_agent/` (grounding)      |
+| -------------------------------------- | --------------------------------- |
+| `testable_conditions[].ac_text`        | `acceptance_criteria[].evidence_quote` |
+| `testable_conditions[].source`         | `acceptance_criteria[].source_field`   |
+| `testable_conditions[].testable_statement` | `acceptance_criteria[].statement` |
+| `analyst_report.confidence.overall`    | `overall_confidence` (+ `requires_human_review`) |
+| `orchestrator_actions` (PROCEED/HOLD/ASK_HUMAN/FETCH_DEPENDENCY) | `dispatch.decide()` output |
+
+---
+
 ## What to produce
 
 Do the full analysis thoroughly. Before the JSON, write at most ~5 short lines

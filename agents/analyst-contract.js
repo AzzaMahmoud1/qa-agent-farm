@@ -7,6 +7,22 @@ import { checkDispositionCoverage } from "./disposition-coverage.js";
 
 const VAGUE_ASK_RE = /\b(need more info|more information|clarify|unclear|tbd|todo|n\/a|please clarify|not (enough|clear)|requirements?\s+unclear)\b/i;
 
+// Grounding: PROCEED must be *earned* by evidence, not asserted. Mirrors the
+// grounding-first contract in analyst_agent/ (dispatch.py + skills/*/schemas):
+// a testable_condition is grounded only when it carries a verbatim ticket quote
+// (ac_text / evidence_quote / cite) of at least this many characters after
+// whitespace normalization — matching the prompt's "complete verbatim clause
+// (≥ ~12 characters)" rule and schemas/output.schema.json's evidence_quote min.
+const MIN_EVIDENCE_CHARS = 12;
+
+function evidenceQuoteOf(c) {
+  return String(c?.ac_text || c?.evidence_quote || c?.cite || "").replace(/\s+/g, " ").trim();
+}
+
+function isGroundedCondition(c) {
+  return evidenceQuoteOf(c).length >= MIN_EVIDENCE_CHARS;
+}
+
 function missingBlocking(parsed) {
   return (parsed?.prerequisites_needed?.blocking || []).filter((b) => b && !b.satisfied_by_ticket);
 }
@@ -76,6 +92,17 @@ export function checkAnalystPromptContract(parsed, story = null) {
 
   if (Array.isArray(conditions) && conditions.length === 0 && parsed.ready_for_test_design === true) {
     failures.push("MAIN GATE: ready_for_test_design true forbidden when testable_conditions is empty");
+  }
+
+  // Grounding gate: a readiness claim is only valid when every condition it
+  // rests on is traceable to ticket text. This makes a confident-but-fabricated
+  // PROCEED unreachable — the decision inherits whatever the evidence supports.
+  if ((hasProceed || parsed.ready_for_test_design === true) && Array.isArray(conditions) && conditions.length) {
+    const ungrounded = conditions.filter((c) => !isGroundedCondition(c));
+    if (ungrounded.length) {
+      const ids = ungrounded.map((c) => c?.id || "?").join(", ");
+      failures.push(`MAIN GATE: PROCEED/ready_for_test_design requires every testable_condition to carry a verbatim ticket quote ≥${MIN_EVIDENCE_CHARS} chars (grounding) — ungrounded: ${ids}`);
+    }
   }
 
   if (parsed.ready_for_test_design === true && analysisComplete === false) {

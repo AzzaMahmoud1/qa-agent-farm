@@ -28,7 +28,7 @@ setFarmCtx({
 });
 
 const base = {
-  testable_conditions: [{ id: "AC-1" }],
+  testable_conditions: [{ id: "AC-1", ac_text: "User can log in with valid credentials", source: "Business Rules" }],
   analysis_complete: true,
   ready_for_test_design: true,
   prerequisites_needed: { blocking: [], non_blocking: [] },
@@ -43,6 +43,22 @@ assert.equal(checkAnalystPromptContract(base).ok, true);
 assert.equal(checkAnalystPromptContract({
   ...base,
   testable_conditions: [],
+}).ok, false);
+
+// Grounding: PROCEED on a condition with no verbatim ticket quote ⇒ fail
+{
+  const ungrounded = checkAnalystPromptContract({
+    ...base,
+    testable_conditions: [{ id: "AC-1" }],
+  });
+  assert.equal(ungrounded.ok, false);
+  assert.ok(ungrounded.failures.some((f) => /grounding/i.test(f)), ungrounded.failures.join("; "));
+}
+
+// Grounding: a too-short quote (< 12 chars normalized) is not grounding ⇒ fail
+assert.equal(checkAnalystPromptContract({
+  ...base,
+  testable_conditions: [{ id: "AC-1", ac_text: "logs in" }],
 }).ok, false);
 
 // Design-blocking (no category / data) + PROCEED → fail

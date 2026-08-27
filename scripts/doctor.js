@@ -11,7 +11,6 @@ const required = [
   "js/simulator-app.js",
   "agents/index.js",
   "lib/prerequisites.js",
-  "lib/prerequisites.cjs",
   "package.json",
   "README.md",
 ];
@@ -42,12 +41,16 @@ for (const rel of required) {
   if (!exists) ok = false;
 }
 
-// prerequisites.cjs is generated from prerequisites.js by `npm run sync:cjs`.
-// If they differ, the .cjs is stale (or was hand-edited) — fail so it gets re-synced.
+// prerequisites.cjs is a generated (git-ignored) copy of prerequisites.js made
+// by `npm run sync:cjs`. Generate it if missing so a fresh checkout passes; if it
+// exists but differs, it's stale (or was hand-edited) — fail so it gets re-synced.
 const prereqJs = path.join(root, "lib/prerequisites.js");
 const prereqCjs = path.join(root, "lib/prerequisites.cjs");
-if (fs.existsSync(prereqJs) && fs.existsSync(prereqCjs)) {
-  if (fs.readFileSync(prereqJs, "utf8") === fs.readFileSync(prereqCjs, "utf8")) {
+if (fs.existsSync(prereqJs)) {
+  if (!fs.existsSync(prereqCjs)) {
+    fs.copyFileSync(prereqJs, prereqCjs);
+    console.log("✓ lib/prerequisites.cjs generated from prerequisites.js");
+  } else if (fs.readFileSync(prereqJs, "utf8") === fs.readFileSync(prereqCjs, "utf8")) {
     console.log("✓ lib/prerequisites.cjs in sync with prerequisites.js");
   } else {
     console.log("✗ lib/prerequisites.cjs is OUT OF SYNC — run: npm run sync:cjs");

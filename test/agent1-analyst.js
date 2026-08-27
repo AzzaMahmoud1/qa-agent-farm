@@ -26,7 +26,7 @@ function validParsed(overrides = {}) {
       unimplemented_rules: [],
       rejected_as_non_ac: [],
     },
-    testable_conditions: [{ id: "AC-1" }],
+    testable_conditions: [{ id: "AC-1", ac_text: "User can log in with valid credentials", source: "Business Rules" }],
     prerequisites_needed: { blocking: [], non_blocking: [] },
     coverage_gaps: [],
     analyst_report: {
