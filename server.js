@@ -395,7 +395,12 @@ http
         return;
       }
       const ext = path.extname(file);
-      res.writeHead(200, securityHeaders({ "Content-Type": types[ext] || "text/plain" }));
+      // Local dev simulator: never let the browser reuse a stale ES module —
+      // a cached copy of a since-fixed module silently breaks the whole app.
+      res.writeHead(200, securityHeaders({
+        "Content-Type": types[ext] || "text/plain",
+        "Cache-Control": "no-store",
+      }));
       res.end(data);
     });
   })
