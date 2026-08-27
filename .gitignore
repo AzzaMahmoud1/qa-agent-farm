@@ -1,5 +1,6 @@
 .env
 node_modules/
+lib/prerequisites.cjs
 .DS_Store
 *.log
 scripts/_*
