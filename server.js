@@ -3,6 +3,13 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { fetchIssue, parseIssueKey, loadEnv, fetchAttachmentBinary } from "./jira.js";
+import {
+  recordRequirements,
+  getRequirements,
+  searchRequirements,
+  diffAgainstStored,
+  buildPriorKnowledgeBlock,
+} from "./lib/knowledge-base.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 loadEnv(path.join(__dirname, ".env"));
@@ -231,6 +238,34 @@ http
       return;
     }
 
+    // Requirements knowledge base: recall one ticket, search across all.
+    if (pathname === "/api/knowledge" && req.method === "GET") {
+      const id = url.searchParams.get("id");
+      if (!id) { sendJson(res, req, 400, { error: "id is required" }); return; }
+      sendJson(res, req, 200, { entry: getRequirements(id) });
+      return;
+    }
+    if (pathname === "/api/knowledge/search" && req.method === "GET") {
+      const q = url.searchParams.get("q") || "";
+      sendJson(res, req, 200, { results: searchRequirements(q, { excludeId: url.searchParams.get("exclude") || undefined }) });
+      return;
+    }
+    // Save a breakdown (used by the local/deterministic analyst path in the UI).
+    if (pathname === "/api/knowledge" && req.method === "POST") {
+      if (!isLocalRequester(req)) { sendJson(res, req, 403, { error: "Knowledge API is local-only" }); return; }
+      try {
+        const body = await readBody(req);
+        const ticketId = String(body.ticketId || "").trim();
+        if (!ticketId || !body.breakdown) { sendJson(res, req, 400, { error: "ticketId and breakdown are required" }); return; }
+        const delta = diffAgainstStored(ticketId, body.breakdown);
+        recordRequirements({ ticketId, title: body.title, breakdown: body.breakdown });
+        sendJson(res, req, 200, { ok: true, delta });
+      } catch (err) {
+        sendJson(res, req, err.message?.includes("Invalid JSON") ? 400 : 500, { error: err.message });
+      }
+      return;
+    }
+
     // Authed thumbnail proxy: the browser cannot send Jira credentials, so it
     // asks the server to fetch an attachment's bytes. Only Jira-host URLs pass.
     if (pathname === "/api/jira/attachment" && req.method === "GET") {
@@ -276,8 +311,21 @@ http
         };
         const images = await downloadAll(body.imageAttachments);
         const documents = await downloadAll(body.documentAttachments);
+        // Recall prior requirements for this ticket + related ones from the KB,
+        // and inject them so the analyst reasons with continuity across runs.
+        const ticketId = String(body.ticketId || "").trim();
+        const priorKnowledge = buildPriorKnowledgeBlock(ticketId, `${body.title || ""} ${ticketText}`.slice(0, 2000));
         const { runRequirementAnalyst } = await import("./src/agents/requirementAnalyst.js");
-        const result = await runRequirementAnalyst(ticketText, { images, documents });
+        const result = await runRequirementAnalyst(ticketText, { images, documents, priorKnowledge });
+        // Persist the fresh breakdown so future runs benefit from it. Compute the
+        // delta against the previously stored version BEFORE overwriting it.
+        if (ticketId && result.parsed) {
+          try {
+            result.knowledge_delta = diffAgainstStored(ticketId, result.parsed);
+            recordRequirements({ ticketId, title: body.title, breakdown: result.parsed });
+          } catch { /* KB persistence is best-effort */ }
+        }
+        result.prior_knowledge_used = Boolean(priorKnowledge);
         sendJson(res, req, result.success === false ? 422 : 200, result);
       } catch (err) {
         const status = err.message?.includes("exceeds") || err.message?.includes("Invalid JSON") ? 400 : 500;
