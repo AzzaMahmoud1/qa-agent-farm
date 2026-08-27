@@ -28,9 +28,13 @@ const atts = parseAttachments([
 ]);
 assert.equal(atts.length, 2);
 assert.equal(atts[0].isImage, true, "png is image");
+assert.equal(atts[0].isPdf, false, "png is not pdf");
 assert.equal(atts[0].id, "101", "id coerced to string");
 assert.equal(atts[1].isImage, false, "pdf is not image");
+assert.equal(atts[1].isPdf, true, "pdf detected by mimeType");
 assert.equal(atts[1].filename, "spec.pdf");
+// pdf detected by extension even when mimeType is generic/missing
+assert.equal(parseAttachments([{ id: 3, filename: "notes.PDF", mimeType: "application/octet-stream", content: "u" }])[0].isPdf, true);
 assert.deepEqual(parseAttachments(undefined), []);
 
 console.log("jira-parse tests: ok");
