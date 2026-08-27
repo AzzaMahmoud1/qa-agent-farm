@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { checkAnalystPromptContract } from "../agents/analyst-contract.js";
 import { setFarmCtx } from "../agents/ctx-bridge.js";
-import { validateAnalystOutputLive } from "../agents/validator.js";
+import { validateAnalystOutputLive, checkAnalystRisk } from "../agents/validator.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -222,6 +222,7 @@ assert.equal(checkAnalystPromptContract({
       source: "Business Rules",
       section: "business_rules",
       testable_statement: "System MUST authenticate user when valid credentials are submitted",
+      risk: "P1",
     }],
     prerequisites_needed: {
       blocking: [{
@@ -250,6 +251,36 @@ assert.equal(checkAnalystPromptContract({
 
   const live = validateAnalystOutputLive({}, dualPayload);
   assert.equal(live.passed, true, (live.failures || live.detail_failures || []).join("; "));
+
+  // Risk (soft output-quality check): dropping risk fails the live validator but
+  // NOT the MAIN GATE readiness contract — risk never changes readiness.
+  const noRisk = {
+    ...dualPayload,
+    testable_conditions: dualPayload.testable_conditions.map(({ risk, ...c }) => c),
+  };
+  const contractNoRisk = checkAnalystPromptContract(noRisk);
+  assert.equal(contractNoRisk.ok, true, "MAIN GATE must ignore missing risk");
+  const liveNoRisk = validateAnalystOutputLive({}, noRisk);
+  assert.equal(liveNoRisk.passed, false, "live validator must fail on missing risk");
+  assert.ok(
+    (liveNoRisk.failures || []).some((f) => /RISK:.*missing a risk/i.test(f)),
+    (liveNoRisk.failures || []).join("; "),
+  );
+}
+
+// checkAnalystRisk unit checks
+{
+  const ok = [{ id: "AC-1", risk: "P0" }, { id: "AC-2", risk: "p3" }];
+  assert.deepEqual(checkAnalystRisk({ testable_conditions: ok }), []);
+  // no conditions ⇒ nothing to check
+  assert.deepEqual(checkAnalystRisk({ testable_conditions: [] }), []);
+  assert.deepEqual(checkAnalystRisk({}), []);
+  // missing risk
+  const missing = checkAnalystRisk({ testable_conditions: [{ id: "AC-1" }] });
+  assert.ok(missing.some((f) => /missing a risk/i.test(f)), missing.join("; "));
+  // out-of-enum
+  const bad = checkAnalystRisk({ testable_conditions: [{ id: "AC-1", risk: "P9" }] });
+  assert.ok(bad.some((f) => /out-of-enum/i.test(f)), bad.join("; "));
 }
 
 console.log("analyst-contract tests: ok");

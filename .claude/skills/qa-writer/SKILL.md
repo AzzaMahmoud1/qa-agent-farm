@@ -22,6 +22,7 @@ Read the requirements breakdown fully, then write test cases from it.
 | **When** | Trigger / action |
 | **Then** | Observable outcome — prefer the checklist item's `Reason` evidence guidance and Analyst `pass_evidence`; quote exact EN/AR copy when verifying messages/labels |
 | **evidence_citation** | Exact Analyst AC / coverage-gap text this case came from (verbatim clause — no silent paraphrase) |
+| **risk** | `P0`–`P3` priority (`probability × impact`). Carry the Analyst checklist item's risk when present; otherwise derive it. Guides execution ordering — see below. |
 | **skip_reason** | Required when not writing a TC for an Analyst item |
 
 Write TCs to `test-artifacts/<ISSUE_ID>-test-cases.md`.
@@ -54,6 +55,21 @@ Read each Atomic Requirements Checklist line's ` — Reason: …` when drafting 
 (especially **Then**). Use that evidence guidance; still never invent scope.
 One TC per checklist item remains mandatory — Reason is guidance for Then /
 evidence, not a second assertion.
+
+## Risk priority (P0–P3)
+
+Assign every test case a `risk` priority so execution can be ordered by severity
+(borrowed from a risk-based test-strategy posture):
+
+- Score = **probability × impact**, mapped to `P0` (highest) … `P3` (lowest).
+- If the Analyst checklist item carries a risk/severity signal, **carry it
+  through** — do not silently re-rate it. Otherwise derive it from the item's
+  Reason and business-rule (BR##) weight.
+- Business rules (BR##), error flows (EF##), and security/auth conditions skew
+  toward `P0`/`P1`. Cosmetic/display-only checks skew toward `P2`/`P3`.
+- `risk` is prioritization metadata only — it never justifies dropping a
+  required test case. Every mandated item (EN/AR pairs, DM##, API, "UI designed
+  properly") still gets its TC regardless of risk.
 
 ## Coverage rules
 

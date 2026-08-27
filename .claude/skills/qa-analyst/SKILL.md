@@ -146,14 +146,21 @@ Write the breakdown using this exact structure:
 ## Atomic Requirements Checklist
 <Flat, numbered list of every independently-verifiable requirement extracted above — one line per checkable outcome (a single system action, a single business rule, a single message, a single field default/format, a single AC). Tag each with its source. Every line MUST end with ` — Reason: <why independently testable / how to verify>`. This is the coverage checklist the Writer must map one-to-one against written test cases — nothing on this list may be silently dropped. This MUST include one line per API Scope item (status code / request design / response structure — see above) when API Scope is not "Not applicable", and one line for the baseline "UI is designed properly" TC when UI Scope applies — these are standing requirements, not optional extras, so they belong on the checklist like everything else.
 
+Every line MUST also end with ` — Risk: <P0–P3>` after the Reason — a
+`probability × impact` severity the Writer carries straight through onto each
+test case (`P0` highest … `P3` lowest). Skew business rules (BR##), error flows
+(EF##), and security/auth outcomes toward `P0`/`P1`; cosmetic/display-only
+checks toward `P2`/`P3`. Risk is prioritization metadata only — it never
+justifies dropping a checklist line.
+
 Format each line as:
-`N. [SOURCE] <outcome> — Reason: <why this is independently testable / what evidence to observe>`
+`N. [SOURCE] <outcome> — Reason: <why this is independently testable / what evidence to observe> — Risk: <P0–P3>`
 
 Worked example of splitting one flow into atomic lines (this is the level of granularity required):
-1. [AF03] Session is terminated — Reason: independently observable; can fail while redirect still succeeds
-2. [AF03] DM02 screen is displayed — Reason: UI display can fail independently of session teardown
-3. [AF03] User is redirected to Appointment Card in previous appointments — Reason: navigation outcome is separately checkable
-4. [AF03] Appointment status updates to "<exact value from story>" — Reason: backend/UI status field is a distinct assertion from navigation
+1. [AF03] Session is terminated — Reason: independently observable; can fail while redirect still succeeds — Risk: P0
+2. [AF03] DM02 screen is displayed — Reason: UI display can fail independently of session teardown — Risk: P2
+3. [AF03] User is redirected to Appointment Card in previous appointments — Reason: navigation outcome is separately checkable — Risk: P1
+4. [AF03] Appointment status updates to "<exact value from story>" — Reason: backend/UI status field is a distinct assertion from navigation — Risk: P1
 — four lines, not one, because each is independently observable and each can fail without the others failing.>
 ```
 

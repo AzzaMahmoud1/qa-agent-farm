@@ -41,13 +41,33 @@ Do not invent missing business rules — only judge Analyst contract + whether h
 - List **missing_coverage** and **duplicate_coverage**
 - Flag **unimplemented_rules_tested** — tests for out-of-scope ACs must be removed
 - Flag **prerequisite_violations** and **codebase_conflicts**
+- Emit a machine-actionable **gate** verdict (see below)
 - One concrete **fix** sentence
+
+## Gate verdict (release decision)
+
+Beyond the numeric score, emit a single `gate` verdict the pipeline can act on
+at the dependency gate — a discrete, waivable decision rather than a number to
+interpret:
+
+- `PASS` — no blocking findings; coverage complete, every requirement ID has a verdict.
+- `CONCERNS` — non-blocking gaps or duplicates; may proceed with the `fix` noted.
+- `FAIL` — a blocking finding (missing requirement verdict, unimplemented rule
+  tested, unsatisfied prerequisite, codebase conflict). Do not unlock downstream.
+- `WAIVED` — a `FAIL`/`CONCERNS` deliberately accepted. Requires a non-empty
+  `waiver_reason`; never self-waive to get past the gate.
+
+The gate must be consistent with the findings: any populated
+`unimplemented_rules_tested`, `prerequisite_violations`, or a missing requirement
+verdict forces `FAIL` (or `WAIVED` with a reason) — never `PASS`.
 
 ## Output JSON
 
 ```json
 {
   "score": "8/10",
+  "gate": "PASS",
+  "waiver_reason": "",
   "what_is_good": "...",
   "root_cause_risk": "...",
   "impact": "...",

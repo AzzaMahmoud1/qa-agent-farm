@@ -198,7 +198,8 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
       "roles": ["roles named in ticket — short"],
       "testable_statement": "System MUST [verb] [object] when [trigger] for [role]",
       "pass_evidence": "one short clause — observable pass",
-      "fail_evidence": "one short clause — observable fail"
+      "fail_evidence": "one short clause — observable fail",
+      "risk": "P0 | P1 | P2 | P3"
     }
   ],
   "prerequisites_needed": {
@@ -286,6 +287,12 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
   when nothing was assumed.
 - `what_i_did`: at most 2 short lines. `why`: at most 2 non-obvious decisions
   (`[]` acceptable). `pass_evidence` / `fail_evidence` / `roles`: one short clause each.
+- `risk` is required on every `testable_conditions` entry — a `probability ×
+  impact` severity (`P0` highest … `P3` lowest) the Writer carries straight
+  through onto each test case. Skew Business Rules, Exception Flow, and
+  security/auth conditions toward `P0`/`P1`; cosmetic/display-only conditions
+  toward `P2`/`P3`. Risk is prioritization metadata only — it never changes a
+  condition's disposition or readiness.
 - Give each `prerequisites_needed` item a stable `id`. When an `ASK_HUMAN` /
   `FETCH_DEPENDENCY` is for that item, set the same value on `prereq_id` so the
   UI shows one field. Prefer `expected_shape` over leaving the UI to infer it.
@@ -303,6 +310,8 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
   `HOLD` and no `PROCEED`.
 - Security/compliance ideas go in `coverage_gaps` unless the ticket makes them
   acceptance criteria.
+- Every `testable_conditions` entry carries a `risk` of `P0`/`P1`/`P2`/`P3`.
+  Missing or out-of-enum risk is a validation failure.
 - `orchestrator_actions` is never empty.
 - Prefer ASK_HUMAN over vague HOLD. Detail must name a concrete artifact from
   the ticket (not "need more info").
