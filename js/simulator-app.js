@@ -929,17 +929,32 @@ function isLiveAgent1Enabled() {
   }
 }
 
+function commentsBlock(story) {
+  const comments = story?.comments || [];
+  if (!comments.length) return "";
+  return "Comments (treat a comment that states behavior as a requirement; cite as comment[i]):\n"
+    + comments.map((c, i) => `- comment[${i}] ${c.author || "Unknown"}: ${c.body}`).join("\n");
+}
+
+function attachmentsBlock(story) {
+  const attachments = story?.attachments || [];
+  if (!attachments.length) return "";
+  return "Attachments (images are provided to you as image inputs when the runner supports vision):\n"
+    + attachments.map((a) => `- ${a.filename}${a.isImage ? " [image]" : ` (${a.mimeType || "file"})`}`).join("\n");
+}
+
 function ticketTextForAnalyst(story) {
   if (!story) return "";
-  if (story.requirements_raw) return String(story.requirements_raw);
-  const parts = [
-    story.title ? `Title: ${story.title}` : "",
-    story.description || "",
-    (story.acceptance_criteria_list || []).length
-      ? "Acceptance Criteria:\n" + story.acceptance_criteria_list.map((a, i) => `- AC-${i + 1}: ${a}`).join("\n")
-      : "",
-  ];
-  return parts.filter(Boolean).join("\n\n");
+  const base = story.requirements_raw
+    ? String(story.requirements_raw)
+    : [
+      story.title ? `Title: ${story.title}` : "",
+      story.description || "",
+      (story.acceptance_criteria_list || []).length
+        ? "Acceptance Criteria:\n" + story.acceptance_criteria_list.map((a, i) => `- AC-${i + 1}: ${a}`).join("\n")
+        : "",
+    ].filter(Boolean).join("\n\n");
+  return [base, commentsBlock(story), attachmentsBlock(story)].filter(Boolean).join("\n\n");
 }
 
 async function runAgent1(story) {
@@ -955,10 +970,13 @@ async function runAgent1(story) {
   el("status-orchestrator").textContent = "awaiting Agent 1";
   if (el("status-analyst")) el("status-analyst").textContent = "running…";
 
+  const imageAttachments = (story.attachments || [])
+    .filter((a) => a.isImage && a.contentUrl)
+    .map((a) => ({ contentUrl: a.contentUrl, filename: a.filename, mimeType: a.mimeType }));
   const res = await fetch("/api/agents/analyst", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ticketText }),
+    body: JSON.stringify({ ticketText, imageAttachments }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.success === false) {
@@ -2341,6 +2359,36 @@ function renderTicketPanel(story) {
       ? `<li class="muted">No testable acceptance criteria</li>`
         + rejected.map((r) => `<li class="muted" style="font-size:.72rem">Excluded: ${escapeHtml(r.text)}</li>`).join("")
       : "<li class='muted'>No acceptance criteria parsed — check description format</li>");
+  renderTicketComments(story);
+  renderTicketAttachments(story);
+}
+
+function renderTicketComments(story) {
+  const host = el("ticket-comments");
+  if (!host) return;
+  const comments = story.comments || [];
+  if (!comments.length) { host.innerHTML = ""; return; }
+  host.innerHTML = `<div class="muted" style="margin:.65rem 0 .3rem;font-size:.72rem">Comments (${comments.length}) — read into the analysis</div>`
+    + comments.map((c) => `<div style="font-size:.74rem;border-left:2px solid var(--border,#e2e8f0);padding:.15rem .5rem;margin-bottom:.3rem">`
+      + `<strong>${escapeHtml(c.author || "Unknown")}</strong> <span class="muted">${escapeHtml((c.created || "").slice(0, 10))}</span><br>${escapeHtml(c.body)}</div>`).join("");
+}
+
+function renderTicketAttachments(story) {
+  const host = el("ticket-attachments");
+  if (!host) return;
+  const attachments = story.attachments || [];
+  if (!attachments.length) { host.innerHTML = ""; return; }
+  host.innerHTML = `<div class="muted" style="margin:.65rem 0 .3rem;font-size:.72rem">Attachments (${attachments.length}) — images are analyzed on the Anthropic runner</div>`
+    + `<div style="display:flex;flex-wrap:wrap;gap:.4rem">`
+    + attachments.map((a) => {
+      const label = `${escapeHtml(a.filename)} <span class="muted">(${formatBytes(a.size)})</span>`;
+      if (a.isImage && a.contentUrl) {
+        const src = "/api/jira/attachment?url=" + encodeURIComponent(a.contentUrl);
+        return `<figure style="margin:0;width:96px;text-align:center"><img src="${src}" alt="${escapeHtml(a.filename)}" loading="lazy" style="width:96px;height:72px;object-fit:cover;border:1px solid var(--border,#e2e8f0);border-radius:6px" onerror="this.style.display='none'"><figcaption style="font-size:.66rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${label}</figcaption></figure>`;
+      }
+      return `<div style="font-size:.72rem;padding:.3rem .5rem;border:1px solid var(--border,#e2e8f0);border-radius:6px">📎 ${label}</div>`;
+    }).join("")
+    + `</div>`;
 }
 
 

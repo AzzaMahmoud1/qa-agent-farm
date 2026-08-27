@@ -2,7 +2,7 @@ import http from "http";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { fetchIssue, parseIssueKey, loadEnv } from "./jira.js";
+import { fetchIssue, parseIssueKey, loadEnv, fetchAttachmentBinary } from "./jira.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 loadEnv(path.join(__dirname, ".env"));
@@ -231,6 +231,24 @@ http
       return;
     }
 
+    // Authed thumbnail proxy: the browser cannot send Jira credentials, so it
+    // asks the server to fetch an attachment's bytes. Only Jira-host URLs pass.
+    if (pathname === "/api/jira/attachment" && req.method === "GET") {
+      const contentUrl = url.searchParams.get("url");
+      if (!contentUrl) {
+        sendJson(res, req, 400, { error: "url is required" });
+        return;
+      }
+      try {
+        const { buffer, mimeType } = await fetchAttachmentBinary(contentUrl, { timeoutMs: jiraTimeoutMs });
+        res.writeHead(200, securityHeaders({ "Content-Type": mimeType, "Cache-Control": "no-store" }));
+        res.end(buffer);
+      } catch (err) {
+        sendJson(res, req, 502, { error: err.message });
+      }
+      return;
+    }
+
     if (pathname === "/api/agents/analyst" && req.method === "POST") {
       if (!isLocalRequester(req)) {
         sendJson(res, req, 403, { error: "Analyst API is local-only" });
@@ -243,8 +261,18 @@ http
           sendJson(res, req, 400, { error: "ticketText is required" });
           return;
         }
+        // Download image attachments server-side (Jira auth) so the analyst can
+        // pass them to a vision-capable runner. Text-only runners ignore them.
+        const images = [];
+        for (const att of Array.isArray(body.imageAttachments) ? body.imageAttachments.slice(0, 6) : []) {
+          if (!att?.contentUrl) continue;
+          try {
+            const { buffer, mimeType } = await fetchAttachmentBinary(att.contentUrl, { timeoutMs: jiraTimeoutMs });
+            images.push({ filename: att.filename || "image", mimeType: att.mimeType || mimeType, base64: buffer.toString("base64") });
+          } catch { /* skip an attachment that fails to download */ }
+        }
         const { runRequirementAnalyst } = await import("./src/agents/requirementAnalyst.js");
-        const result = await runRequirementAnalyst(ticketText);
+        const result = await runRequirementAnalyst(ticketText, { images });
         sendJson(res, req, result.success === false ? 422 : 200, result);
       } catch (err) {
         const status = err.message?.includes("exceeds") || err.message?.includes("Invalid JSON") ? 400 : 500;

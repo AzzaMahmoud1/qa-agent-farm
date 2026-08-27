@@ -105,6 +105,16 @@ export function checkAnalystPromptContract(parsed, story = null) {
     }
   }
 
+  // Visual (image-derived) evidence is a judgment about a picture — grounding
+  // can confirm the image exists but not the reading drawn from it. A PROCEED
+  // that rests on any `visual: true` condition must carry a confirming ASK_HUMAN.
+  if (hasProceed && Array.isArray(conditions)) {
+    const visualConds = conditions.filter((c) => c && c.visual === true);
+    if (visualConds.length && !actions.some((a) => a && /^ASK_HUMAN$/i.test(a.action || ""))) {
+      failures.push(`MAIN GATE: PROCEED with ${visualConds.length} visual (image-derived) condition(s) requires a confirming ASK_HUMAN — a visual reading cannot self-approve`);
+    }
+  }
+
   if (parsed.ready_for_test_design === true && analysisComplete === false) {
     failures.push("MAIN GATE: ready_for_test_design true requires analysis_complete true");
   }

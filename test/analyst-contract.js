@@ -61,6 +61,24 @@ assert.equal(checkAnalystPromptContract({
   testable_conditions: [{ id: "AC-1", ac_text: "logs in" }],
 }).ok, false);
 
+// Visual: PROCEED resting on an image-derived condition needs a confirming ASK_HUMAN
+assert.equal(checkAnalystPromptContract({
+  ...base,
+  testable_conditions: [{ id: "AC-1", ac_text: "Login button is centered below the form", source: "attachment:mockup.png", visual: true }],
+}).ok, false);
+// …and passes when a confirming ASK_HUMAN accompanies the PROCEED
+assert.equal(checkAnalystPromptContract({
+  ...base,
+  testable_conditions: [{ id: "AC-1", ac_text: "Login button is centered below the form", source: "attachment:mockup.png", visual: true }],
+  analyst_report: {
+    orchestrator_actions: [
+      { action: "PROCEED", target: "writer", blocking: false },
+      { action: "ASK_HUMAN", target: "human", detail: "Confirm the login layout read from mockup.png is correct", blocking: false, requires_value: true },
+    ],
+    confidence: { overall: "high" },
+  },
+}).ok, true);
+
 // Design-blocking (no category / data) + PROCEED → fail
 assert.equal(checkAnalystPromptContract({
   ...base,

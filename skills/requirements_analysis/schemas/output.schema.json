@@ -32,7 +32,7 @@
           "source_field": {
             "type": "string",
             "minLength": 1,
-            "description": "Evidence field the quote came from, e.g. 'description', 'comments[2]'."
+            "description": "Evidence field the quote came from, e.g. 'description', 'comments[2]', 'attachment:mockup.png'."
           },
           "confidence": {
             "type": "number",
