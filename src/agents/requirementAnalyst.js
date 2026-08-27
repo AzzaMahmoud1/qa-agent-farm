@@ -436,21 +436,26 @@ export function parseAnthropicMessage(body) {
  * @param {{ apiKey: string, model: string, baseUrl: string }} provider
  * @returns {Promise<{ text: string, usage: object|null, effort: string, promptChars: number, responseChars: number }>}
  */
-async function callAnthropicApi(fullPrompt, effort, meta, provider, images = []) {
+async function callAnthropicApi(fullPrompt, effort, meta, provider, images = [], documents = []) {
   if (!provider.apiKey) {
     throw new Error(
       "Anthropic runner requires an API key — set it on the Settings page or ANTHROPIC_API_KEY (create one at console.anthropic.com).",
     );
   }
 
-  // Multimodal: attach images (base64) as image blocks so the model can read
-  // design mockups / screenshots. Text-only when there are no images.
-  const content = images.length
+  // Multimodal: attach images (mockups/screenshots) as image blocks and PDFs as
+  // document blocks so the model reads them natively. Text-only when neither.
+  const content = (images.length || documents.length)
     ? [
       { type: "text", text: fullPrompt },
       ...images.map((img) => ({
         type: "image",
         source: { type: "base64", media_type: img.mimeType || "image/png", data: img.base64 },
+      })),
+      ...documents.map((doc) => ({
+        type: "document",
+        source: { type: "base64", media_type: "application/pdf", data: doc.base64 },
+        title: doc.filename || "attachment.pdf",
       })),
     ]
     : fullPrompt;
@@ -583,11 +588,11 @@ async function callOpenAiCompatibleApi(fullPrompt, effort, meta, provider) {
  * @param {string} effort
  * @param {{ attempt?: number }} [meta]
  */
-async function callAgentRunner(fullPrompt, effort, meta = {}, images = []) {
+async function callAgentRunner(fullPrompt, effort, meta = {}, images = [], documents = []) {
   const provider = resolveActiveProvider();
-  // Only the Anthropic runner consumes images today; other runners are text-only
-  // and silently ignore them (the caller flags this to the user).
-  if (provider.runner === "anthropic_api") return callAnthropicApi(fullPrompt, effort, meta, provider, images);
+  // Only the Anthropic runner consumes images/PDFs today; other runners are
+  // text-only and silently ignore them (the caller flags this to the user).
+  if (provider.runner === "anthropic_api") return callAnthropicApi(fullPrompt, effort, meta, provider, images, documents);
   if (provider.runner === "openai_api" || provider.runner === "openrouter_api" || provider.runner === "custom_openai_compatible") {
     return callOpenAiCompatibleApi(fullPrompt, effort, meta, provider);
   }
@@ -663,19 +668,24 @@ export function buildRetryExtra(error, fullText) {
 export async function runRequirementAnalyst(ticketText, opts = {}) {
   const attempts = [];
   const images = Array.isArray(opts.images) ? opts.images : [];
+  const documents = Array.isArray(opts.documents) ? opts.documents : [];
   const vision = runnerSupportsVision();
   const sentImages = vision ? images : [];
-  const imageAnalysis = {
-    provided: images.length,
-    analyzed: sentImages.length,
+  const sentDocuments = vision ? documents : [];
+  const providedCount = images.length + documents.length;
+  const attachmentAnalysis = {
+    provided: providedCount,
+    analyzed: sentImages.length + sentDocuments.length,
+    images: { provided: images.length, analyzed: sentImages.length },
+    documents: { provided: documents.length, analyzed: sentDocuments.length },
     runner_supports_vision: vision,
-    note: images.length && !vision
-      ? "Image attachments were not analyzed — the active runner is text-only. Switch to the Anthropic runner in Settings to analyze images."
+    note: providedCount && !vision
+      ? "Image/PDF attachments were not analyzed — the active runner is text-only. Switch to the Anthropic runner in Settings to analyze them."
       : null,
   };
   const basePrompt = buildFullPrompt(ticketText);
   const effort1 = effortForAttempt(1);
-  const call1 = await callAgentRunner(basePrompt, effort1, { attempt: 1 }, sentImages);
+  const call1 = await callAgentRunner(basePrompt, effort1, { attempt: 1 }, sentImages, sentDocuments);
   attempts.push({
     attempt: 1,
     effort: call1.effort,
@@ -687,13 +697,13 @@ export async function runRequirementAnalyst(ticketText, opts = {}) {
 
   try {
     const ok = processFullText(fullText);
-    return { ...ok, attempts, image_analysis: imageAnalysis };
+    return { ...ok, attempts, attachment_analysis: attachmentAnalysis };
   } catch (firstErr) {
     const error = firstErr instanceof Error ? firstErr : new Error(String(firstErr));
     try {
       const retryPrompt = buildFullPrompt(ticketText, buildRetryExtra(error, fullText));
       const effort2 = effortForAttempt(2);
-      const call2 = await callAgentRunner(retryPrompt, effort2, { attempt: 2 }, sentImages);
+      const call2 = await callAgentRunner(retryPrompt, effort2, { attempt: 2 }, sentImages, sentDocuments);
       attempts.push({
         attempt: 2,
         effort: call2.effort,
@@ -703,7 +713,7 @@ export async function runRequirementAnalyst(ticketText, opts = {}) {
       });
       fullText = call2.text;
       const ok = processFullText(fullText);
-      return { ...ok, attempts, image_analysis: imageAnalysis };
+      return { ...ok, attempts, attachment_analysis: attachmentAnalysis };
     } catch (retryErr) {
       const finalErr = retryErr instanceof Error ? retryErr : new Error(String(retryErr));
       return {
@@ -711,7 +721,7 @@ export async function runRequirementAnalyst(ticketText, opts = {}) {
         error: finalErr.message,
         raw: fullText || "",
         attempts,
-        image_analysis: imageAnalysis,
+        attachment_analysis: attachmentAnalysis,
       };
     }
   }

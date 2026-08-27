@@ -260,12 +260,17 @@ export function parseComments(commentField) {
 /** Normalize the attachment field into lightweight metadata (no download here). */
 export function parseAttachments(attachmentField) {
   const list = Array.isArray(attachmentField) ? attachmentField : [];
-  return list.map((a) => ({
-    id: String(a?.id ?? ""),
-    filename: a?.filename || "attachment",
-    mimeType: a?.mimeType || "",
-    size: Number(a?.size) || 0,
-    contentUrl: a?.content || "",
-    isImage: /^image\//i.test(a?.mimeType || ""),
-  }));
+  return list.map((a) => {
+    const mimeType = a?.mimeType || "";
+    const filename = a?.filename || "attachment";
+    return {
+      id: String(a?.id ?? ""),
+      filename,
+      mimeType,
+      size: Number(a?.size) || 0,
+      contentUrl: a?.content || "",
+      isImage: /^image\//i.test(mimeType),
+      isPdf: /pdf/i.test(mimeType) || /\.pdf$/i.test(filename),
+    };
+  });
 }

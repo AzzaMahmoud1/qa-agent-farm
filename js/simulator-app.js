@@ -939,8 +939,8 @@ function commentsBlock(story) {
 function attachmentsBlock(story) {
   const attachments = story?.attachments || [];
   if (!attachments.length) return "";
-  return "Attachments (images are provided to you as image inputs when the runner supports vision):\n"
-    + attachments.map((a) => `- ${a.filename}${a.isImage ? " [image]" : ` (${a.mimeType || "file"})`}`).join("\n");
+  return "Attachments (images and PDFs are provided to you as inputs when the runner supports vision; cite as attachment:<filename>):\n"
+    + attachments.map((a) => `- ${a.filename}${a.isImage ? " [image]" : a.isPdf ? " [pdf]" : ` (${a.mimeType || "file"})`}`).join("\n");
 }
 
 function ticketTextForAnalyst(story) {
@@ -970,13 +970,13 @@ async function runAgent1(story) {
   el("status-orchestrator").textContent = "awaiting Agent 1";
   if (el("status-analyst")) el("status-analyst").textContent = "running…";
 
-  const imageAttachments = (story.attachments || [])
-    .filter((a) => a.isImage && a.contentUrl)
-    .map((a) => ({ contentUrl: a.contentUrl, filename: a.filename, mimeType: a.mimeType }));
+  const refOf = (a) => ({ contentUrl: a.contentUrl, filename: a.filename, mimeType: a.mimeType });
+  const imageAttachments = (story.attachments || []).filter((a) => a.isImage && a.contentUrl).map(refOf);
+  const documentAttachments = (story.attachments || []).filter((a) => a.isPdf && a.contentUrl).map(refOf);
   const res = await fetch("/api/agents/analyst", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ticketText, imageAttachments }),
+    body: JSON.stringify({ ticketText, imageAttachments, documentAttachments }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.success === false) {
@@ -2378,7 +2378,7 @@ function renderTicketAttachments(story) {
   if (!host) return;
   const attachments = story.attachments || [];
   if (!attachments.length) { host.innerHTML = ""; return; }
-  host.innerHTML = `<div class="muted" style="margin:.65rem 0 .3rem;font-size:.72rem">Attachments (${attachments.length}) — images are analyzed on the Anthropic runner</div>`
+  host.innerHTML = `<div class="muted" style="margin:.65rem 0 .3rem;font-size:.72rem">Attachments (${attachments.length}) — images &amp; PDFs are analyzed on the Anthropic runner</div>`
     + `<div style="display:flex;flex-wrap:wrap;gap:.4rem">`
     + attachments.map((a) => {
       const label = `${escapeHtml(a.filename)} <span class="muted">(${formatBytes(a.size)})</span>`;
@@ -2386,7 +2386,8 @@ function renderTicketAttachments(story) {
         const src = "/api/jira/attachment?url=" + encodeURIComponent(a.contentUrl);
         return `<figure style="margin:0;width:96px;text-align:center"><img src="${src}" alt="${escapeHtml(a.filename)}" loading="lazy" style="width:96px;height:72px;object-fit:cover;border:1px solid var(--border,#e2e8f0);border-radius:6px" onerror="this.style.display='none'"><figcaption style="font-size:.66rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${label}</figcaption></figure>`;
       }
-      return `<div style="font-size:.72rem;padding:.3rem .5rem;border:1px solid var(--border,#e2e8f0);border-radius:6px">📎 ${label}</div>`;
+      const icon = a.isPdf ? "📄" : "📎";
+      return `<div style="font-size:.72rem;padding:.3rem .5rem;border:1px solid var(--border,#e2e8f0);border-radius:6px">${icon} ${label}${a.isPdf ? ' <span class="muted">[pdf]</span>' : ""}</div>`;
     }).join("")
     + `</div>`;
 }
