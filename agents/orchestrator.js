@@ -30,7 +30,6 @@ import {
   markSimulatedGate,
   DATA_EXTRACTOR_API_CHECKS,
 } from "./validator.js";
-import { analystReturnV1, buildAnalystReturnV2 } from "./demo-fixtures.js";
 import { isApprovableOutput } from "./dependency-gate.js";
 import { isLiveAnalystOutput, isDesignBlockingPrereq } from "./analyst-contract.js";
 import { slugifyPrereqId } from "../lib/human-ask-merge.js";
@@ -594,142 +593,6 @@ export function validationGateEvents(targetAgent, phase, story, agentReturns, op
   return events;
 }
 
-export function buildRequirementsFailureDemo(story) {
-  const s = story.id;
-  const acList = story.acceptance_criteria_list || [];
-  const acPreview = acList.slice(0, 2).join("; ") || story.acceptance_criteria + " criteria";
-
-  const analystInstructions = {
-    target_agent: "Requirement Analyst (L2)",
-    task: "Analyze JIRA ticket — dispositions then structured JSON with readiness signals",
-    ticket: s + " · " + story.title,
-    acceptance_criteria: acList.length ? acList : [acPreview],
-    constraints: "Only use ticket context — do not assume unlisted behavior",
-    priority: story.priority,
-  };
-
-  const analystReturnV2 = buildAnalystReturnV2(story);
-
-  const retryInstructions = {
-    target_agent: "Requirement Analyst (L2)",
-    task: "RETRY — address validator feedback (last attempt)",
-    validator_feedback: "Multiple L2 guideline failures on attempt 1",
-    corrections: [
-      "Map every acceptance criterion to a testable condition ID",
-      "Emit analysis_complete, ready_for_test_design, and concrete orchestrator_actions",
-      "Split coverage gaps into blocking vs non-blocking",
-    ],
-  };
-
-  const failValidation1 = buildValidationResult("analyst", false, [
-    "Map every acceptance criterion to a testable condition",
-    "Distinguish blocking vs non-blocking coverage gaps",
-    "List affected components from the JIRA ticket",
-    "Emit analysis_complete and ready_for_test_design with orchestrator_actions",
-  ], "Complete L2 readiness deliverables before re-submitting");
-
-  const failValidation2 = buildValidationResult("analyst", false, [
-    "Map every acceptance criterion to a testable condition",
-    "Emit analysis_complete and ready_for_test_design with orchestrator_actions",
-  ], "readiness signals still missing after retry — validator brake will abort run");
-
-  const analystGate = validationGateEvents("analyst", "gap_analysis", story, analystReturnV1, {
-    failAttempts: [1, 2],
-    failValidation: failValidation1,
-    failValidation2: failValidation2,
-    retryInstructions,
-    retryOutput: analystReturnV2,
-    retryEvents: [
-      {
-        kind: "agent_assign",
-        phase: "gap_analysis",
-        message: "[Demo] Analyst retry — orchestrator corrections after 1st validation failure",
-        role: "analyst",
-        is_retry: true,
-        feedback_addressed: retryInstructions.corrections,
-        orchestrator_memory: mem(story, { phase: "gap_analysis", demo: "requirements", awaiting: "analyst_retry" }),
-        agent_context: retryInstructions,
-        agent_returns: {},
-        decision: null,
-      },
-      {
-        kind: "agent_return",
-        phase: "gap_analysis",
-        message: analystReturnV2.summary,
-        role: "analyst",
-        is_retry: true,
-        before_output: analystReturnV1,
-        changes_made: [
-          "Added affected_components from ticket",
-          "Improved coverage_gaps summary",
-          "Still missing per-AC condition IDs and readiness actions",
-        ],
-        orchestrator_memory: mem(story, { phase: "gap_analysis", demo: "requirements", analyst_status: "retry_still_failing" }),
-        agent_context: {},
-        agent_returns: analystReturnV2,
-        decision: null,
-      },
-    ],
-  });
-
-  return [
-    {
-      kind: "run_start",
-      phase: "init",
-      message: "[Demo] Requirements failure run for " + s + " — analyst will fail validation twice",
-      role: null,
-      orchestrator_memory: mem(story, { phase: "init", demo: "requirements_failures", source: story.from_jira ? "jira" : "mock" }),
-      agent_context: { demo: "requirements_failures" },
-      agent_returns: {},
-      decision: "begin demo — requirements step failures only",
-    },
-    {
-      kind: "orchestrator_stage",
-      phase: "orchestrator",
-      message: "[Demo] Stage 1: assign Requirement Analyst (" + story.acceptance_criteria + " AC)",
-      role: null,
-      orchestrator_memory: mem(story, { phase: "orchestrator", demo: "requirements" }),
-      agent_context: {},
-      agent_returns: {},
-      decision: "assign Requirement Analyst",
-    },
-    {
-      kind: "orchestrator_instruct",
-      phase: "orchestrator",
-      message: "[Demo] Orchestrator instructs Requirement Analyst",
-      role: null,
-      target_agent: "analyst",
-      instructions: analystInstructions,
-      orchestrator_memory: mem(story, { phase: "orchestrator", action: "instruct_analyst", demo: "requirements" }),
-      agent_context: analystInstructions,
-      agent_returns: {},
-      decision: null,
-    },
-    {
-      kind: "agent_assign",
-      phase: "gap_analysis",
-      message: "[Demo] Analyst starts requirements analysis",
-      role: "analyst",
-      orchestrator_memory: mem(story, { phase: "gap_analysis", demo: "requirements" }),
-      agent_context: analystInstructions,
-      agent_returns: {},
-      decision: null,
-    },
-    {
-      kind: "agent_return",
-      phase: "gap_analysis",
-      message: analystReturnV1.summary,
-      role: "analyst",
-      orchestrator_memory: mem(story, { phase: "gap_analysis", analyst_status: "returned_v1" }),
-      agent_context: {},
-      agent_returns: analystReturnV1,
-      decision: null,
-      output_note: "Demo attempt 1 — 4 guideline failures expected",
-    },
-    ...analystGate,
-  ];
-}
-
 export function resolvePipelineEvents(story, runOptions) {
   const opts = { ...(runOptions || {}) };
   opts.budgetTracker = opts.budgetTracker || createBudgetTracker({
@@ -743,9 +606,6 @@ export function resolvePipelineEvents(story, runOptions) {
     return finalizePipelineRun(story, budgetExceededEvents(story, opts.budgetTracker, early), opts);
   }
 
-  if (opts.demo === "requirements") {
-    return finalizePipelineRun(story, buildRequirementsFailureDemo(story), opts);
-  }
   return finalizePipelineRun(story, buildEvents(story, opts), opts);
 }
 
@@ -1241,8 +1101,8 @@ export function buildEvents(story, runOptions = {}) {
     writer_input: analystGateDecision.writer_input,
   };
 
-  // Default pipeline = real run: one Analyst return, then live validate.
-  // Forced incomplete→fail→retry lives only in demo: "requirements" (Demos panel).
+  // Real run: one Analyst return, then live validate. A retry happens only when
+  // live analyst quality actually fails — never forced from a canned stub.
   const analystQuality = validateAnalystOutputLive(story, analystFeedback);
   const analystGateBase = {
     gateMessage: analystPrereqPayload.needed

@@ -47,6 +47,7 @@ let agentOutputs = {};
 let agentStatuses = {};
 let activeOutputTab = "orchestrator";
 let currentRunOptions = {};
+let requirementAttachments = []; // { name, size, type, parsed, textContent } for the Requirements form
 let agentChangeLog = {};
 let humanApiInput = { ok: false, curl: "", base_url: "", endpoint: "", method: "GET", url: "", headers: {}, auth: "", body: null };
 let humanWebpageInput = { ok: false, url: "", path: "", origin: "", title: "" };
@@ -287,8 +288,66 @@ function buildRunLogExport() {
 }
 
 
+const TEXT_ATTACHMENT_RE = /\.(txt|md|markdown|json|csv|tsv|ya?ml|log|xml|html?|ini|conf|properties)$/i;
+const MAX_ATTACHMENT_TEXT = 100 * 1024; // cap parsed text per file so a huge file can't bloat the analyst input
+
+function isTextAttachment(file) {
+  return (file.type && file.type.startsWith("text/"))
+    || file.type === "application/json"
+    || TEXT_ATTACHMENT_RE.test(file.name || "");
+}
+
+function formatBytes(n) {
+  if (!Number.isFinite(n)) return "";
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  return (n / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+/** Text appended to the requirement so the analyst sees attached text files. */
+function buildAttachmentText() {
+  const text = requirementAttachments.filter((a) => a.parsed && a.textContent);
+  if (!text.length) return "";
+  return "\n\n" + text.map((a) => `--- Attachment: ${a.name} ---\n${a.textContent}`).join("\n\n");
+}
+
+async function handleAttachmentFiles(fileList) {
+  for (const file of Array.from(fileList || [])) {
+    if (requirementAttachments.some((a) => a.name === file.name && a.size === file.size)) continue;
+    const entry = { name: file.name, size: file.size, type: file.type || "", parsed: false, textContent: null };
+    if (isTextAttachment(file)) {
+      try {
+        let content = await file.text();
+        if (content.length > MAX_ATTACHMENT_TEXT) content = content.slice(0, MAX_ATTACHMENT_TEXT) + "\n…[truncated]";
+        entry.textContent = content;
+        entry.parsed = true;
+      } catch { /* keep as name-only */ }
+    }
+    requirementAttachments.push(entry);
+  }
+  renderAttachmentList();
+}
+
+function renderAttachmentList() {
+  const ul = el("req-attachment-list");
+  if (!ul) return;
+  ul.innerHTML = requirementAttachments.map((a, i) => {
+    const tag = a.parsed ? "read into requirement" : "attached by name";
+    return `<li style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;font-size:.76rem;background:var(--surface-2,#f1f5f9);border:1px solid var(--border,#e2e8f0);border-radius:6px;padding:.3rem .5rem">`
+      + `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📎 ${escapeHtml(a.name)} <span style="color:var(--text-muted)">(${formatBytes(a.size)} · ${tag})</span></span>`
+      + `<button type="button" class="attachment-remove" data-idx="${i}" title="Remove" style="border:none;background:none;cursor:pointer;color:var(--text-muted);font-size:.9rem;line-height:1">✕</button>`
+      + `</li>`;
+  }).join("");
+  ul.querySelectorAll(".attachment-remove").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      requirementAttachments.splice(Number(btn.dataset.idx), 1);
+      renderAttachmentList();
+    });
+  });
+}
+
 function buildStoryFromRequirementsForm() {
-  const parsed = parseRequirementsDescription(el("req-description")?.value || "");
+  const parsed = parseRequirementsDescription((el("req-description")?.value || "") + buildAttachmentText());
   const {
     title,
     description,
@@ -332,6 +391,7 @@ function buildStoryFromRequirementsForm() {
     coverage: 0,
     from_jira: false,
     from_requirements: true,
+    attachments: requirementAttachments.map(({ name, size, type, parsed }) => ({ name, size, type, parsed })),
     fetched_at: new Date().toISOString(),
   };
 }
@@ -852,11 +912,6 @@ function kindLabel(kind) {
 }
 
 
-function shouldSkipAgent1(runOptions) {
-  // Skip live Agent 1 only for the Requirements failures demo (scripted incomplete path).
-  return (runOptions || currentRunOptions)?.demo === "requirements";
-}
-
 /**
  * Live Agent 1 (Cursor Agent · Sonnet 5) is OFF by default so the simulator
  * runs end-to-end with no cursor-agent login. Turn it on with either
@@ -929,7 +984,7 @@ async function runAgent1(story) {
  * call the Cursor Agent CLI and gracefully fall back to local on any failure.
  */
 async function ensureAgent1(story, runOptions) {
-  if (!story || shouldSkipAgent1(runOptions)) return story;
+  if (!story) return story;
   if (story.live_analyst_output) return story;
   if (!isLiveAgent1Enabled()) return story; // local deterministic analyst
   try {
@@ -984,7 +1039,6 @@ function loadStory(story, runOptions) {
   if (storyOutputs?.orchestrator) {
     publishAgentOutputForHuman("orchestrator", storyOutputs.orchestrator, "pending");
   }
-  updateDemoBanner(opts);
   humanApiInput = { ok: false, curl: "", base_url: "", endpoint: "", method: "GET", url: "", headers: {}, auth: "", body: null };
   humanWebpageInput = { ok: false, url: "", path: "", origin: "", title: "" };
   executionResult = null;
@@ -1010,10 +1064,7 @@ function loadStory(story, runOptions) {
   el("story-title").textContent = story.title;
   const runId = (story.fetched_at || new Date().toISOString()).replace(/[-:]/g, "").slice(0, 15) + "Z";
   const source = story.from_jira ? "live JIRA" : story.from_requirements ? "requirements" : "mock";
-  const modeLabel = opts.demo === "requirements"
-    ? ' · <span style="color:#dc2626;font-weight:600">demo: requirements failures</span>'
-    : "";
-  el("story-meta").innerHTML = story.id + " · " + source + modeLabel + " · run <span id=\"run-id\">" + runId + "</span>";
+  el("story-meta").innerHTML = story.id + " · " + source + " · run <span id=\"run-id\">" + runId + "</span>";
   if (story.from_requirements) {
     fillRequirementsForm(story);
     setInputSource("requirements");
@@ -1098,6 +1149,10 @@ el("btn-load-requirements")?.addEventListener("click", async () => {
   } finally {
     if (btn) btn.disabled = false;
   }
+});
+el("req-attachments")?.addEventListener("change", async (e) => {
+  await handleAttachmentFiles(e.target.files);
+  e.target.value = ""; // reset so the same file can be re-added after removal
 });
 el("tab-source-jira")?.addEventListener("click", () => setInputSource("jira"));
 el("tab-source-requirements")?.addEventListener("click", () => setInputSource("requirements"));
@@ -2734,35 +2789,13 @@ function showEvent(i) {
 }
 
 
-function startDefaultPipeline() {
-  currentRunOptions = {};
-  const url = new URL(location.href);
-  url.searchParams.delete("demo");
-  url.searchParams.delete("abort_demo");
-  if (currentInputSource === "requirements") {
-    url.searchParams.delete("ticket");
-    history.replaceState(null, "", url);
-  }
-  startPipelineFromActiveSource({});
-}
-
-el("btn-demo-requirements")?.addEventListener("click", startRequirementsDemo);
-el("btn-demo-default")?.addEventListener("click", startDefaultPipeline);
-el("demo-exit-link")?.addEventListener("click", (e) => {
-  e.preventDefault();
-  startDefaultPipeline();
-});
-
 (async function init() {
   try {
     renderPipelineBar(null, new Set());
     setInputSource("jira");
     await checkJiraHealth();
     const params = new URLSearchParams(location.search);
-    const demo = params.get("demo") === "requirements" || params.get("abort_demo") === "1"
-      ? "requirements"
-      : null;
-    currentRunOptions = demo ? { demo } : {};
+    currentRunOptions = {};
     const source = params.get("source");
     if (source === "requirements") {
       setInputSource("requirements");
@@ -2778,7 +2811,7 @@ el("demo-exit-link")?.addEventListener("click", (e) => {
     }
     const initial = params.get("ticket") || params.get("url") || params.get("key") || getJiraInput();
     if (initial && resolveTicketInput(initial)) {
-      await loadStoryByKey(initial, !demo, currentRunOptions);
+      await loadStoryByKey(initial, true, currentRunOptions);
     } else {
       showEmptyTicketState();
     }
@@ -2799,40 +2832,6 @@ function startOrchestratorInactivityTimer() {
   orchestratorInactivityTimer = setTimeout(handleOrchestratorInactivityTimeout, ORCHESTRATOR_INACTIVITY_TIMEOUT_MS);
   const need = getLiveHumanInputNeed(currentStory);
   setHumanInputStatus("loading", `orchestrator waiting for ${waitingForHumanInputDescription(need)} — 1 min limit`);
-}
-
-
-async function startPipelineFromActiveSource(runOptions) {
-  if (currentInputSource === "requirements") {
-    try {
-      await loadRequirementsFromForm(runOptions);
-    } catch (err) {
-      setRequirementsLoadStatus("err", err.message);
-      alert(err.message);
-    }
-    return;
-  }
-  const resolved = resolveTicketInput(currentStory?.jira || getJiraInput());
-  if (!resolved) {
-    alert("Paste a JIRA URL first, or switch to Requirements and paste your description.");
-    return;
-  }
-  const url = new URL(location.href);
-  url.searchParams.delete("demo");
-  url.searchParams.delete("abort_demo");
-  url.searchParams.set("ticket", resolved.url);
-  history.replaceState(null, "", url);
-  if (currentStory && !currentStory.from_requirements) {
-    try {
-      await ensureAgent1(currentStory, runOptions);
-    } catch (err) {
-      alert(err.message);
-      return;
-    }
-    loadStory(currentStory, runOptions);
-  } else {
-    loadStoryByKey(resolved.url, location.protocol !== "file:" && !runOptions?.demo, runOptions);
-  }
 }
 
 
@@ -2861,35 +2860,6 @@ function startPlay() {
   }, ms);
 }
 
-
-async function startRequirementsDemo() {
-  currentRunOptions = { demo: "requirements" };
-  const url = new URL(location.href);
-  url.searchParams.set("demo", "requirements");
-  url.searchParams.delete("abort_demo");
-  if (currentInputSource === "requirements") {
-    url.searchParams.delete("ticket");
-    history.replaceState(null, "", url);
-    try {
-      await loadRequirementsFromForm(currentRunOptions);
-    } catch (err) {
-      setRequirementsLoadStatus("err", err.message);
-    }
-    return;
-  }
-  const resolved = resolveTicketInput(currentStory?.jira || getJiraInput());
-  if (!resolved) {
-    alert("Paste a JIRA URL or switch to Requirements tab.");
-    return;
-  }
-  url.searchParams.set("ticket", resolved.url);
-  history.replaceState(null, "", url);
-  if (currentStory && !currentStory.from_requirements) {
-    loadStory(currentStory, currentRunOptions);
-  } else {
-    loadStoryByKey(resolved.url, false, currentRunOptions);
-  }
-}
 
 function stopPlay() {
   playing = false;
@@ -3289,17 +3259,6 @@ function triggerFileDownload(filename, content, mime) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 500);
-}
-
-
-function updateDemoBanner(runOptions) {
-  const banner = el("demo-banner");
-  const isDemo = runOptions?.demo === "requirements";
-  if (banner) banner.hidden = !isDemo;
-  const btnReq = el("btn-demo-requirements");
-  const btnDef = el("btn-demo-default");
-  if (btnReq) btnReq.classList.toggle("btn-primary", isDemo);
-  if (btnDef) btnDef.classList.toggle("btn-primary", !isDemo);
 }
 
 
