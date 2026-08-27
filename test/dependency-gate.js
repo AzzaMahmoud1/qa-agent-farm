@@ -33,7 +33,6 @@ setFarmCtx({
 const {
   buildEvents,
   buildEventsAfterHumanPrerequisites,
-  resolvePipelineEvents,
   assertCanAssign,
   isApprovableOutput,
   hasStructuredOutput,
@@ -123,18 +122,6 @@ const story = {
   assert.equal(
     isApprovableOutput("author", { success: true, blocked: false, status: "REVIEW", outlines: [{}] }),
     true,
-  );
-}
-
-{
-  const demo = resolvePipelineEvents(story, { demo: "requirements" });
-  assert.ok(
-    demo.some((e) => e.kind === "run_failed" || e.kind === "validator_brake" || e.brake_applied),
-    "requirements demo still aborts",
-  );
-  assert.ok(
-    !demo.some((e) => e.kind === "agent_assign" && e.role === "writer"),
-    "requirements demo must not reach Writer",
   );
 }
 

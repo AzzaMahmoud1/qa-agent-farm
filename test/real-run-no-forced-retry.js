@@ -1,6 +1,7 @@
 /**
- * Default pipeline must not script Analyst incomplete → Validator fail → retry.
- * That path belongs only to demo: "requirements".
+ * The pipeline is real-run only: it must not script an Analyst
+ * incomplete → Validator fail → retry sequence. A retry is allowed only when
+ * live analyst quality actually fails — never forced from a canned stub.
  * Run: node test/real-run-no-forced-retry.js
  */
 import assert from "node:assert/strict";
@@ -31,7 +32,7 @@ setFarmCtx({
   executionResult: null,
 });
 
-const { buildEvents, resolvePipelineEvents } = await import(
+const { buildEvents } = await import(
   pathToFileURL(path.join(root, "agents/orchestrator.js")).href
 );
 
@@ -92,15 +93,5 @@ if (analystValidatorAssigns.length === 1) {
     "must not use the old incomplete-stub message",
   );
 }
-
-const demoEvents = resolvePipelineEvents(story, { demo: "requirements" });
-assert.ok(
-  demoEvents.some((e) => e.kind === "orchestrator_reinstruct" && e.target_agent === "analyst"),
-  "requirements demo still scripts Analyst validator retry",
-);
-assert.ok(
-  demoEvents.some((e) => e.kind === "run_failed" || e.brake_applied || e.kind === "validator_brake"),
-  "requirements demo still ends in abort/brake path",
-);
 
 console.log("real-run-no-forced-retry tests: ok");

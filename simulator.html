@@ -320,11 +320,6 @@ a { color: var(--text-accent); }
       </div>
     </header>
 
-    <div id="demo-banner" class="banner-warn" hidden>
-      <strong>Demo:</strong> <span id="demo-banner-text">Requirements failures — Analyst returns incomplete output, fails validation twice, then the run aborts (validator brake). Exit to use the real default pipeline.</span>
-      <a href="?" id="demo-exit-link" style="margin-left:.5rem">Exit demo</a>
-    </div>
-
     <div id="server-banner" class="banner-warn" hidden>
       JIRA fetch requires the local server. Run <code>node server.js</code> and open <a href="http://127.0.0.1:5173">http://127.0.0.1:5173</a>.
     </div>
@@ -351,6 +346,11 @@ a { color: var(--text-accent); }
               <label class="field-label">Requirements description</label>
               <textarea id="req-description" class="input" rows="14" placeholder="Paste your requirements here (title, Business Rules, Alternative Flow, Exception Flow, …)"></textarea>
               <p style="font-size:.72rem;color:var(--text-muted);margin:.35rem 0 .65rem;line-height:1.45">Paste the full requirement you want analyzed. <strong>Agent 1</strong> runs locally by default. Enable live Cursor Agent with <code>?agent1=live</code>. Prefer <strong>Business Rules</strong> / <strong>Alternative Flow</strong> / <strong>Exception Flow</strong> (or Acceptance Criteria) for testable lines.</p>
+              <label class="field-label">Attachments <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+              <input type="file" id="req-attachments" multiple class="input" style="padding:.4rem;font-size:.78rem"
+                accept=".txt,.md,.markdown,.json,.csv,.tsv,.yml,.yaml,.log,.xml,.html,.htm,text/*,.png,.jpg,.jpeg,.gif,.pdf,.doc,.docx">
+              <p style="font-size:.72rem;color:var(--text-muted);margin:.35rem 0 .5rem;line-height:1.45">Text files (.txt, .md, .json, .csv, …) are read and appended to the requirement the analyst sees. Images / PDFs / Word docs are attached by name only.</p>
+              <ul id="req-attachment-list" style="list-style:none;margin:0 0 .55rem;padding:0;display:flex;flex-direction:column;gap:.3rem"></ul>
               <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.25rem">
                 <button type="button" class="btn btn-primary btn-fetch" id="btn-load-requirements"><i class="ti ti-player-play"></i> Load · run Agent 1</button>
               </div>
@@ -420,14 +420,6 @@ a { color: var(--text-accent); }
           </div>
         </div>
 
-        <div class="panel-card" id="demo-panel">
-          <div class="panel-head"><i class="ti ti-player-play"></i> Demos</div>
-          <div class="panel-body">
-            <button type="button" class="btn" id="btn-demo-default" style="width:100%;justify-content:center;margin-bottom:.5rem"><i class="ti ti-route"></i> Default pipeline</button>
-            <button type="button" class="btn btn-primary" id="btn-demo-requirements" style="width:100%;justify-content:center"><i class="ti ti-alert-triangle"></i> Requirements failures</button>
-            <p style="font-size:.75rem;color:var(--text-muted);margin:.65rem 0 0;line-height:1.5"><strong>Default</strong> = real run (one Analyst return → one Validator check; retry only if live output fails). <strong>Requirements failures</strong> = scripted incomplete→fail→retry→abort demo.</p>
-          </div>
-        </div>
       </aside>
 
       <main>
