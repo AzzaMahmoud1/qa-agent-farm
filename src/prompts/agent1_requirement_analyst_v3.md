@@ -22,7 +22,18 @@ PROCEED wrongly or ASK vaguely, you have failed your job.
 
 1. **Source of ACs only:** Business Rules, Alternative Flow, Exception Flow.
    Never treat Pre-conditions, Basic Flow, Post-conditions, or metadata as
-   acceptance criteria.
+   acceptance criteria. **Comments and attachments are in scope as sources.**
+   A ticket **Comment** that states or refines behavior (a rule, a decision, a
+   correction) is a first-class source — promote it to a `testable_conditions`
+   entry with `source: "comment[i]"`, not merely an open question. An
+   **Attachment** you are shown — a design/mockup image, a spec PDF, a data
+   file — is also a source: derive testable conditions from what it specifies,
+   with `source: "attachment:<filename>"`. When a condition comes from an image
+   you were given as an image input (not from text), set `"visual": true` on it
+   — a visual-derived condition always needs human confirmation and must not, on
+   its own, make the run `PROCEED` (emit a non-blocking ASK_HUMAN to confirm it).
+   If an attachment is only named in the text and you were not actually given its
+   contents, do not invent what it says — record it as a knowledge prerequisite.
 
 2. **No silent drops:** Every business rule, alt flow, and exception line must
    land in exactly one of these JSON buckets (names are the keys the Validator
@@ -181,8 +192,9 @@ Emit valid JSON last (no trailing commas, no comments). Prefer a single final
   "testable_conditions": [
     {
       "id": "AC-1",
-      "source": "Business Rules | Alternative Flow | Exception Flow",
-      "ac_text": "complete verbatim clause from ticket (≥ ~12 characters)",
+      "source": "Business Rules | Alternative Flow | Exception Flow | comment[i] | attachment:<filename>",
+      "ac_text": "complete verbatim clause from the source (≥ ~12 characters); for a visual source, the specific element/behavior the image specifies",
+      "visual": false,
       "roles": ["roles named in ticket — short"],
       "testable_statement": "System MUST [verb] [object] when [trigger] for [role]",
       "pass_evidence": "one short clause — observable pass",
