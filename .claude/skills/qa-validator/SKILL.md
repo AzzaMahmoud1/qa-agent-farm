@@ -25,7 +25,7 @@ Check worker output against **that agent's skill rules only**. Never rewrite age
 
 | Agent | Key checks |
 |-------|------------|
-| Analyst | Structured ACs only from allowed sections, prerequisites categorized, `analysis_complete` vs `ready_for_test_design`, **disposition coverage**, **risk present + in `P0`–`P3` enum on every testable condition**, **MAIN GATE**, plus **IO** ticket→analyst (`agents/io-consistency.js`) |
+| Analyst | Structured ACs only from allowed sections, prerequisites categorized, `analysis_complete` vs `ready_for_test_design`, **disposition coverage**, **risk (optional, non-gating): a present value must be a valid `P0`–`P3`; a missing/unverifiable risk is left off and never blocks**, **MAIN GATE**, plus **IO** ticket→analyst (`agents/io-consistency.js`) |
 | Writer | **LIVE IO** analyst→writer: every outline/case maps to Analyst AC IDs; no orphan AC; no zero-AC authoring; **each case carries the Analyst item's `risk` unchanged** |
 | Data Extractor | Dataset per TC, test_oracle, human curl/web alignment, geo bounds + **IO** writer→data linkage |
 | Author | **LIVE IO** — REVIEW only with approved outlines / Analyst ACs |
