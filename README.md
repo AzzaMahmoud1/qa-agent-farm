@@ -61,7 +61,7 @@ Cursor IDE dispatch config — **not** the simulator runtime. Code changes live 
 
 **Do not remove.** Without it, Cursor chat cannot run the farm as subagents. Simulator-only users still need it if they use `qa:` in Cursor.
 
-Analyst rules stay in **one place:** `src/prompts/agent1_requirement_analyst_v3.md` — `.cursor/skills/qa-analyst` is a pointer only.
+Analyst analysis rules stay in **one place:** the five `skills/*_analysis/SKILL.md` files, applied as grounded isolated passes by `src/agents/requirementAnalyst.js` (the simulator's JS Analyst) and by the `qa-analyst` subagent. `.cursor/skills/qa-analyst` is a pointer to them.
 
 ## `.claude/` folder (keep it)
 

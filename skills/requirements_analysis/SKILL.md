@@ -4,7 +4,7 @@ description: >-
   Extract acceptance criteria from a ticket, with every criterion traced to a
   verbatim evidence quote. Abstains explicitly when the evidence is
   insufficient or conflicting rather than guessing. Output is schema- and
-  grounding-validated by analyst_agent/.
+  grounding-validated in code (src/agents/grounding.js).
 ---
 
 # Requirements analysis
@@ -122,7 +122,10 @@ or after, no markdown fence.
 
 ## Contract
 
-Schema: `analyst_agent/models.py` (`RequirementsAnalysisResult`) and
-`skills/requirements_analysis/schemas/output.schema.json`.
-Grounding checks: `analyst_agent/grounding.py`.
-Status/confidence coherence: `analyst_agent/validation.py`.
+Schema: `skills/requirements_analysis/schemas/output.schema.json`.
+Grounding checks: `src/agents/grounding.js` — every `evidence_quote` must
+appear verbatim in the story or the criterion is dropped, never passed
+downstream.
+Assembly + readiness gate: `src/agents/requirementAnalyst.js`
+(`assembleAnalystContract`) turns grounded criteria into the pipeline's
+`testable_conditions` and decides PROCEED / HOLD / ASK_HUMAN in code.

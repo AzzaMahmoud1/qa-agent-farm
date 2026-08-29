@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://qa-agent-farm.local/schemas/requirements_analysis_result.json",
   "title": "RequirementsAnalysisResult",
-  "description": "Strict output contract for the requirements_analysis skill. Mirrors analyst_agent/models.py:RequirementsAnalysisResult. Every acceptance criterion must carry a verbatim evidence quote that analyst_agent/grounding.py verifies against the real source text.",
+  "description": "Strict output contract for the requirements_analysis skill. Every acceptance criterion must carry a verbatim evidence quote that src/agents/grounding.js verifies against the real source text.",
   "type": "object",
   "additionalProperties": false,
   "required": ["status", "overall_confidence", "requires_human_review"],

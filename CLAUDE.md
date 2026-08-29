@@ -46,7 +46,7 @@ must be started via the orchestrator using "qa:", "test:", or "ticket:".
   with title / Given / When / Then)
 - Author → `.claude/skills/qa-author/SKILL.md` (optional live authoring only)
 - Orchestrator handoffs → `.claude/skills/qa-orchestrator/SKILL.md`
-- Transitional JSON (simulator/legacy) → `src/prompts/agent1_requirement_analyst_v3.md`
+- Analysis skills (shared by Claude + simulator) → `skills/{requirements,risk,test_gap,source,root_cause}_analysis/SKILL.md`; the simulator's JS Analyst that runs them as grounded isolated passes → `src/agents/requirementAnalyst.js`
 - All other agent rules → `.claude/skills/qa-*/SKILL.md`
 
 ## Relationship to Cursor

@@ -164,11 +164,33 @@ Worked example of splitting one flow into atomic lines (this is the level of gra
 — four lines, not one, because each is independently observable and each can fail without the others failing.>
 ```
 
+## Analysis skills (apply as isolated passes)
+
+Build the Atomic Requirements Checklist by applying the shared analysis skills
+in `skills/` — one at a time, each in isolation so the model has a single
+narrow job per pass (this is what suppresses hallucination):
+
+1. `skills/requirements_analysis/SKILL.md` — extract acceptance criteria, each
+   tied to a verbatim story quote; abstain when the evidence is insufficient or
+   conflicting rather than guessing.
+2. `skills/risk_analysis/SKILL.md` — likelihood × impact → the `Risk: P0–P3`
+   carried on every checklist line.
+3. `skills/test_gap_analysis/SKILL.md` — black-box techniques → coverage gaps
+   the checklist must include.
+4. `skills/source_analysis/SKILL.md` — only when a diff/changeset is present.
+5. `skills/root_cause_analysis/SKILL.md` — only for a failure investigation.
+
+Every criterion must quote the story verbatim (≥ ~12 chars) or it is dropped —
+never invent an AC the evidence does not support. These same five skill files
+drive the simulator's JS Analyst (`src/agents/requirementAnalyst.js`), so the
+Cursor pipeline and the simulator share one behavior.
+
 ## Code module
 
-`agents/analyst.js` · stub logic in `lib/prerequisites.js`
-
-Transitional JSON schema (simulator / legacy pipeline): `src/prompts/agent1_requirement_analyst_v3.md`
+Simulator runtime: `src/agents/requirementAnalyst.js` runs the five skills as
+grounded isolated passes and assembles the contract; payload/contract glue in
+`agents/analyst.js` + `agents/analyst-contract.js`; grounding in
+`src/agents/grounding.js`; stub logic in `lib/prerequisites.js`.
 
 Jira fetch → attachments → Testing Team review comment (separate workflow):
 `.cursor/skills/qa-analyst/jira-issue-review.md`

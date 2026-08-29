@@ -31,7 +31,7 @@ Check worker output against **that agent's skill rules only**. Never rewrite age
 | Author | **LIVE IO** — REVIEW only with approved outlines / Analyst ACs |
 | Executor / Reviewer / Reporter | Prefer LIVE evidence checks; if timeline-only, label **`SIMULATED_GATE`** (not production-grade) |
 
-Analyst MAIN GATE source of truth: `src/prompts/agent1_requirement_analyst_v3.md`.  
+Analyst MAIN GATE source of truth: `agents/analyst-contract.js` (`checkAnalystPromptContract`).  
 Cross-handoff fidelity: `agents/io-consistency.js`. Orchestrator decisions: `agents/orchestrator-decide.js`.
 
 ## Output

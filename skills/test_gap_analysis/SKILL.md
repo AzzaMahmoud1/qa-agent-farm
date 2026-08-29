@@ -130,7 +130,8 @@ Return a single JSON object:
 
 ## Contract
 
-Schema: `analyst_agent/models.py` (`TestGapAnalysisResult`).
-Grounding: `analyst_agent/grounding.py`.
-Coherence: `analyst_agent/validation.py` — rejects duplicate
-element+technique pairs and single-technique results of four or more gaps.
+Grounding: `src/agents/grounding.js` — every `evidence_quote` must appear
+verbatim in the story or the gap is dropped.
+Assembly: grounded gaps feed the analyst contract as `coverage_gaps` via
+`src/agents/requirementAnalyst.js`. Advisory: output always requires human
+review before it drives test work.
