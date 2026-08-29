@@ -109,8 +109,7 @@ Return a single JSON object:
 
 ## Contract
 
-Schema: `analyst_agent/models.py` (`SourceAnalysisResult`).
-Grounding: `analyst_agent/grounding.py` — `evidence_quote` must appear
-verbatim in the cited `source_field`.
-Coherence: `analyst_agent/validation.py` — rejects empty `observable_effect`
-and `removed` surfaces with no regression area.
+Grounding: `src/agents/grounding.js` — `evidence_quote` must appear verbatim
+in the story (the diff/changeset) or the surface is dropped.
+Only runs when a diff/changeset is present. Advisory: output always requires
+human review before it drives test work.

@@ -131,7 +131,9 @@ Return a single JSON object:
 
 ## Contract
 
-Schema: `analyst_agent/models.py` (`RiskAnalysisResult`, `derive_priority`).
-Grounding: `analyst_agent/grounding.py`.
-Coherence: `analyst_agent/validation.py` — rejects an analysis where more
-than half the risks are `critical`, and rationales that restate the risk.
+Grounding: `src/agents/grounding.js` — every `evidence_quote` must appear
+verbatim in the story or the risk is dropped.
+Priority: derived in code from likelihood × impact by
+`src/agents/requirementAnalyst.js` (`derivePriority` → P0–P3), not chosen by
+the model. Advisory: output always requires human review before it drives
+test work.

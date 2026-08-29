@@ -9,10 +9,8 @@
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { writeFileSync, mkdirSync } from "node:fs";
-import {
-  effortForAttempt,
-  ANALYST_PROMPT,
-} from "../src/agents/requirementAnalyst.js";
+import { effortForAttempt } from "../src/agents/requirementAnalyst.js";
+import { ANALYST_SKILLS } from "../src/agents/skillLoader.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -59,7 +57,7 @@ console.log(
   "· first effort:", effortForAttempt(1),
   "· retry effort:", effortForAttempt(2),
 );
-console.log("Prompt:", "src/prompts/agent1_requirement_analyst_v3.md", `(${ANALYST_PROMPT.length} chars)`);
+console.log("Skills (isolated passes):", Object.keys(ANALYST_SKILLS).join(", "));
 console.log("---");
 
 const started = Date.now();
@@ -108,7 +106,7 @@ console.log("blocking prerequisites:", parsed.prerequisites_needed?.blocking?.le
 console.log("coverage_gaps:", parsed.coverage_gaps?.length ?? 0);
 console.log("orchestrator_actions:");
 for (const a of parsed.analyst_report?.orchestrator_actions || []) {
-  console.log(`  - [${a.action}] ${a.target} — ${a.detail} (blocking=${a.blocking})`);
+  console.log(`  - [${a.action}] ${a.target_agent || ""} — ${a.detail} (blocking=${a.blocking})`);
 }
 console.log("---");
 console.log("Scratchpad preview (first 600 chars):");

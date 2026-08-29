@@ -1,6 +1,7 @@
 /**
  * Analyst MAIN GATE — Validator second-opinion checks.
- * Aligns with src/prompts/agent1_requirement_analyst_v3.md
+ * Aligns with the contract assembled by src/agents/requirementAnalyst.js
+ * (assembleAnalystContract) from the five grounded analysis-skill passes.
  */
 
 import { checkDispositionCoverage } from "./disposition-coverage.js";
@@ -8,11 +9,11 @@ import { checkDispositionCoverage } from "./disposition-coverage.js";
 const VAGUE_ASK_RE = /\b(need more info|more information|clarify|unclear|tbd|todo|n\/a|please clarify|not (enough|clear)|requirements?\s+unclear)\b/i;
 
 // Grounding: PROCEED must be *earned* by evidence, not asserted. Mirrors the
-// grounding-first contract in analyst_agent/ (dispatch.py + skills/*/schemas):
-// a testable_condition is grounded only when it carries a verbatim ticket quote
+// grounding-first contract enforced in src/agents/grounding.js: a
+// testable_condition is grounded only when it carries a verbatim ticket quote
 // (ac_text / evidence_quote / cite) of at least this many characters after
-// whitespace normalization — matching the prompt's "complete verbatim clause
-// (≥ ~12 characters)" rule and schemas/output.schema.json's evidence_quote min.
+// whitespace normalization — matching grounding.js's MIN_QUOTE_CHARS and the
+// per-skill schemas' evidence_quote minimum.
 const MIN_EVIDENCE_CHARS = 12;
 
 function evidenceQuoteOf(c) {

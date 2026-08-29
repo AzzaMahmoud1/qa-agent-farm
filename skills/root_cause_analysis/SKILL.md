@@ -155,8 +155,7 @@ rather than guessing at one.
 
 ## Contract
 
-Schema: `analyst_agent/models.py` (`RootCauseAnalysisResult`, `WhyStep`).
-Grounding: `analyst_agent/grounding.py` — verifies the finding's quote *and*
-every step claiming to be `evidenced`.
-Coherence: `analyst_agent/validation.py` — rejects empty chains, chains with
-no evidenced step, and speculative chains asserting high confidence.
+Grounding: `src/agents/grounding.js` — the finding's `evidence_quote` must
+appear verbatim in the story or the root cause is dropped.
+Only runs when a failure investigation is explicitly requested. Advisory:
+output always requires human review before it drives test work.

@@ -43,5 +43,9 @@ Confidence). Every checklist line ends with ` — Reason: …`.
 Return the written file path and a one-line extraction summary (AF/EF/BR/MSG/DM
 counts, atomic checklist total, comment-vs-description delta).
 
-Transitional JSON schema for the simulator/legacy path remains in
-`src/prompts/agent1_requirement_analyst_v3.md` — do not restate it here.
+Build the checklist by applying the five shared analysis skills in `skills/`
+as isolated, grounded passes (requirements → risk → test-gap, plus source when
+a diff is present and root-cause for a failure investigation) — see
+`.claude/skills/qa-analyst/SKILL.md`. The same five skill files drive the
+simulator's JS Analyst (`src/agents/requirementAnalyst.js`), so do not restate
+their contents here.
