@@ -252,8 +252,8 @@ assert.equal(checkAnalystPromptContract({
   const live = validateAnalystOutputLive({}, dualPayload);
   assert.equal(live.passed, true, (live.failures || live.detail_failures || []).join("; "));
 
-  // Risk (soft output-quality check): dropping risk fails the live validator but
-  // NOT the MAIN GATE readiness contract — risk never changes readiness.
+  // Risk is optional prioritization metadata — a missing/unverifiable risk is
+  // left off and must NEVER block: neither the MAIN GATE nor the live validator.
   const noRisk = {
     ...dualPayload,
     testable_conditions: dualPayload.testable_conditions.map(({ risk, ...c }) => c),
@@ -261,24 +261,23 @@ assert.equal(checkAnalystPromptContract({
   const contractNoRisk = checkAnalystPromptContract(noRisk);
   assert.equal(contractNoRisk.ok, true, "MAIN GATE must ignore missing risk");
   const liveNoRisk = validateAnalystOutputLive({}, noRisk);
-  assert.equal(liveNoRisk.passed, false, "live validator must fail on missing risk");
+  assert.equal(liveNoRisk.passed, true, "live validator must NOT block on missing risk");
   assert.ok(
-    (liveNoRisk.failures || []).some((f) => /RISK:.*missing a risk/i.test(f)),
-    (liveNoRisk.failures || []).join("; "),
+    !(liveNoRisk.failures || []).some((f) => /RISK.*missing/i.test(f)),
+    "missing risk must not appear as a failure",
   );
 }
 
-// checkAnalystRisk unit checks
+// checkAnalystRisk unit checks — soft, non-gating; missing risk is left, not failed
 {
   const ok = [{ id: "AC-1", risk: "P0" }, { id: "AC-2", risk: "p3" }];
   assert.deepEqual(checkAnalystRisk({ testable_conditions: ok }), []);
   // no conditions ⇒ nothing to check
   assert.deepEqual(checkAnalystRisk({ testable_conditions: [] }), []);
   assert.deepEqual(checkAnalystRisk({}), []);
-  // missing risk
-  const missing = checkAnalystRisk({ testable_conditions: [{ id: "AC-1" }] });
-  assert.ok(missing.some((f) => /missing a risk/i.test(f)), missing.join("; "));
-  // out-of-enum
+  // missing risk ⇒ left off, NOT a failure
+  assert.deepEqual(checkAnalystRisk({ testable_conditions: [{ id: "AC-1" }] }), []);
+  // present but out-of-enum ⇒ surfaced as a soft note (still non-gating)
   const bad = checkAnalystRisk({ testable_conditions: [{ id: "AC-1", risk: "P9" }] });
   assert.ok(bad.some((f) => /out-of-enum/i.test(f)), bad.join("; "));
 }

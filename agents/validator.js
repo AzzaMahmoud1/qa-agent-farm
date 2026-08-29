@@ -130,38 +130,40 @@ export function markSimulatedGate(validation, reason) {
 const RISK_ENUM = new Set(["P0", "P1", "P2", "P3"]);
 
 /**
- * Soft output-quality check: every testable condition must carry a `risk` in the
- * P0–P3 enum (probability × impact) so the Writer can carry it onto each test
- * case. Deliberately NOT part of the MAIN GATE readiness contract
- * (`checkAnalystPromptContract`) — risk is prioritization metadata and must never
- * change PROCEED / ready_for_test_design. A miss here drives the validator's
- * retry-once corrective flow, not a readiness block.
+ * Soft, NON-GATING risk note. `risk` (P0–P3, probability × impact) is optional
+ * prioritization metadata the Writer carries onto a test case when present. It
+ * MUST NOT block: a condition with no verifiable risk simply carries none —
+ * that is a normal outcome, never a failure, and never changes PROCEED /
+ * ready_for_test_design or the live gate. The only thing worth surfacing is a
+ * PRESENT value outside the P0–P3 enum (a data-hygiene note), and even that
+ * does not gate readiness.
  * @see .cursor/skills/qa-validator/SKILL.md (Analyst row)
  */
 export function checkAnalystRisk(analystOutput) {
   const conditions = analystOutput?.testable_conditions;
   if (!Array.isArray(conditions) || conditions.length === 0) return [];
-  const failures = [];
+  const notes = [];
   for (const c of conditions) {
     const id = c?.id || "?";
     const risk = c?.risk;
-    if (risk == null || risk === "") {
-      failures.push(`RISK: testable_condition ${id} is missing a risk (expected one of P0/P1/P2/P3)`);
-    } else if (!RISK_ENUM.has(String(risk).trim().toUpperCase())) {
-      failures.push(`RISK: testable_condition ${id} has out-of-enum risk "${risk}" (expected P0/P1/P2/P3)`);
+    if (risk == null || risk === "") continue; // no risk verified — left off, not a failure
+    if (!RISK_ENUM.has(String(risk).trim().toUpperCase())) {
+      notes.push(`RISK (soft): testable_condition ${id} has out-of-enum risk "${risk}" (expected P0/P1/P2/P3)`);
     }
   }
-  return failures;
+  return notes;
 }
 
 export function validateAnalystOutputLive(story, analystOutput) {
   const contract = checkAnalystPromptContract(analystOutput, story);
   const io = checkIoConsistency(HANDOFF.TICKET_ANALYST, { story, analyst: analystOutput });
-  const riskFailures = checkAnalystRisk(analystOutput);
+  // Risk is optional prioritization metadata — surfaced as a soft note, never
+  // part of `passed`. A missing/unverifiable risk must not block the pipeline.
+  const riskNotes = checkAnalystRisk(analystOutput);
 
   if (typeof farmCtx.prerequisites.validateAnalystOutput !== "function") {
-    const failures = [...contract.failures, ...ioFailuresAsMessages(io), ...riskFailures];
-    const passed = contract.ok && io.ok && riskFailures.length === 0;
+    const failures = [...contract.failures, ...ioFailuresAsMessages(io)];
+    const passed = contract.ok && io.ok;
     const decision = deliberateHandoff({
       handoff: HANDOFF.TICKET_ANALYST,
       ctx: { story, analyst: analystOutput },
@@ -172,7 +174,7 @@ export function validateAnalystOutputLive(story, analystOutput) {
       ? null
       : "Analyst MAIN GATE / disposition / IO fidelity failed",
     { gate_mode: "LIVE", io, orchestrator_decision: decision });
-    return { ...base, detail_failures: failures, ac_quality: { failed_rules: ["MAIN GATE"] } };
+    return { ...base, detail_failures: failures, ac_quality: { failed_rules: ["MAIN GATE"], risk_notes: riskNotes } };
   }
 
   const live = farmCtx.prerequisites.validateAnalystOutput(story, analystOutput);
@@ -183,10 +185,7 @@ export function validateAnalystOutputLive(story, analystOutput) {
   for (const f of ioFailuresAsMessages(io)) {
     if (!failures.includes(f)) failures.push(f);
   }
-  for (const f of riskFailures) {
-    if (!failures.includes(f)) failures.push(f);
-  }
-  const passed = live.passed && contract.ok && io.ok && riskFailures.length === 0;
+  const passed = live.passed && contract.ok && io.ok;
   const decision = deliberateHandoff({
     handoff: HANDOFF.TICKET_ANALYST,
     ctx: { story, analyst: analystOutput },
@@ -203,7 +202,8 @@ export function validateAnalystOutputLive(story, analystOutput) {
     ac_quality: {
       valid_ac_count: live.valid_ac_count,
       rejected_ac_count: live.rejected_ac_count,
-      failed_rules: [...(live.failedRules || []), ...(contract.ok ? [] : ["MAIN GATE"]), ...(riskFailures.length ? ["RISK"] : [])],
+      failed_rules: [...(live.failedRules || []), ...(contract.ok ? [] : ["MAIN GATE"])],
+      risk_notes: riskNotes,
     },
   };
 }

@@ -766,9 +766,14 @@ function priorityToP(priority) {
   }
 }
 
-/** Best-effort risk level for one AC, matched by shared verbatim evidence. */
+/**
+ * Priority (P0–P3) for one AC, derived from a grounded risk that matches it by
+ * shared verbatim evidence. Risk is prioritization metadata only — it never
+ * blocks. If no verified risk supports this condition, return null ("leave it")
+ * rather than inventing a default priority.
+ */
 function pickRiskFor(ac, riskRun) {
-  if (!riskRun || !Array.isArray(riskRun.findings) || !riskRun.findings.length) return "P2";
+  if (!riskRun || !Array.isArray(riskRun.findings) || !riskRun.findings.length) return null;
   const acQuote = normalize(ac.evidence_quote || ac.statement || "");
   for (const r of riskRun.findings) {
     const rq = normalize(r.evidence_quote || "");
@@ -776,7 +781,7 @@ function pickRiskFor(ac, riskRun) {
       return priorityToP(derivePriority(r.likelihood, r.impact));
     }
   }
-  return "P2";
+  return null;
 }
 
 /** Overall confidence label from the requirements pass. */
