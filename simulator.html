@@ -173,6 +173,74 @@ h1, .app-title { font-family: var(--font-display); }
 .output-tab.active { border-color: transparent; color: var(--accent-weak-text); background: var(--accent-weak); }
 .pipeline-wrap, .diagram-panel, .detail-panel, .log-panel, .outputs-panel { border-radius: var(--radius-lg); }
 [id]{ scroll-margin-top: 78px; }
+
+/* ---------- console dashboard (Farm Console look, real data) ---------- */
+.cd-wrap { max-width: 1200px; display: flex; flex-direction: column; gap: 16px; margin-bottom: 22px; }
+.cd-tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
+@media (max-width: 1080px) { .cd-tiles { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 640px) { .cd-tiles { grid-template-columns: repeat(2, 1fr); } }
+.cd-tile { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 15px 16px; box-shadow: var(--shadow-sm); }
+.cd-tile .cd-k { font-size: 12px; color: var(--text-muted); font-weight: 600; display: flex; align-items: center; gap: 7px; }
+.cd-tile .cd-k i { font-size: 15px; color: var(--accent); }
+.cd-tile .cd-v { font-family: var(--font-display); font-weight: 700; font-size: 1.7rem; letter-spacing: -.02em; margin-top: 9px; font-variant-numeric: tabular-nums; }
+.cd-tile .cd-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 3px; }
+.cd-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
+.cd-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.cd-head h2 { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--text-primary); text-transform: none; letter-spacing: -.01em; margin: 0; }
+.cd-sub2 { font-size: 12px; color: var(--text-muted); }
+.cd-head-actions { margin-left: auto; display: flex; gap: 8px; }
+.cd-head .cd-seg, .cd-head .cd-status { margin-left: auto; }
+.cd-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; border-radius: 20px; padding: 3px 11px; background: var(--surface-1); color: var(--text-muted); border: 1px solid var(--border); }
+.cd-status .d { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); }
+.cd-status.run { background: var(--accent-weak); color: var(--accent-weak-text); border-color: transparent; }
+.cd-status.run .d { background: var(--accent); animation: blink 1.2s infinite; }
+.cd-status.done { background: color-mix(in srgb, var(--pass) 16%, transparent); color: var(--pass); border-color: transparent; }
+.cd-status.done .d { background: var(--pass); animation: none; }
+@keyframes blink { 50% { opacity: .35; } }
+/* live pipeline strip — artifact style (rounded-square icons + status pill) */
+.cd-pipe { padding: 18px; overflow-x: auto; }
+.cd-pipe .pipeline { gap: 0; }
+.cd-pipe .pipeline-dot { width: 44px; height: 44px; border-radius: 12px; font-size: 18px; }
+.cd-pipe .pipeline-step { min-width: 92px; padding: 0 4px; }
+.cd-pipe .pipeline-label { font-size: 11px; margin-top: 8px; }
+.cd-pipe .pipeline-step::after { content: "idle"; margin-top: 6px; font-size: 10px; font-weight: 600; padding: 1px 8px; border-radius: 20px; background: var(--surface-1); color: var(--text-muted); border: 1px solid var(--border); }
+.cd-pipe .pipeline-step.done::after { content: "done"; background: color-mix(in srgb, var(--pass) 15%, transparent); color: var(--pass); border-color: transparent; }
+.cd-pipe .pipeline-step.running::after { content: "active"; background: var(--accent-weak); color: var(--accent-weak-text); border-color: transparent; }
+.cd-pipe .pipeline-connector { margin-bottom: 34px; }
+.cd-grid2 { display: grid; grid-template-columns: 1.55fr 1fr; gap: 16px; }
+@media (max-width: 1080px) { .cd-grid2 { grid-template-columns: 1fr; } }
+.cd-seg { display: inline-flex; background: var(--surface-1); border: 1px solid var(--border); border-radius: 9px; padding: 2px; }
+.cd-seg button { border: 0; background: transparent; color: var(--text-muted); font-size: 12px; font-weight: 600; padding: 5px 11px; border-radius: 7px; cursor: pointer; }
+.cd-seg button.on { background: var(--surface-2); color: var(--text-primary); box-shadow: var(--shadow-sm); }
+.cd-chart-wrap { padding: 16px 18px; position: relative; }
+.cd-chart { width: 100%; height: 220px; display: block; }
+.cd-chart .gl { stroke: var(--border); stroke-width: 1; }
+.cd-chart .at { fill: var(--text-muted); font-size: 11px; font-family: var(--font-sans); }
+.cd-chart .bar { fill: var(--accent); }
+.cd-chart .bar.zero { fill: var(--border-strong); }
+.cd-chart .bv { fill: var(--text-secondary); font-size: 11px; font-weight: 600; font-family: var(--font-mono); }
+.cd-empty { color: var(--text-muted); font-size: 13px; text-align: center; padding: 34px 18px; line-height: 1.5; }
+.cd-mini { padding: 8px 18px 16px; }
+.cd-mini table { width: 100%; border-collapse: collapse; }
+.cd-mini td, .cd-mini th { text-align: left; padding: 7px 4px; font-size: 12.5px; border-bottom: 1px solid var(--border); }
+.cd-mini th { color: var(--text-muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.cd-mini td:last-child, .cd-mini th:last-child { text-align: right; font-family: var(--font-mono); }
+.cd-detail { padding: 16px 18px; }
+.cd-detail .rid { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--accent-weak-text); background: var(--accent-weak); border-radius: 7px; padding: 3px 8px; display: inline-block; }
+.cd-detail .rstory { font-family: var(--font-display); font-weight: 700; font-size: 15px; margin: 11px 0 2px; }
+.cd-detail .kv { display: grid; grid-template-columns: 1fr auto; margin-top: 12px; }
+.cd-detail .kv .k { color: var(--text-muted); font-size: 12.5px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.cd-detail .kv .v { text-align: right; font-family: var(--font-mono); font-size: 13px; font-weight: 600; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.cd-table { width: 100%; border-collapse: collapse; min-width: 640px; }
+.cd-table th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 600; text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--border); background: var(--surface-1); white-space: nowrap; }
+.cd-table td { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 13.5px; }
+.cd-table tr:last-child td { border-bottom: 0; }
+.cd-table tbody tr:hover { background: var(--surface-1); }
+.cd-table .st { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; border-radius: 20px; padding: 3px 10px; }
+.cd-table .st.pass { background: color-mix(in srgb, var(--pass) 15%, transparent); color: var(--pass); }
+.cd-table .st.hold { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.cd-workspace-head { font-family: var(--font-display); font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 18px; border-top: 1px solid var(--border); }
+.cd-workspace-head i { color: var(--accent); }
 .app-header { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; }
 .app-title { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 .25rem; }
 .app-subtitle { font-size: .875rem; color: var(--text-secondary); margin: 0; }
@@ -429,16 +497,16 @@ a { color: var(--text-accent); }
           <div class="ll-nav-label">QA Gateway</div>
           <a class="ll-nav-item active" href="#top"><i class="ti ti-layout-dashboard"></i> Dashboard</a>
           <a class="ll-nav-item" href="#sec-story"><i class="ti ti-file-import"></i> Story source</a>
-          <a class="ll-nav-item" href="#sec-pipeline"><i class="ti ti-git-branch"></i> Pipeline</a>
+          <a class="ll-nav-item" href="#console-dashboard"><i class="ti ti-git-branch"></i> Pipeline</a>
           <a class="ll-nav-item" href="#sec-outputs"><i class="ti ti-messages"></i> Agent outputs</a>
         </div>
         <div class="ll-nav-group">
           <div class="ll-nav-label">Pipeline agents</div>
-          <a class="ll-nav-item" href="#sec-pipeline"><i class="ti ti-target"></i> Orchestrator</a>
-          <a class="ll-nav-item" href="#sec-pipeline"><i class="ti ti-search"></i> Analyst</a>
-          <a class="ll-nav-item" href="#sec-pipeline"><i class="ti ti-edit"></i> Writer</a>
-          <a class="ll-nav-item" href="#sec-pipeline"><i class="ti ti-player-play"></i> Executor</a>
-          <a class="ll-nav-item" href="#sec-pipeline"><i class="ti ti-checkup-list"></i> Validator</a>
+          <a class="ll-nav-item" href="#console-dashboard"><i class="ti ti-target"></i> Orchestrator</a>
+          <a class="ll-nav-item" href="#console-dashboard"><i class="ti ti-search"></i> Analyst</a>
+          <a class="ll-nav-item" href="#console-dashboard"><i class="ti ti-edit"></i> Writer</a>
+          <a class="ll-nav-item" href="#console-dashboard"><i class="ti ti-player-play"></i> Executor</a>
+          <a class="ll-nav-item" href="#console-dashboard"><i class="ti ti-checkup-list"></i> Validator</a>
         </div>
         <div class="ll-nav-group">
           <div class="ll-nav-label">Observability</div>
@@ -484,6 +552,48 @@ a { color: var(--text-accent); }
         </div>
       </header>
       <div class="ll-content">
+
+    <!-- ============ Console dashboard (real data from your runs) ============ -->
+    <section class="cd-wrap" id="console-dashboard">
+      <div class="cd-tiles">
+        <div class="cd-tile"><div class="cd-k"><i class="ti ti-list-details"></i> Runs</div><div class="cd-v" id="cd-runs">0</div><div class="cd-sub" id="cd-runs-sub">this session</div></div>
+        <div class="cd-tile"><div class="cd-k"><i class="ti ti-edit"></i> Test cases</div><div class="cd-v" id="cd-tc">0</div><div class="cd-sub">generated</div></div>
+        <div class="cd-tile"><div class="cd-k"><i class="ti ti-circle-check"></i> Avg QA score</div><div class="cd-v" id="cd-score">—</div><div class="cd-sub">across scored runs</div></div>
+        <div class="cd-tile"><div class="cd-k"><i class="ti ti-shield-check"></i> ACs validated</div><div class="cd-v" id="cd-acs">0</div><div class="cd-sub">grounded criteria</div></div>
+        <div class="cd-tile"><div class="cd-k"><i class="ti ti-search"></i> Coverage gaps</div><div class="cd-v" id="cd-gaps">0</div><div class="cd-sub">flagged</div></div>
+      </div>
+
+      <div class="cd-card">
+        <div class="cd-head"><h2>Live pipeline</h2><span class="cd-sub2" id="cd-pipe-story">no active run</span>
+          <span class="cd-status" id="cd-pipe-status"><span class="d"></span>Idle</span></div>
+        <div class="cd-pipe" id="dash-pipeline-host"><!-- live #pipeline-bar is moved here --></div>
+      </div>
+
+      <div class="cd-grid2">
+        <div class="cd-card">
+          <div class="cd-head"><h2>Test cases by run</h2><span class="cd-sub2">this session</span>
+            <div class="cd-seg"><button class="on" id="cd-seg-chart">Chart</button><button id="cd-seg-table">Table</button></div></div>
+          <div class="cd-chart-wrap" id="cd-chart-wrap">
+            <svg class="cd-chart" id="cd-chart" viewBox="0 0 640 220" preserveAspectRatio="none" aria-label="Test cases by run"></svg>
+            <div class="cd-empty" id="cd-chart-empty">No runs yet — start one below and this fills with real data.</div>
+          </div>
+          <div class="cd-mini" id="cd-chart-table" hidden></div>
+        </div>
+        <div class="cd-card">
+          <div class="cd-head"><h2>Latest run</h2><span class="cd-sub2">detail</span></div>
+          <div class="cd-detail" id="cd-detail"><div class="cd-empty">Run detail appears here after your first run.</div></div>
+        </div>
+      </div>
+
+      <div class="cd-card">
+        <div class="cd-head"><h2>Recent runs</h2><span class="cd-sub2" id="cd-runs-count">0 runs</span>
+          <div class="cd-head-actions"><button class="btn" id="cd-clear" title="Clear session run history"><i class="ti ti-trash"></i></button>
+          <button class="btn btn-primary" id="cd-new-run"><i class="ti ti-plus"></i> New run</button></div></div>
+        <div class="tbl-wrap"><table class="cd-table" id="cd-runs-table"></table></div>
+      </div>
+
+      <div class="cd-workspace-head"><i class="ti ti-player-play"></i> Run workspace — load a story and drive the pipeline</div>
+    </section>
 
     <div id="server-banner" class="banner-warn" hidden>
       JIRA fetch requires the local server. Run <code>node server.js</code> and open <a href="http://127.0.0.1:5173">http://127.0.0.1:5173</a>.
@@ -756,5 +866,6 @@ a { color: var(--text-accent); }
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="report-docx.js"></script>
   <script type="module" src="js/simulator-app.js"></script>
+  <script defer src="js/console-dashboard.js"></script>
 </body>
 </html>
