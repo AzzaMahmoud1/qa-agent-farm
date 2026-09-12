@@ -3,6 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    // Set the theme before first paint (no flash): saved choice, else system.
+    (function () {
+      try {
+        var t = localStorage.getItem("qa-theme");
+        if (!t) t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.setAttribute("data-theme", t);
+      } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }
+    })();
+  </script>
   <title>QA Agent Farm — Simulator</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -45,6 +55,57 @@
   --accent-weak: #eef2ff;
   --accent-weak-text: #4338ca;
 }
+/* ---------- dark theme (the Farm Console palette) ---------- */
+:root[data-theme="dark"] {
+  --text-primary: #e7eaf3;
+  --text-secondary: #a8b0c6;
+  --text-muted: #8590a7;
+  --text-accent: #8a90ff;
+  --border: #212a3d;
+  --border-strong: #2b354b;
+  --surface-0: #0e1422;
+  --surface-1: #0e1422;
+  --surface-2: #111725;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.45);
+  --shadow-md: 0 16px 40px -8px rgba(0,0,0,.6);
+  --purple: #9b8afb;
+  --teal: #2dd4bf;
+  --amber: #fdb022;
+  --coral: #fb7185;
+  --indigo: #818cf8;
+  --pass: #32d583;
+  --warn: #fdb022;
+  --orch: #9b8afb;
+  --assign: #8a90ff;
+  --line: #212a3d;
+  --panel: #111725;
+  --text: #e7eaf3;
+  --muted: #8590a7;
+  --accent: #7c83ff;
+  --bg: #0a0e19;
+  --accent-weak: #1b2140;
+  --accent-weak-text: #c2c6ff;
+}
+/* dark overrides for the handful of components with hardcoded light colors */
+:root[data-theme="dark"] .ll-topbar { background: rgba(10,14,25,.85); }
+:root[data-theme="dark"] .banner-warn { background: #2e1e05; border-color: #4a3410; color: #fdd9a0; }
+:root[data-theme="dark"] .jira-status { border-color: var(--border); }
+:root[data-theme="dark"] .jira-status.ok { background: #0b2b1c; border-color: #1f5a3a; color: #6ce9a6; }
+:root[data-theme="dark"] .jira-status.err { background: #2e1e05; border-color: #5a4410; color: #fec84b; }
+:root[data-theme="dark"] .jira-status.loading { background: #0a1c33; border-color: #1c3a5a; color: #84caff; }
+:root[data-theme="dark"] .orchestrator { background: #1b2140; border-color: #3a3f6a; }
+:root[data-theme="dark"] .prerequisites-panel { border-color: #3a3f6a; }
+:root[data-theme="dark"] .prerequisites-panel .panel-head { background: #1b2140; color: #c2c6ff; }
+:root[data-theme="dark"] .human-api-panel { border-color: #5a4410; }
+:root[data-theme="dark"] .human-api-panel .panel-head { background: #2e1e05; }
+:root[data-theme="dark"] .pipeline-step.running .pipeline-dot { background: #1b2140; }
+:root[data-theme="dark"] .log-item.current { background: #12203a; border-left-color: var(--accent); }
+:root[data-theme="dark"] .decision { background: #171033; border-color: #3a2f6a; }
+:root[data-theme="dark"] .feedback-panel, :root[data-theme="dark"] .feedback-loop.active { background: #12203a; border-color: #1c3a5a; }
+:root[data-theme="dark"] .kind-badge.assign, :root[data-theme="dark"] .kind-badge.phase { background: #12203a; color: #84caff; }
+:root[data-theme="dark"] .kind-badge.decision { background: #1b2140; color: #c2c6ff; }
+:root[data-theme="dark"] .kind-badge.return, :root[data-theme="dark"] .kind-badge.validate { background: #0b2b1c; color: #6ce9a6; }
+:root[data-theme="dark"] .output-tab.done { border-color: #1f5a3a; }
 * { box-sizing: border-box; }
 body {
   margin: 0;
@@ -105,8 +166,9 @@ h1, .app-title { font-family: var(--font-display); }
 .sim-pill { background: var(--surface-2); border-color: var(--border); color: var(--text-secondary); box-shadow: var(--shadow-sm); }
 .panel-card { border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
 .panel-head { text-transform: none; letter-spacing: 0; font-size: .82rem; font-weight: 700; color: var(--text-primary); background: transparent; }
-.stat-card { border-radius: var(--radius); }
-.stat-value { font-family: var(--font-display); }
+.stat-card { border-radius: var(--radius); text-align: left; padding: 13px 15px; }
+.stat-value { font-family: var(--font-display); font-size: 1.65rem; }
+.stat-label { margin-top: 3px; }
 .input-source-tab.active { background: var(--accent-weak); border-color: transparent; color: var(--accent-weak-text); }
 .output-tab.active { border-color: transparent; color: var(--accent-weak-text); background: var(--accent-weak); }
 .pipeline-wrap, .diagram-panel, .detail-panel, .log-panel, .outputs-panel { border-radius: var(--radius-lg); }
@@ -407,6 +469,7 @@ a { color: var(--text-accent); }
         </div>
         <span class="sim-pill"><i class="ti ti-flask"></i> Loop simulator · JIRA live</span>
         <div class="controls">
+          <button id="btn-theme" class="btn" title="Toggle light / dark" aria-label="Toggle theme"><i class="ti ti-moon"></i></button>
           <a href="settings.html" class="btn" title="Configure which LLM provider Agent 1 uses"><i class="ti ti-settings"></i> Settings</a>
           <button id="btn-prev" class="btn"><i class="ti ti-chevron-left"></i> Prev</button>
           <button id="btn-play" class="btn btn-primary"><i class="ti ti-player-play" id="play-icon"></i> Play</button>
@@ -668,6 +731,24 @@ a { color: var(--text-accent); }
           items.forEach(function (x) { x.classList.remove("active"); });
           a.classList.add("active");
         });
+      });
+    })();
+    // Light / dark toggle — persists the choice, updates the icon.
+    (function () {
+      var btn = document.getElementById("btn-theme");
+      if (!btn) return;
+      var icon = btn.querySelector("i");
+      function sync() {
+        var dark = document.documentElement.getAttribute("data-theme") === "dark";
+        if (icon) icon.className = dark ? "ti ti-sun" : "ti ti-moon";
+        btn.title = dark ? "Switch to light" : "Switch to dark";
+      }
+      sync();
+      btn.addEventListener("click", function () {
+        var next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", next);
+        try { localStorage.setItem("qa-theme", next); } catch (e) {}
+        sync();
       });
     })();
   </script>
