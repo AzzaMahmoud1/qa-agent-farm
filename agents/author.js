@@ -1,9 +1,9 @@
-/** @see .cursor/skills/qa-author/SKILL.md */
+/** @see .claude/skills/qa-author/SKILL.md */
 import { hasStructuredOutput, dependencyBlockedOutput } from "./dependency-gate.js";
 
 export const AGENT_ID = "author";
-export const SKILL_PATH = ".cursor/skills/qa-author/SKILL.md";
-export const SKILL_FOLDER = ".cursor/skills/qa-author";
+export const SKILL_PATH = ".claude/skills/qa-author/SKILL.md";
+export const SKILL_FOLDER = ".claude/skills/qa-author";
 
 const NOTE = "COMPLETE / Executor blocked until Author REVIEW (Playwright S2).";
 

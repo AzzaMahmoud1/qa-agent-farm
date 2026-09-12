@@ -171,15 +171,15 @@ Build the Atomic Requirements Checklist by applying the shared analysis skills
 in `skills/` — one at a time, each in isolation so the model has a single
 narrow job per pass (this is what suppresses hallucination):
 
-1. `skills/requirements_analysis/SKILL.md` — extract acceptance criteria, each
+1. `analysis/requirements_analysis/SKILL.md` — extract acceptance criteria, each
    tied to a verbatim story quote; abstain when the evidence is insufficient or
    conflicting rather than guessing.
-2. `skills/risk_analysis/SKILL.md` — likelihood × impact → the `Risk: P0–P3`
+2. `analysis/risk_analysis/SKILL.md` — likelihood × impact → the `Risk: P0–P3`
    carried on every checklist line.
-3. `skills/test_gap_analysis/SKILL.md` — black-box techniques → coverage gaps
+3. `analysis/test_gap_analysis/SKILL.md` — black-box techniques → coverage gaps
    the checklist must include.
-4. `skills/source_analysis/SKILL.md` — only when a diff/changeset is present.
-5. `skills/root_cause_analysis/SKILL.md` — only for a failure investigation.
+4. `analysis/source_analysis/SKILL.md` — only when a diff/changeset is present.
+5. `analysis/root_cause_analysis/SKILL.md` — only for a failure investigation.
 
 Every criterion must quote the story verbatim (≥ ~12 chars) or it is dropped —
 never invent an AC the evidence does not support. These same five skill files

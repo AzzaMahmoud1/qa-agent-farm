@@ -1,7 +1,7 @@
-/** @see .cursor/skills/qa-reporter/SKILL.md */
+/** @see .claude/skills/qa-reporter/SKILL.md */
 export const AGENT_ID = "reporter";
-export const SKILL_PATH = ".cursor/skills/qa-reporter/SKILL.md";
-export const SKILL_FOLDER = ".cursor/skills/qa-reporter";
+export const SKILL_PATH = ".claude/skills/qa-reporter/SKILL.md";
+export const SKILL_FOLDER = ".claude/skills/qa-reporter";
 
 function rowStatus(result) {
   if (!result) return "Planned";
