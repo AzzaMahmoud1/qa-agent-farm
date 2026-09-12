@@ -218,13 +218,17 @@
   if (segChart) segChart.onclick = function () { toggle(true); };
   if (segTable) segTable.onclick = function () { toggle(false); };
 
-  function goNewRun() {
-    var ws = $("run-workspace-top") || document.querySelector(".cd-workspace-head");
-    if (ws) ws.scrollIntoView({ behavior: "smooth", block: "start" });
-    var input = $("req-description") || $("jira-url");
-    if (input) setTimeout(function () { input.focus(); }, 400);
-  }
-  ["cd-new-run", "cd-new-run-top"].forEach(function (id) { var b = $(id); if (b) b.onclick = goNewRun; });
+  // "New run" buttons carry data-view="workspace" — the view router (console-views.js)
+  // switches to the workspace and focuses the story input.
+
+  // Expose the live run data + example state to the view router.
+  window.QAConsole = {
+    runs: function () { return runs.slice(); },
+    exampleMode: function () { return exampleMode; },
+    EXAMPLE_TILES: EXAMPLE_TILES,
+    STAGES: (window.__QA_STAGES__ || null),
+    refresh: render
+  };
 
   // Topbar search → filter the recent-runs table live.
   var search = $("cd-search");

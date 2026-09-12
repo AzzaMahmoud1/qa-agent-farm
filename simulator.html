@@ -265,6 +265,45 @@ h1, .app-title { font-family: var(--font-display); }
 .ws-story { font-size: 1.05rem; font-weight: 700; margin: 7px 0 2px; }
 .ws-controls { padding: 0 18px 15px; border-top: 1px solid var(--border); padding-top: 13px; }
 .ws-head .sim-pill { margin-left: auto; }
+/* ---------- view router: views + shared view widgets ---------- */
+.cv-view { max-width: 1200px; }
+.cv-view[hidden] { display: none !important; }
+.cv-sub { font-family: var(--font-display); font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; margin: 0 2px 12px; }
+.skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)); gap: 14px; }
+.skill-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 15px 16px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 9px; transition: border-color .12s, transform .1s; }
+.skill-card:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.skill-card.hi { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.skill-card .sc-top { display: flex; align-items: center; gap: 10px; }
+.skill-card.guard .sc-top { align-items: flex-start; }
+.skill-card .sc-ic { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; flex: none; }
+.skill-card .sc-ic i { font-size: 18px; }
+.skill-card h3 { font-size: 14px; font-weight: 700; margin: 0; }
+.skill-card p { font-size: 12.5px; color: var(--text-secondary); margin: 0; line-height: 1.45; }
+.skill-card .sc-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.chip { font-size: 10.5px; font-weight: 600; border-radius: 20px; padding: 2px 8px; background: var(--surface-1); border: 1px solid var(--border); color: var(--text-secondary); }
+.chip.core { background: var(--accent-weak); color: var(--accent-weak-text); border-color: transparent; }
+.guard-on { margin-left: auto; font-size: 10.5px; font-weight: 700; color: var(--pass); background: color-mix(in srgb, var(--pass) 15%, transparent); border-radius: 20px; padding: 2px 9px; white-space: nowrap; }
+.rc { font-size: 10.5px; font-weight: 700; font-family: var(--font-mono); border-radius: 6px; padding: 2px 7px; }
+.rc.p0 { background: color-mix(in srgb, var(--coral) 20%, transparent); color: var(--coral); }
+.rc.p1 { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+.rc.p2 { background: color-mix(in srgb, var(--info, #2e90fa) 18%, transparent); color: var(--info, #2e90fa); }
+.rc.p3 { background: var(--surface-1); color: var(--text-muted); }
+.cd-table .st.pass { background: color-mix(in srgb, var(--pass) 15%, transparent); color: var(--pass); }
+.cd-table .st.hold { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.st { display: inline-flex; align-items: center; font-size: 12px; font-weight: 600; border-radius: 20px; padding: 3px 10px; }
+/* playground chat */
+.pg-log { display: flex; flex-direction: column; gap: 12px; padding: 18px; min-height: 280px; max-height: 52vh; overflow-y: auto; }
+.pg-msg { display: flex; gap: 10px; }
+.pg-msg.user { flex-direction: row-reverse; }
+.pg-who { width: 30px; height: 30px; border-radius: 8px; flex: none; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, var(--accent), var(--purple)); }
+.pg-b { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 11px 14px; font-size: 13.5px; max-width: 80%; line-height: 1.5; }
+.pg-msg.user .pg-b { background: var(--accent-weak); border-color: transparent; color: var(--accent-weak-text); }
+.pg-acs { margin: .5rem 0 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.pg-acs li { font-size: 13px; }
+.pg-note { margin-top: 10px; font-size: 11.5px; color: var(--text-muted); }
+.pg-input { display: flex; gap: 10px; align-items: center; padding: 14px 18px; border-top: 1px solid var(--border); }
+.pg-input input { flex: 1; border: 1px solid var(--border); background: var(--surface-1); border-radius: 10px; padding: 10px 13px; font-family: inherit; font-size: 13.5px; color: var(--text-primary); outline: none; }
+.pg-input input:focus { border-color: var(--accent); }
 .app-header { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; }
 .app-title { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 .25rem; }
 .app-subtitle { font-size: .875rem; color: var(--text-secondary); margin: 0; }
@@ -519,28 +558,28 @@ a { color: var(--text-accent); }
       <nav class="ll-nav">
         <div class="ll-nav-group">
           <div class="ll-nav-label">QA Gateway</div>
-          <a class="ll-nav-item active" href="#top"><i class="ti ti-layout-dashboard"></i> Dashboard</a>
-          <a class="ll-nav-item" href="#console-dashboard"><i class="ti ti-list-details"></i> Runs<span class="ll-tag" id="nav-runs-count">0</span></a>
-          <a class="ll-nav-item" href="#sec-story"><i class="ti ti-message"></i> Playground</a>
-          <a class="ll-nav-item" href="#console-dashboard"><i class="ti ti-sparkles"></i> Skills<span class="ll-tag">14</span></a>
+          <a class="ll-nav-item active" href="#" data-view="dashboard"><i class="ti ti-layout-dashboard"></i> Dashboard</a>
+          <a class="ll-nav-item" href="#" data-view="runs"><i class="ti ti-list-details"></i> Runs<span class="ll-tag" id="nav-runs-count">0</span></a>
+          <a class="ll-nav-item" href="#" data-view="playground"><i class="ti ti-message"></i> Playground</a>
+          <a class="ll-nav-item" href="#" data-view="skills"><i class="ti ti-sparkles"></i> Skills<span class="ll-tag">14</span></a>
         </div>
         <div class="ll-nav-group">
           <div class="ll-nav-label">Pipeline</div>
-          <a class="ll-nav-item" href="#console-dashboard"><i class="ti ti-target"></i> Orchestrator</a>
-          <a class="ll-nav-item" href="#console-dashboard"><i class="ti ti-search"></i> Analyst</a>
-          <a class="ll-nav-item" href="#console-dashboard"><i class="ti ti-edit"></i> Writer</a>
-          <a class="ll-nav-item" href="#console-dashboard"><i class="ti ti-player-play"></i> Executor</a>
-          <a class="ll-nav-item" href="#console-dashboard"><i class="ti ti-checkup-list"></i> Validator</a>
+          <a class="ll-nav-item" href="#" data-view="agents" data-agent="orchestrator"><i class="ti ti-target"></i> Orchestrator</a>
+          <a class="ll-nav-item" href="#" data-view="agents" data-agent="analyst"><i class="ti ti-search"></i> Analyst</a>
+          <a class="ll-nav-item" href="#" data-view="agents" data-agent="writer"><i class="ti ti-edit"></i> Writer</a>
+          <a class="ll-nav-item" href="#" data-view="agents" data-agent="executor"><i class="ti ti-player-play"></i> Executor</a>
+          <a class="ll-nav-item" href="#" data-view="agents" data-agent="validator"><i class="ti ti-checkup-list"></i> Validator</a>
         </div>
         <div class="ll-nav-group">
           <div class="ll-nav-label">Observability</div>
-          <a class="ll-nav-item" href="#console-dashboard"><i class="ti ti-chart-bar"></i> Usage</a>
-          <a class="ll-nav-item" href="#sec-log"><i class="ti ti-list-details"></i> Logs</a>
-          <a class="ll-nav-item" href="#sec-outputs"><i class="ti ti-report"></i> Reports</a>
+          <a class="ll-nav-item" href="#" data-view="usage"><i class="ti ti-chart-bar"></i> Usage</a>
+          <a class="ll-nav-item" href="#" data-view="logs"><i class="ti ti-list-details"></i> Logs</a>
+          <a class="ll-nav-item" href="#" data-view="reports"><i class="ti ti-report"></i> Reports</a>
         </div>
         <div class="ll-nav-group">
           <div class="ll-nav-label">Config</div>
-          <a class="ll-nav-item" href="settings.html"><i class="ti ti-shield"></i> Guardrails</a>
+          <a class="ll-nav-item" href="#" data-view="guardrails"><i class="ti ti-shield"></i> Guardrails</a>
           <a class="ll-nav-item" href="settings.html"><i class="ti ti-settings"></i> Settings</a>
         </div>
       </nav>
@@ -555,18 +594,18 @@ a { color: var(--text-accent); }
     <div class="ll-main" id="top">
       <header class="ll-topbar">
         <div class="ll-crumb">
-          <p class="eyebrow">QA Gateway</p>
-          <h1 class="app-title">Dashboard</h1>
+          <p class="eyebrow" id="cv-eyebrow">QA Gateway</p>
+          <h1 class="app-title" id="cv-title">Dashboard</h1>
         </div>
         <label class="ll-search"><i class="ti ti-search"></i><input id="cd-search" placeholder="Search runs, stories, skills…"></label>
         <span class="ll-envpill"><span class="dot"></span> PCAI · staging</span>
         <button id="btn-theme" class="btn" title="Toggle light / dark" aria-label="Toggle theme"><i class="ti ti-moon"></i></button>
-        <button id="cd-new-run-top" class="btn btn-primary"><i class="ti ti-plus"></i> New run</button>
+        <button id="cd-new-run-top" class="btn btn-primary" data-view="workspace"><i class="ti ti-plus"></i> New run</button>
       </header>
       <div class="ll-content">
 
     <!-- ============ Console dashboard (real data from your runs) ============ -->
-    <section class="cd-wrap" id="console-dashboard">
+    <section class="cv-view cd-wrap" data-view="dashboard" id="console-dashboard">
       <div class="cd-note" id="cd-example-note" hidden><i class="ti ti-flask"></i> <b>Example data</b> — sample runs shown so the console reads at a glance. Your real runs replace them.</div>
       <div class="cd-tiles">
         <div class="cd-tile"><div class="cd-k"><i class="ti ti-list-details"></i> Runs · 24h</div><div class="cd-v" id="cd-runs">0</div><div class="cd-delta" id="cd-runs-delta"></div></div>
@@ -601,10 +640,12 @@ a { color: var(--text-accent); }
       <div class="cd-card">
         <div class="cd-head"><h2>Recent runs</h2><span class="cd-sub2" id="cd-runs-count">0 runs</span>
           <div class="cd-head-actions"><button class="btn" id="cd-clear" title="Clear session run history"><i class="ti ti-trash"></i></button>
-          <button class="btn btn-primary" id="cd-new-run"><i class="ti ti-plus"></i> New run</button></div></div>
+          <button class="btn btn-primary" id="cd-new-run" data-view="workspace"><i class="ti ti-plus"></i> New run</button></div></div>
         <div class="tbl-wrap"><table class="cd-table" id="cd-runs-table"></table></div>
       </div>
+    </section>
 
+    <section class="cv-view cd-wrap" data-view="workspace" hidden>
       <div class="cd-card ws-card" id="run-workspace-top">
         <div class="ws-head">
           <div class="ws-title">
@@ -628,7 +669,6 @@ a { color: var(--text-accent); }
           <label class="speed">Speed <input type="range" id="speed" min="200" max="2000" value="800"> <span id="speed-val">0.8s</span></label>
         </div>
       </div>
-    </section>
 
     <div id="server-banner" class="banner-warn" hidden>
       JIRA fetch requires the local server. Run <code>node server.js</code> and open <a href="http://127.0.0.1:5173">http://127.0.0.1:5173</a>.
@@ -862,22 +902,21 @@ a { color: var(--text-accent); }
         </div>
       </main>
     </div><!-- .dashboard -->
+    </section><!-- workspace view -->
+
+    <section class="cv-view cd-wrap" data-view="runs" hidden><div id="cv-runs"></div></section>
+    <section class="cv-view cd-wrap" data-view="playground" hidden><div id="cv-playground"></div></section>
+    <section class="cv-view cd-wrap" data-view="skills" hidden><div id="cv-skills"></div></section>
+    <section class="cv-view cd-wrap" data-view="usage" hidden><div id="cv-usage"></div></section>
+    <section class="cv-view cd-wrap" data-view="logs" hidden><div id="cv-logs"></div></section>
+    <section class="cv-view cd-wrap" data-view="reports" hidden><div id="cv-reports"></div></section>
+    <section class="cv-view cd-wrap" data-view="guardrails" hidden><div id="cv-guardrails"></div></section>
+    <section class="cv-view cd-wrap" data-view="agents" hidden><div id="cv-agents"></div></section>
       </div><!-- .ll-content -->
     </div><!-- .ll-main -->
   </div><!-- .ll-app -->
 
   <script>
-    // Sidebar nav: highlight the clicked item (anchors handle the scroll).
-    (function () {
-      var items = document.querySelectorAll(".ll-nav-item");
-      items.forEach(function (a) {
-        a.addEventListener("click", function () {
-          if (a.getAttribute("href") && a.getAttribute("href").charAt(0) !== "#") return;
-          items.forEach(function (x) { x.classList.remove("active"); });
-          a.classList.add("active");
-        });
-      });
-    })();
     // Light / dark toggle — persists the choice, updates the icon.
     (function () {
       var btn = document.getElementById("btn-theme");
@@ -902,5 +941,6 @@ a { color: var(--text-accent); }
   <script src="report-docx.js"></script>
   <script type="module" src="js/simulator-app.js"></script>
   <script defer src="js/console-dashboard.js"></script>
+  <script defer src="js/console-views.js"></script>
 </body>
 </html>
