@@ -49,31 +49,22 @@ flowchart TD
 
 Trigger a run with `qa:`, `test:`, `ticket:`, or “write tests for” / “review this ticket”. Worker subagents run **only** when the orchestrator dispatches them.
 
-## `.cursor/` folder (keep it)
-
-Cursor IDE dispatch config — **not** the simulator runtime. Code changes live under `agents/`, `src/prompts/`, `js/`. `.cursor/` rarely changes when you edit the Analyst prompt (the skill only *points* at the prompt file).
-
-| Path | Purpose |
-|------|---------|
-| `.cursor/agents/*.md` | Subagent entrypoints Cursor can dispatch (`qa-orchestrator`, `qa-analyst`, …) |
-| `.cursor/skills/qa-*/SKILL.md` | Per-role rules for those subagents |
-| `.cursorrules` | Triggers (`qa:` / `test:` / `ticket:`) + “orchestrator-only dispatch” |
-
-**Do not remove.** Without it, Cursor chat cannot run the farm as subagents. Simulator-only users still need it if they use `qa:` in Cursor.
-
-Analyst analysis rules stay in **one place:** the five `skills/*_analysis/SKILL.md` files, applied as grounded isolated passes by `src/agents/requirementAnalyst.js` (the simulator's JS Analyst) and by the `qa-analyst` subagent. `.cursor/skills/qa-analyst` is a pointer to them.
-
 ## `.claude/` folder (keep it)
 
-Claude Code dispatch config — the same interactive pipeline as `.cursor/`, mirrored so it also runs from Claude Code chat, not just Cursor. Additive: `.cursor/` is untouched and Cursor still works unchanged.
+Claude Code dispatch config — the interactive pipeline. **Not** the simulator runtime; code changes live under `agents/`, `src/`, `js/`.
 
 | Path | Purpose |
 |------|---------|
 | `.claude/agents/*.md` | Subagent entrypoints Claude Code can dispatch (`qa-orchestrator`, `qa-analyst`, …) |
 | `.claude/skills/qa-*/SKILL.md` | Per-role rules for those subagents |
+| `.claude/skills/qa-analyst/analysis/*_analysis/SKILL.md` | The five analysis skills the Analyst runs as isolated grounded passes |
 | `CLAUDE.md` | Triggers (`qa:` / `test:` / `ticket:`) + "orchestrator-only dispatch" |
 
-**Do not remove.** Without it, Claude Code cannot run the farm as subagents. Keep both `.cursor/` and `.claude/` in sync when the pipeline's rules change — they describe the same behavior for two different IDEs.
+**Do not remove.** Without it, Claude Code cannot run the farm as subagents.
+
+Analyst analysis rules stay in **one place:** the five `.claude/skills/qa-analyst/analysis/*_analysis/SKILL.md` files, applied as grounded isolated passes by `src/agents/requirementAnalyst.js` (the simulator's JS Analyst) and by the `qa-analyst` subagent.
+
+> Claude Code is the only host. A former `.cursor/` mirror (+ `.cursorrules`) was removed when the skills were consolidated into one folder; recover it from git history if Cursor support is ever needed again.
 
 ## Hard gates (P0)
 
@@ -158,7 +149,7 @@ if still fail → NEEDS_INPUT (never invent pass)
 replay prefix steps before advancing (stability check)
 ```
 
-Author is **scaffolded** (`agents/author.js`, `.cursor/skills/qa-author/`) — refuses empty ACs / unapproved outlines; Playwright MVP is Sprint S2.
+Author is **scaffolded** (`agents/author.js`, `.claude/skills/qa-author/`) — refuses empty ACs / unapproved outlines; Playwright MVP is Sprint S2.
 
 ## Writer outline contract (S1)
 
@@ -215,7 +206,7 @@ Rules:
 | Orchestrator | `claude-fable-5` (Claude Fable 5) | `claude-fable-5` (Claude Fable 5) |
 | Validator + all worker agents | `claude-4.6-sonnet` (Claude Sonnet) | `claude-sonnet-5` (Claude Sonnet) |
 
-Configured in `agents/registry.js` (`AGENT_MODEL_ROUTING`), `.cursor/agents/*.md`, and `.claude/agents/*.md`.
+Configured in `agents/registry.js` (`AGENT_MODEL_ROUTING`), `.claude/agents/*.md`, and `.claude/agents/*.md`.
 
 ## Requirements
 
@@ -284,7 +275,7 @@ Open http://127.0.0.1:5173/simulator.html
 agents/            # Pipeline agents (orchestrator, analyst, writer, author, …)
 lib/               # Requirements parser, human-input, redaction, executor
 js/                # Browser simulator entry
-.cursor/skills/    # Per-agent qa-*/SKILL.md for Cursor
+.claude/skills/    # Per-agent qa-*/SKILL.md (incl. qa-analyst/analysis/ — the 5 analysis skills)
 .claude/agents/    # Per-agent subagent entrypoints for Claude Code
 .claude/skills/    # Per-agent qa-*/SKILL.md for Claude Code
 src/prompts/       # Agent 1 (Requirement Analyst) prompt — single source of truth

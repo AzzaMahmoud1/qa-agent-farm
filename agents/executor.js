@@ -1,7 +1,7 @@
-/** @see .cursor/skills/qa-executor/SKILL.md */
+/** @see .claude/skills/qa-executor/SKILL.md */
 export const AGENT_ID = "test_executor";
-export const SKILL_PATH = ".cursor/skills/qa-executor/SKILL.md";
-export const SKILL_FOLDER = ".cursor/skills/qa-executor";
+export const SKILL_PATH = ".claude/skills/qa-executor/SKILL.md";
+export const SKILL_FOLDER = ".claude/skills/qa-executor";
 
 import { farmCtx } from "./ctx-bridge.js";
 import { redactParsedCurl } from "../lib/redaction.js";

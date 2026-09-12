@@ -746,7 +746,7 @@ function abstainRun(name, err) {
   };
 }
 
-/** 3×3 risk matrix (mirrors skills/risk_analysis/SKILL.md) → priority word. */
+/** 3×3 risk matrix (mirrors .claude/skills/qa-analyst/analysis/risk_analysis/SKILL.md) → priority word. */
 function derivePriority(likelihood, impact) {
   const M = {
     high: { low: "medium", medium: "high", high: "critical" },

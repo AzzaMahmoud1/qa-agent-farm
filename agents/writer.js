@@ -1,10 +1,10 @@
-/** @see .cursor/skills/qa-writer/SKILL.md */
+/** @see .claude/skills/qa-writer/SKILL.md */
 import { hasStructuredOutput, dependencyBlockedOutput } from "./dependency-gate.js";
 import { acTextNeedsApi, acTextNeedsWeb, inferHumanInputNeeds } from "../lib/human-input.js";
 
 export const AGENT_ID = "writer";
-export const SKILL_PATH = ".cursor/skills/qa-writer/SKILL.md";
-export const SKILL_FOLDER = ".cursor/skills/qa-writer";
+export const SKILL_PATH = ".claude/skills/qa-writer/SKILL.md";
+export const SKILL_FOLDER = ".claude/skills/qa-writer";
 
 const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 

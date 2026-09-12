@@ -14,7 +14,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
-const SKILLS_DIR = join(REPO_ROOT, "skills");
+const SKILLS_DIR = join(REPO_ROOT, ".claude/skills/qa-analyst/analysis");
 
 /** The five analysis skills, in the order the Analyst applies them. */
 export const ANALYST_SKILLS = Object.freeze({

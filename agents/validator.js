@@ -1,7 +1,7 @@
-/** @see .cursor/skills/qa-validator/SKILL.md */
+/** @see .claude/skills/qa-validator/SKILL.md */
 export const AGENT_ID = "validator";
-export const SKILL_PATH = ".cursor/skills/qa-validator/SKILL.md";
-export const SKILL_FOLDER = ".cursor/skills/qa-validator";
+export const SKILL_PATH = ".claude/skills/qa-validator/SKILL.md";
+export const SKILL_FOLDER = ".claude/skills/qa-validator";
 
 import { farmCtx } from "./ctx-bridge.js";
 import { AGENT_GUIDELINES, AGENT_META, VALIDATOR_MAX_ATTEMPTS } from "./registry.js";
@@ -137,7 +137,7 @@ const RISK_ENUM = new Set(["P0", "P1", "P2", "P3"]);
  * ready_for_test_design or the live gate. The only thing worth surfacing is a
  * PRESENT value outside the P0–P3 enum (a data-hygiene note), and even that
  * does not gate readiness.
- * @see .cursor/skills/qa-validator/SKILL.md (Analyst row)
+ * @see .claude/skills/qa-validator/SKILL.md (Analyst row)
  */
 export function checkAnalystRisk(analystOutput) {
   const conditions = analystOutput?.testable_conditions;
