@@ -28,6 +28,32 @@ requirements were updated or added based on comments vs. the description alone).
 
 ---
 
+## Testability gate (first pass — run before extraction)
+
+Before extracting anything, apply `analysis/testability_analysis/SKILL.md` to
+score the story's test-readiness (ISTQB CTAL-TA weighted 0–100) and set a gate
+verdict. Carry the score, rating band, verdict, defects, and red flags into the
+**Testability Score & Gate** section of the output.
+
+The verdict decides what the rest of this run does:
+
+- **`TEST_READY` (75–100)** — proceed through the full breakdown normally.
+- **`NEEDS_REFINEMENT` (51–74)** — proceed, but copy every defect into the
+  output, keep the affected checklist lines honest about what's weak, and lower
+  `Confidence` in Analyst Reasoning accordingly. Do not silently "fix" a vague
+  requirement by inventing a crisp one — flag it.
+- **`NOT_TEST_READY` (≤50)** — **HOLD.** Still write the output file, but as a
+  test-readiness verdict, not a full breakdown: the Testability Score & Gate
+  section, the defect table, and the recommended PO/BA actions — then stop.
+  Do **not** manufacture a full Atomic Requirements Checklist to paper over an
+  untestable basis; a Poor score is fixed by the PO, not by extracting harder.
+  Return the path and make clear the pipeline is blocked pending refinement.
+
+A blocking (`NOT_TEST_READY`) verdict always sets `requires_human_review` —
+the gate is confirmed by a human, never by the model alone.
+
+---
+
 ## Extract requirements
 
 Read the story carefully and extract requirements.
@@ -47,6 +73,8 @@ Extract all of the following before writing the breakdown:
 **Atomicity rule** — do not merge distinct outcomes into one sentence. When a single trigger (a flow step, an AF##, an EF##) produces multiple independent, separately-observable system actions — e.g. "terminate session" + "display screen X" + "redirect to page Y" + "update status field to Z" — list each one as its own bullet under that flow, not as one run-on sentence. If it can be checked true/false on its own, it gets its own bullet. This is what lets jira-test-case-writer write one test case per assertion instead of silently bundling several checks into a single TC (a bundled TC can "pass" on the visible half while the hidden half is broken).
 
 **Completeness pass.** Before writing the output, re-read the raw story text once more, specifically hunting for any AC/AF/EF/BR/MSG/DM/table row/field spec you have not yet placed into a section. Jira stories often bury requirements in tables (field specs, message tables) separate from the main flow narrative — these are real requirements, not supplementary notes. If a flow item references a status/field value, make sure the exact value is captured verbatim (or explicitly noted as unspecified) — don't paraphrase it away.
+
+**Ambiguity red-flag pass.** On the same re-read, flag any unmeasurable wording — `ready`, `fast`, `quick`, `user-friendly`, `intuitive`, `efficient`, `minimal`, `reasonable`, `adequate`, `easy`, `appropriate`, `seamless`, `robust` — used without a measurable definition, and any system-centric phrasing ("the system shall…") that hides the requester's actual goal. A red-flag phrase is not a droppable requirement: capture the underlying outcome as a checklist line, note the vagueness as an Open Question with a proposed measurable replacement (e.g. "responds within 2 seconds", "displays MSG03"), and — since the same phrase lowers a testability criterion — make sure it also appears as a defect in the Testability Score & Gate section. Quote the exact phrase; never invent the measurable target the story failed to state.
 
 **Comments & attachments are sources — not just context.** A ticket **comment** that states or refines behavior (a rule, a decision, a correction) is a real requirement: fold it into the Atomic Requirements Checklist, attributed to the comment — not merely an Open Question. An **attachment** is a source too — a design/mockup **image**, a spec PDF, or a data file. When you are actually shown an attachment's contents (e.g. an image handed to you as an image input), derive requirements from what it specifies and label them as coming from that attachment; a requirement read from an image is **provisional and needs human confirmation** — flag it, do not treat it as settled. If an attachment is only named but you were not given its contents, record it as a missing input, never invent what it contains.
 
@@ -73,6 +101,31 @@ Write the breakdown using this exact structure:
 **Project:** <PROJECT_KEY>
 **Jira URL:** <JIRA_BASE>/browse/<ISSUE_ID>
 **Summary:** <story summary from Jira>
+
+## Testability Score & Gate
+<From the testability_analysis first pass. Always present.>
+
+**Score:** <0–100>/100 — **<Excellent | Good | Fair | Poor>**
+**Verdict:** <TEST_READY | NEEDS_REFINEMENT | NOT_TEST_READY>
+**Section totals:** User Story <X>/55 · Testability <X>/30 · Requirements <X>/15
+
+### Defects (test-basis issues)
+| # | Severity | Location | Issue (quote the offending text) | Suggested improvement |
+|---|----------|----------|----------------------------------|-----------------------|
+| 1 | Critical/Major/Minor | AC #2 / DM01 / … | "<verbatim phrase>" … | … |
+<Write "None" if the review found no defects.>
+
+### Red flags
+- "<verbatim phrase>" — <why it is not testable> → <proposed measurable outcome>
+<Omit this subsection if empty.>
+
+> If Verdict is **NOT_TEST_READY**, stop after this section and the recommended
+> actions below — do not produce the remaining breakdown. The pipeline is on
+> HOLD pending PO/BA refinement.
+
+### Recommended actions (only when NEEDS_REFINEMENT or NOT_TEST_READY)
+1. <highest-impact fix for the PO/BA>
+2. <split story / add measurable AC / set priority / add traceability>
 
 ## Goal
 <user story goal, in one or two sentences>
@@ -114,7 +167,7 @@ Write the breakdown using this exact structure:
 - <item> (Future Release)
 
 ## Open Questions From Comments
-<Only include this section if non-empty. One bullet per unresolved question/flag raised in a comment thread that never got a clear resolving answer — do not guess the resolution.>
+<Only include this section if non-empty. One bullet per unresolved question/flag raised in a comment thread that never got a clear resolving answer — do not guess the resolution. When a question has a *safe, conventional* default answer (one a wrong guess would merely make provisional, not dangerous), state it as `Default assumption (pending PO): <…>` on the bullet — that default becomes a `[Provisional]` line on the Atomic Requirements Checklist so the Writer can still cover it. A question with no safe default stays here with no assumption and produces no checklist line — never invent an expected result.>
 
 ## API Scope
 <One of:>
@@ -157,6 +210,16 @@ never justifies dropping a checklist line.
 Format each line as:
 `N. [SOURCE] <outcome> — Reason: <why this is independently testable / what evidence to observe> — Risk: <P0–P3>`
 
+**Provisional lines.** A requirement that rests on a safe default assumption
+(not on the story text) rather than a documented statement is carried as a
+`[Provisional]` line so the Writer covers it while marking the test case
+pending PO confirmation. It must name the assumption; it is never presented as
+settled:
+`N. [SOURCE][Provisional] <outcome> — Reason: <why testable> — Assumption: <default, pending PO confirmation> — Risk: <P0–P3>`
+A `[Provisional]` line must trace to an Open Question that carries a
+`Default assumption (pending PO)`. If there is no safe default, there is no
+line — the gap stays an Open Question, never a fabricated requirement.
+
 Worked example of splitting one flow into atomic lines (this is the level of granularity required):
 1. [AF03] Session is terminated — Reason: independently observable; can fail while redirect still succeeds — Risk: P0
 2. [AF03] DM02 screen is displayed — Reason: UI display can fail independently of session teardown — Risk: P2
@@ -171,25 +234,35 @@ Build the Atomic Requirements Checklist by applying the shared analysis skills
 in `skills/` — one at a time, each in isolation so the model has a single
 narrow job per pass (this is what suppresses hallucination):
 
-1. `analysis/requirements_analysis/SKILL.md` — extract acceptance criteria, each
+1. `analysis/testability_analysis/SKILL.md` — **first pass, the gate.** ISTQB
+   CTAL-TA weighted score (0–100) → rating band → `TEST_READY` /
+   `NEEDS_REFINEMENT` / `NOT_TEST_READY` verdict. A `NOT_TEST_READY` story
+   HOLDs the pipeline (see the Testability gate section above) instead of being
+   extracted anyway.
+2. `analysis/requirements_analysis/SKILL.md` — extract acceptance criteria, each
    tied to a verbatim story quote; abstain when the evidence is insufficient or
    conflicting rather than guessing.
-2. `analysis/risk_analysis/SKILL.md` — likelihood × impact → the `Risk: P0–P3`
+3. `analysis/risk_analysis/SKILL.md` — likelihood × impact → the `Risk: P0–P3`
    carried on every checklist line.
-3. `analysis/test_gap_analysis/SKILL.md` — black-box techniques → coverage gaps
+4. `analysis/test_gap_analysis/SKILL.md` — black-box techniques → coverage gaps
    the checklist must include.
-4. `analysis/source_analysis/SKILL.md` — only when a diff/changeset is present.
-5. `analysis/root_cause_analysis/SKILL.md` — only for a failure investigation.
+5. `analysis/source_analysis/SKILL.md` — only when a diff/changeset is present.
+6. `analysis/root_cause_analysis/SKILL.md` — only for a failure investigation.
 
 Every criterion must quote the story verbatim (≥ ~12 chars) or it is dropped —
-never invent an AC the evidence does not support. These same five skill files
-drive the simulator's JS Analyst (`src/agents/requirementAnalyst.js`), so the
-Claude pipeline and the simulator share one behavior.
+never invent an AC the evidence does not support. Five of these skills
+(`requirements_analysis`, `risk_analysis`, `test_gap_analysis`,
+`source_analysis`, `root_cause_analysis`) drive the simulator's JS Analyst
+(`src/agents/requirementAnalyst.js`), so the Claude pipeline and the simulator
+share one behavior. `testability_analysis` is the newest pass and currently
+runs on the Claude side only; wiring it into the simulator's `ANALYST_SKILLS`
+and pass plan is the follow-up that restores full parity.
 
 ## Code module
 
-Simulator runtime: `src/agents/requirementAnalyst.js` runs the five skills as
-grounded isolated passes and assembles the contract; payload/contract glue in
+Simulator runtime: `src/agents/requirementAnalyst.js` runs the five simulator
+skills (all except `testability_analysis`, which is Claude-side only for now)
+as grounded isolated passes and assembles the contract; payload/contract glue in
 `agents/analyst.js` + `agents/analyst-contract.js`; grounding in
 `src/agents/grounding.js`; stub logic in `lib/prerequisites.js`.
 

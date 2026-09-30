@@ -46,13 +46,14 @@ must be started via the orchestrator using "qa:", "test:", or "ticket:".
   with title / Given / When / Then)
 - Author → `.claude/skills/qa-author/SKILL.md` (optional live authoring only)
 - Orchestrator handoffs → `.claude/skills/qa-orchestrator/SKILL.md`
-- Analysis skills (shared by the subagent + simulator) → `.claude/skills/qa-analyst/analysis/{requirements,risk,test_gap,source,root_cause}_analysis/SKILL.md`; the simulator's JS Analyst that runs them as grounded isolated passes → `src/agents/requirementAnalyst.js`
+- Analysis skills (shared by the subagent + simulator) → `.claude/skills/qa-analyst/analysis/{requirements,risk,test_gap,source,root_cause}_analysis/SKILL.md`; the simulator's JS Analyst that runs them as grounded isolated passes → `src/agents/requirementAnalyst.js`. A sixth pass, `analysis/testability_analysis/SKILL.md` (ISTQB CTAL-TA test-readiness score + gate), runs first but on the Claude side only for now — not yet wired into the simulator.
 - All other agent rules → `.claude/skills/qa-*/SKILL.md`
 
 ## Host
 
 Claude Code is the single host. The pipeline lives under `.claude/` (agents +
-skills) — including the five analysis skills at
-`.claude/skills/qa-analyst/analysis/`. The former `.cursor/` mirror and
+skills) — including the six analysis skills at
+`.claude/skills/qa-analyst/analysis/` (five shared with the simulator, plus the
+Claude-only `testability_analysis` gate). The former `.cursor/` mirror and
 `.cursorrules` were removed when the skills were consolidated into one folder;
 recover them from git history if Cursor support is ever needed again.
