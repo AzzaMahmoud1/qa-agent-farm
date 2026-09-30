@@ -69,6 +69,9 @@ Missing metadata is scored `not_met` and listed as a defect — never inflated t
 keep the total up. A Jira story usually satisfies R-1 (the issue key) and often
 R-4 (its epic link); confirm from the evidence rather than assuming either way.
 
+The syllabus wording behind each row, the full acceptance-criteria quality
+guide, and tailoring notes live in `reference.md` beside this file.
+
 ## Red flags — always surface, always quoted
 
 Flag each of these against the verbatim text that triggers it:
