@@ -1,0 +1,351 @@
+# ISTQB-informed test-readiness skills (condensed, automation-free)
+
+Three chained skills, adapted for the QA farm. Reworded and trimmed from the
+original source — behavior preserved, all automation-labeling dropped.
+
+Chain (each gate is a hard stop):
+  testability score → if > 50 → gap analysis → if > 50 → test cases
+
+====================================================================
+
+---
+name: user-story-testability
+description: Score a user story / acceptance criteria for test-readiness against ISTQB CTAL-TA review checklists (TA-5.2.2, TA-5.2.1, testability analysis). Returns a weighted 0-100 score, rating band, and defects. Use to review, score, or validate a story before test design.
+---
+
+# User Story Testability Review
+
+Review the story the way an ISTQB Advanced Test Analyst would run a
+checklist-based review (CTAL-TA §5.2): score it, name the defects, decide if
+it is a sound basis for test design.
+
+## Chaining
+
+- Score ≤ 50 → stop. Return the review only; do not run gap analysis or
+  generate test cases. The basis is too weak to design against.
+- Score > 50 → the caller may continue to `user-story-gap-analysis`, then
+  `generate-test-cases`.
+
+## Steps
+
+1. Parse: id/title, narrative, acceptance criteria, priority, version,
+   dependencies, traceability links.
+2. Rate every row in the model below: **Full** (1.0), **Partial** (0.5), or
+   **None** (0.0).
+3. Total = Σ(weight × rating), rounded → 0–100. Map to a band.
+4. Report with the template. Log each defect (unclear, untestable, missing AC,
+   contradictory, non-atomic).
+
+## Scoring model (weights sum to 100)
+
+**A. User story — TA-5.2.2 (55)**
+
+| ID | Criterion | Wt |
+|----|-----------|----|
+| US-1 | Framed from the requester's viewpoint, not the system's | 11 |
+| US-2 | One distinct capability (not several features bundled) | 11 |
+| US-3 | Acceptance criteria present and objectively pass/fail | 14 |
+| US-4 | Priority stated (explicit value or MoSCoW) | 8 |
+| US-5 | Recognisable story format (role / goal / value) | 11 |
+
+**B. Testability (30)**
+
+| ID | Criterion | Wt |
+|----|-----------|----|
+| T-1 | Clear — no vague term left undefined | 6 |
+| T-2 | Measurable — fulfilment is objectively checkable | 8 |
+| T-3 | Complete — positive, negative and boundary cases derivable | 6 |
+| T-4 | Consistent — no self-contradiction; matches dependencies | 5 |
+| T-5 | Atomic — one unit of value; split if it holds several | 5 |
+
+**C. Requirements — TA-5.2.1 (15, metadata)**
+
+| ID | Criterion | Wt | Missing → |
+|----|-----------|----|-----------|
+| R-1 | Unique id | 3 | None |
+| R-2 | Versioned | 2 | None |
+| R-3 | Traces to a business/marketing requirement | 4 | None |
+| R-4 | Traces to an epic / use case | 3 | None |
+| R-5 | Each stated requirement is itself testable | 3 | judge narrative + AC |
+
+Missing metadata scores **None** and is logged as a defect — never inflated.
+
+## Bands
+
+| Score | Band | Meaning |
+|-------|------|---------|
+| 90–100 | Excellent | Ready for test design |
+| 75–89 | Good | Minor refinement first |
+| 51–74 | Fair | Real gaps; refine before commitment |
+| 0–50 | Poor | Not a usable basis — return defects to the PO |
+
+## Red flags (always call out, quoting the text)
+
+- System-centric phrasing ("the system shall…") instead of the requester's goal.
+- Unmeasurable states — ready, fast, user-friendly, intuitive, minimal,
+  reasonable, adequate, easy, appropriate — with no numeric/observable target.
+- Two features in one story.
+- AC that prescribe *how* to build instead of *what* to achieve.
+- Absent or unverifiable AC; no priority on a backlog that expects one.
+
+## Output
+
+```markdown
+# Testability Review — [id/title]
+**Score:** [n]/100 — **[band]**   ·   Standard: ISTQB CTAL-TA §5.2
+
+## Summary
+[2–3 lines: readiness and top blockers]
+
+## Breakdown
+| ID | Criterion | Rating | Score | Note |
+|----|-----------|--------|-------|------|
+Section totals: US [x]/55 · Testability [x]/30 · Requirements [x]/15
+
+## Defects
+| # | Severity | Where | Issue (quote the text) | Fix |
+|---|----------|-------|------------------------|-----|
+
+## Test conditions already derivable
+- [condition traceable to a specific AC]
+
+## Next actions
+1. [highest-impact fix for the PO/BA]
+```
+
+**Severity:** Critical = blocks test design (no testable AC, bundled features,
+contradictions); Major = strong ambiguity, missing priority/traceability, weak
+measurability; Minor = formatting, optional metadata, cosmetic wording.
+
+====================================================================
+
+---
+name: user-story-gap-analysis
+description: After a testability score above 50, find what a story still lacks for sprint-ready test design — missing scenarios, unstated rules, integration points — and pose decision-forcing questions for the PO/BA, each with a safe default where one exists. Use for gap/completeness review.
+---
+
+# User Story Gap Analysis
+
+A fair-or-better story still hides holes. Name them, say why each matters for
+testing, and turn each into either an AC to add or a question to ask.
+
+## Gate
+
+Run `user-story-testability` first on the same input. Score ≤ 50 → do not run
+this; return the testability review and stop. Score > 50 → proceed, reusing its
+defects and partial criteria as input.
+
+## Steps
+
+1. Ingest the testability output (score, defects, weak criteria — especially
+   T-3 and T-1) and the already-derivable conditions.
+2. Map the story: actor, goal, value, in-scope behaviour, explicit AC, stated
+   dependencies.
+3. Scan the gap dimensions (see reference): functional flows, data & validation,
+   roles & permissions, integration & dependencies, non-functional, operational,
+   and compliance only where the context implies it.
+4. Per gap: what is missing, why it hurts testing, and a concrete AC/story fix.
+5. Turn gaps into specific, decision-forcing PO/BA questions — never "any edge
+   cases?". Where a **safe conventional default** exists, state it; that default
+   lets downstream test design cover the case provisionally.
+6. Prioritise: Must clarify before sprint / Should clarify / Nice to clarify.
+
+## Gap vs defect
+
+Testability asks *is the story written well enough to test?* Gap analysis asks
+*given a decent story, what behaviour is simply not stated yet?* Reference
+testability defects; don't repeat them — extend into missing coverage.
+
+## Output
+
+```markdown
+# Gap Analysis — [id/title]
+**Testability:** [n]/100 — [band] (gate passed)
+
+## Summary
+[2–3 lines: main holes; sprint-ready once closed?]
+
+## Gaps
+| # | Category | Gap | Impact on test/design | Suggested AC/fix |
+|---|----------|-----|-----------------------|-------------------|
+
+## Questions for PO/BA
+| # | Question | Blocks | Safe default if unanswered |
+|---|----------|--------|-----------------------------|
+
+## Coverage snapshot
+| Area | Status | Note |
+|------|--------|------|
+| Happy path / errors / boundaries / roles / data / integration / NFR | Covered/Partial/Missing | |
+
+## Next actions
+1. [highest-impact clarification or AC to add]
+```
+
+If score ≤ 50, output only the testability review plus: "Gap analysis skipped —
+fix the Poor basis and re-score first."
+
+**Gap severity:** Must clarify = can't test/estimate without the answer; Should
+clarify = a wrong assumption changes behaviour; Nice = deferrable quality win.
+
+====================================================================
+
+---
+name: generate-test-cases
+description: Turn a scored user story / wiki (testability > 50, gaps analysed) into structured, traceable test cases with an explicit Test Oracle per case and ISTQB black-box + non-functional techniques. Strict anti-hallucination — every case cites source text or a gap default. Use to generate/derive test cases from a requirement.
+---
+
+# Generate Test Cases
+
+Act as a Principal QA Architect (ISTQB CTAL-TA). Translate a requirement into
+executable, deterministic test cases, each tied back to the exact text that
+justifies it.
+
+## Principles
+
+1. **Traceability** — every case links to its parent story/AC.
+2. **Test Oracle** — every case names the exact sentence/AC/rule that dictates
+   its expected result. No oracle → no case.
+3. **Completeness within the source** — cover happy path, negative, and
+   boundary, but only where the text (or a gap default) supports it.
+
+## Gates (run in order, same input)
+
+1. `user-story-testability` → capture score. ≤ 50 → stop, emit the review only.
+2. `user-story-gap-analysis` → ingest its questions/defaults.
+Do not infer a score or skip either step. If the skills are unavailable, halt
+and say so rather than guessing.
+
+## Anti-hallucination (overrides everything below)
+
+- **Zero inference.** Never invent fields, endpoints, error codes, roles,
+  limits, or generic platform behaviour (login, timeout, pagination) unless the
+  source states it.
+- **Orphan rule.** A case must trace to either a verbatim source sentence
+  (**Confirmed**) or a specific gap-analysis row with a default (**Provisional**).
+  Otherwise discard it.
+- **Oracle check.** Confirmed → `Requirement states: "[exact quote]"`.
+  Provisional → `Gap #N default (pending PO): "[assumption]"` and a
+  `[Provisional]` title suffix. Can't quote or cite → no case.
+- **One validation per case.** Don't bundle checks.
+
+## Techniques (apply only where the source supports them; else mark N/A)
+
+| Code | Technique | Use when |
+|------|-----------|----------|
+| EP | Equivalence partitioning | distinct valid/invalid input classes |
+| BVA | Boundary values | min/max/limits/formats stated |
+| DT | Decision table | several conditions → actions |
+| ST | State transition | statuses / lifecycle stated |
+| UC | Use case | actor flows, main + alternates |
+| PW | Pairwise | ≥2 params with named discrete values |
+| CT | Classification tree | hierarchical input classes stated |
+| NFR-* | Non-functional | only when a measurable NFR is stated (perf, security, reliability, usability, compatibility, accessibility, operability) |
+
+Never invent parameters/states/SLAs just to exercise a technique. Full coverage
+of a technique means the model suggests no more tests — not "100% tested".
+
+## Workflow
+
+1. **Inventory.** List every requirement (REQ-N) and every distinct scenario
+   (SC-N: each Given/When/Then branch, positive/negative outcome, boundary,
+   state change, role variation). Note which techniques apply.
+2. **Write cases** in the structure below, one scenario per case.
+3. **Group & audit.** Group by technique/area; run the oracle audit; list
+   Confirmed, Provisional, Discarded, and Deferred-gap cases.
+4. **Validate coverage** — every REQ-N, SC-N, and applicable technique maps to
+   ≥1 case, or is logged as a coverage gap. Don't finalise until this passes.
+
+### Case structure
+
+```markdown
+### [TC-ID]: [title][ [Provisional]]
+**Linked story:** [id]   **Traceability:** [Confirmed|Provisional]
+**Test type:** [Functional|Non-Functional]   **Technique:** [EP|BVA|DT|ST|UC|PW|CT|NFR-*]
+
+- **Pre-conditions:** [exact required state]
+- **Steps:** 1… 2…
+- **Expected result:** [exact, verifiable response/state]
+- **Test Oracle:** Requirement states: "[quote]"  — or Provisional gap format
+```
+
+### Coverage matrices (all required in output)
+
+```markdown
+## Requirement coverage
+| REQ | Summary | SC ids | TC ids | Status |
+
+## Scenario coverage
+| SC | Scenario | Type (happy/error/boundary/state) | TC | Status |
+
+## Technique coverage
+| Technique | Applicable? | TC ids | Status |
+
+Summary: REQ x/y · SC a/b · techniques c/d · happy e/f · boundary g/h · error i/j · NFR k/l or N/A
+```
+
+## Output rules
+
+- Deterministic expected results — never "it should work".
+- One validation per case; atomic, action-oriented steps.
+- Cover only stated or gap-default edge cases — don't invent unstated ones.
+- Every case carries Test type + Technique.
+- Don't generate at all if testability ≤ 50.
+- Coverage validation must pass, or unmapped items are logged as gaps.
+
+### Gate-blocked output (score ≤ 50)
+
+```markdown
+# Test Cases — Not Generated
+**Testability:** [n]/100 — Poor. Needs > 50.
+[full testability review]
+Fix Critical/Major defects, re-score, then re-run.
+```
+
+====================================================================
+
+# Reference — CTAL-TA checklists & gap dimensions
+
+**Source:** ISTQB CTAL-TA Syllabus, Ch. 5 Reviews, §5.2 (TA-5.2.1 requirements,
+TA-5.2.2 user stories, TA-5.2.3 tailoring).
+
+**TA-5.2.2 story checklist:** requester's viewpoint · clear, distinct feature ·
+testable AC · prioritised · standard format (`As a [role], I want [goal], so
+that [benefit]`).
+
+**TA-5.2.1 requirements checklist:** each testable · has AC · has priority ·
+uniquely identified · versioned · traces to business req · traces to use cases.
+
+**Testability dimensions:** clarity, measurability, completeness, consistency,
+atomicity.
+
+**Ambiguity trigger words** (flag unless measurably defined): appropriate,
+user-friendly, quickly, efficiently, intuitive, minimal, reasonable, adequate,
+fast, easy → replace with "within 2 s", "shows error X", "in N steps".
+
+**AC quality:** precise, measurable, concise; each true/false when tested;
+states *what* not *how*; covers NFRs where relevant. Formats: Given/When/Then,
+or rule/bullet input-output.
+
+**Gap dimensions:**
+- Functional — alternate flows (cancel/retry/timeout), error messages,
+  idempotency/duplicates, state transitions.
+- Data & validation — required vs optional, format/length/charset/rounding,
+  empty/null/max, invalid reference ids.
+- Roles & permissions — who triggers/views/approves; unauthorized cases.
+- Integration — external systems/APIs/webhooks/queues; dependency failure
+  (timeout, 5xx); event ordering, eventual consistency.
+- Non-functional — performance, security (PII, tokens, rate limits), audit,
+  i18n, accessibility.
+- Operational — logging/metrics/alerts, feature flags/rollback, admin tooling.
+
+**Question quality:** good = "If payment fails after the order is created, does
+the order stay Pending or auto-cancel within N minutes?"; weak = "what about
+errors?".
+
+**Prioritisation:** Must clarify (blocks test/estimate/contract) · Should
+clarify (assumption may be wrong) · Nice (deferrable).
+
+**Tailoring (TA-5.2.3):** early refinement allows high-level conditions and
+flags gaps for conversation; sprint-ready stories require full AC, priority,
+traceability; add domain checks (PCI-DSS, ZATCA, etc.) only on request.
