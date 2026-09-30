@@ -266,8 +266,14 @@ as grounded isolated passes and assembles the contract; payload/contract glue in
 `agents/analyst.js` + `agents/analyst-contract.js`; grounding in
 `src/agents/grounding.js`; stub logic in `lib/prerequisites.js`.
 
-Jira fetch → attachments → Testing Team review comment (separate workflow):
-`.claude/skills/qa-analyst/jira-issue-review.md`
+## Method references
 
-Review issue content + attachments → plain-text improvement suggestions:
-`.claude/skills/qa-analyst/jira-requirements-review.md`
+- Testability rubric + gate → `analysis/testability_analysis/SKILL.md`; source
+  checklists, ambiguity word list, and tailoring → its `reference.md`.
+- PO-facing completeness gaps → `story-gap-analysis.md`. The method behind the
+  **Open Questions** and `[Provisional]` checklist lines; distinct from the
+  internal `analysis/test_gap_analysis` coverage pass (that file explains how).
+- Jira fetch → attachments → Testing Team review comment (separate workflow):
+  `jira-issue-review.md`.
+- Review issue content + attachments → plain-text improvement suggestions:
+  `jira-requirements-review.md`.
