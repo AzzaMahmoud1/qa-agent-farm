@@ -200,6 +200,74 @@ function pushAudit(entry) {
   console.log("[execute-audit]", JSON.stringify(entry));
 }
 
+// ── Live agent runners — invoked ONLY by the orchestrator ──────────────────
+async function runAnalystAgent(body) {
+  const ticketText = String(body.ticketText || "");
+  // Download image + PDF attachments server-side (Jira auth) so the analyst
+  // can pass them to a vision-capable runner. Text-only runners ignore them.
+  const downloadAll = async (list) => {
+    const out = [];
+    for (const att of Array.isArray(list) ? list.slice(0, 6) : []) {
+      if (!att?.contentUrl) continue;
+      try {
+        const { buffer, mimeType } = await fetchAttachmentBinary(att.contentUrl, { timeoutMs: jiraTimeoutMs });
+        out.push({ filename: att.filename || "attachment", mimeType: att.mimeType || mimeType, base64: buffer.toString("base64") });
+      } catch { /* skip an attachment that fails to download */ }
+    }
+    return out;
+  };
+  const images = await downloadAll(body.imageAttachments);
+  const documents = await downloadAll(body.documentAttachments);
+  // Recall prior requirements for this ticket + related ones from the KB.
+  const ticketId = String(body.ticketId || "").trim();
+  const feedback = Array.isArray(body.orchestrator_feedback) && body.orchestrator_feedback.length
+    ? `Orchestrator rejected the previous attempt: ${body.orchestrator_feedback.join("; ")}`
+    : "";
+  const priorKnowledge = [buildPriorKnowledgeBlock(ticketId, `${body.title || ""} ${ticketText}`.slice(0, 2000)), feedback].filter(Boolean).join("\n\n");
+  const { runRequirementAnalyst } = await import("./src/agents/requirementAnalyst.js");
+  const result = await runRequirementAnalyst(ticketText, { images, documents, priorKnowledge });
+  if (ticketId && result.parsed) {
+    try {
+      result.knowledge_delta = diffAgainstStored(ticketId, result.parsed);
+      recordRequirements({ ticketId, title: body.title, breakdown: result.parsed });
+    } catch { /* KB persistence is best-effort */ }
+  }
+  result.prior_knowledge_used = Boolean(priorKnowledge);
+  return result;
+}
+
+async function runWriterAgent(body) {
+  const { runLiveWriter } = await import("./src/agents/testWriter.js");
+  return runLiveWriter(body.analyst, String(body.ticketText || ""), { feedback: body.orchestrator_feedback });
+}
+
+async function runAuthorAgent(body) {
+  const { runAuthorSession, makeLlmPlanner } = await import("./src/agents/liveAuthor.js");
+  const { createPlaywrightDriver } = await import("./src/agents/playwrightDriver.js");
+  const { callAgentRunner, extractSkillJson, effortForAttempt } = await import("./src/agents/requirementAnalyst.js");
+  let driver;
+  try {
+    driver = await createPlaywrightDriver();
+  } catch (err) {
+    return { success: false, blocked: true, runner: "live", status: "NEEDS_INPUT", outline_id: body.outline.id, blocked_reason: err.message, summary: err.message, steps: [], requirement_verdicts: {} };
+  }
+  const skillText = fs.readFileSync(path.join(root, ".claude/skills/qa-author/SKILL.md"), "utf8").replace(/^---[\s\S]*?---\s*/, "");
+  const planner = makeLlmPlanner({
+    skillText,
+    call: (prompt) => callAgentRunner(prompt, effortForAttempt(1), { agent: "author" }),
+    extractJson: extractSkillJson,
+  });
+  const secrets = { username: String(body.credentials?.username || ""), password: String(body.credentials?.password || "") };
+  return runAuthorSession({
+    outline: body.outline, url: body.url, secrets, driver, planner,
+    sessionId: `auth-${String(body.storyId || "story")}-${Date.now().toString(36)}`,
+  });
+}
+
+// Only the orchestrator (src/agents/orchestratorRun.js) calls these.
+const AGENT_RUNNERS = { analyst: runAnalystAgent, writer: runWriterAgent, author: runAuthorAgent };
+const orchestratorRuns = new Map();
+
 http
   .createServer(async (req, res) => {
     const url = new URL(req.url, `http://${host}:${port}`);
@@ -321,49 +389,23 @@ http
       return;
     }
 
-    if (pathname === "/api/agents/analyst" && req.method === "POST") {
-      if (!isLocalRequester(req)) {
-        sendJson(res, req, 403, { error: "Analyst API is local-only" });
-        return;
-      }
+    // The orchestrator is the brain of a live run: it assigns each agent,
+    // judges the output, and passes only accepted output to the next agent.
+    // The UI only starts runs and supplies human decisions.
+    if (pathname.startsWith("/api/orchestrator/") && !isLocalRequester(req)) {
+      sendJson(res, req, 403, { error: "Orchestrator API is local-only" });
+      return;
+    }
+
+    if (pathname === "/api/orchestrator/run" && req.method === "POST") {
       try {
         const body = await readBody(req);
-        const ticketText = body.ticketText || body.ticket || body.text || "";
-        if (!String(ticketText).trim()) {
-          sendJson(res, req, 400, { error: "ticketText is required" });
-          return;
-        }
-        // Download image + PDF attachments server-side (Jira auth) so the analyst
-        // can pass them to a vision-capable runner. Text-only runners ignore them.
-        const downloadAll = async (list) => {
-          const out = [];
-          for (const att of Array.isArray(list) ? list.slice(0, 6) : []) {
-            if (!att?.contentUrl) continue;
-            try {
-              const { buffer, mimeType } = await fetchAttachmentBinary(att.contentUrl, { timeoutMs: jiraTimeoutMs });
-              out.push({ filename: att.filename || "attachment", mimeType: att.mimeType || mimeType, base64: buffer.toString("base64") });
-            } catch { /* skip an attachment that fails to download */ }
-          }
-          return out;
-        };
-        const images = await downloadAll(body.imageAttachments);
-        const documents = await downloadAll(body.documentAttachments);
-        // Recall prior requirements for this ticket + related ones from the KB,
-        // and inject them so the analyst reasons with continuity across runs.
-        const ticketId = String(body.ticketId || "").trim();
-        const priorKnowledge = buildPriorKnowledgeBlock(ticketId, `${body.title || ""} ${ticketText}`.slice(0, 2000));
-        const { runRequirementAnalyst } = await import("./src/agents/requirementAnalyst.js");
-        const result = await runRequirementAnalyst(ticketText, { images, documents, priorKnowledge });
-        // Persist the fresh breakdown so future runs benefit from it. Compute the
-        // delta against the previously stored version BEFORE overwriting it.
-        if (ticketId && result.parsed) {
-          try {
-            result.knowledge_delta = diffAgainstStored(ticketId, result.parsed);
-            recordRequirements({ ticketId, title: body.title, breakdown: result.parsed });
-          } catch { /* KB persistence is best-effort */ }
-        }
-        result.prior_knowledge_used = Boolean(priorKnowledge);
-        sendJson(res, req, result.success === false ? 422 : 200, result);
+        const { startRun, newRun } = await import("./src/agents/orchestratorRun.js");
+        const run = newRun(body);
+        orchestratorRuns.set(run.run_id, run);
+        if (orchestratorRuns.size > 50) orchestratorRuns.delete(orchestratorRuns.keys().next().value);
+        await startRun(body, AGENT_RUNNERS, run);
+        sendJson(res, req, 200, run);
       } catch (err) {
         const status = err.message?.includes("exceeds") || err.message?.includes("Invalid JSON") ? 400 : 500;
         sendJson(res, req, status, { error: err.message });
@@ -371,68 +413,28 @@ http
       return;
     }
 
-    if (pathname === "/api/agents/writer" && req.method === "POST") {
-      if (!isLocalRequester(req)) {
-        sendJson(res, req, 403, { error: "Writer API is local-only" });
-        return;
-      }
+    if (pathname === "/api/orchestrator/resume" && req.method === "POST") {
       try {
         const body = await readBody(req);
-        if (!Array.isArray(body.analyst?.testable_conditions) || !body.analyst.testable_conditions.length) {
-          sendJson(res, req, 400, { error: "analyst.testable_conditions is required" });
+        const run = orchestratorRuns.get(String(body.run_id || ""));
+        if (!run) {
+          sendJson(res, req, 404, { error: "Unknown or expired run — start a new run" });
           return;
         }
-        const { runLiveWriter } = await import("./src/agents/testWriter.js");
-        const result = await runLiveWriter(body.analyst, String(body.ticketText || ""));
-        sendJson(res, req, result.success === false ? 422 : 200, result);
+        const { resumeRun } = await import("./src/agents/orchestratorRun.js");
+        await resumeRun(run, { approvals: body.approvals, url: body.url, credentials: body.credentials }, AGENT_RUNNERS);
+        sendJson(res, req, 200, run);
       } catch (err) {
-        const status = err.message?.includes("exceeds") || err.message?.includes("Invalid JSON") ? 400 : 500;
+        const status = err.message?.includes("not awaiting") ? 409
+          : err.message?.includes("exceeds") || err.message?.includes("Invalid JSON") ? 400 : 500;
         sendJson(res, req, status, { error: err.message });
       }
       return;
     }
 
-    if (pathname === "/api/agents/author" && req.method === "POST") {
-      if (!isLocalRequester(req)) {
-        sendJson(res, req, 403, { error: "Author API is local-only" });
-        return;
-      }
-      try {
-        const body = await readBody(req);
-        const outline = body.outline;
-        if (!outline?.id || outline.status !== "approved" || !Array.isArray(outline.tasks) || !outline.tasks.length) {
-          sendJson(res, req, 400, { error: "An approved outline with tasks is required" });
-          return;
-        }
-        let target;
-        try { target = new URL(String(body.url || "")); } catch { target = null; }
-        if (!target || !/^https?:$/.test(target.protocol)) {
-          sendJson(res, req, 400, { error: "A target http(s) URL is required" });
-          return;
-        }
-        const { runAuthorSession, makeLlmPlanner } = await import("./src/agents/liveAuthor.js");
-        const { createPlaywrightDriver } = await import("./src/agents/playwrightDriver.js");
-        const { callAgentRunner, extractSkillJson, effortForAttempt } = await import("./src/agents/requirementAnalyst.js");
-        const skillText = fs.readFileSync(path.join(root, ".claude/skills/qa-author/SKILL.md"), "utf8").replace(/^---[\s\S]*?---\s*/, "");
-        let driver;
-        try {
-          driver = await createPlaywrightDriver();
-        } catch (err) {
-          sendJson(res, req, 200, { success: false, blocked: true, runner: "live", status: "NEEDS_INPUT", outline_id: outline.id, blocked_reason: err.message, summary: err.message, steps: [], requirement_verdicts: {} });
-          return;
-        }
-        const planner = makeLlmPlanner({
-          skillText,
-          call: (prompt) => callAgentRunner(prompt, effortForAttempt(1), { agent: "author" }),
-          extractJson: extractSkillJson,
-        });
-        const secrets = { username: String(body.credentials?.username || ""), password: String(body.credentials?.password || "") };
-        const result = await runAuthorSession({ outline, url: target.href, secrets, driver, planner, sessionId: `auth-${String(body.storyId || "story")}-${Date.now().toString(36)}` });
-        sendJson(res, req, 200, result);
-      } catch (err) {
-        const status = err.message?.includes("exceeds") || err.message?.includes("Invalid JSON") ? 400 : 500;
-        sendJson(res, req, status, { error: err.message });
-      }
+    if (pathname === "/api/orchestrator/run" && req.method === "GET") {
+      const run = orchestratorRuns.get(String(url.searchParams.get("id") || ""));
+      sendJson(res, req, run ? 200 : 404, run || { error: "Unknown run" });
       return;
     }
 

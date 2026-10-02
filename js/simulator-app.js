@@ -946,7 +946,7 @@ function attachmentsBlock(story) {
 
 /**
  * Persist the analyzed requirements to the knowledge base. The live analyst
- * path already persists server-side (via /api/agents/analyst), so this only
+ * path already persists server-side (via the orchestrator's analyst dispatch), so this only
  * saves the local/deterministic breakdown — best-effort, never blocks the UI.
  */
 function persistRequirementsKnowledge(story) {
@@ -984,81 +984,71 @@ function ticketTextForAnalyst(story) {
   return [base, commentsBlock(story), attachmentsBlock(story)].filter(Boolean).join("\n\n");
 }
 
-async function runAgent1(story) {
-  const ticketText = ticketTextForAnalyst(story);
-  if (!ticketText.trim()) throw new Error("No ticket text for Agent 1");
-  if (location.protocol === "file:") {
-    throw new Error("Agent 1 needs the local server (npm start) — file:// cannot call Cursor Agent");
-  }
-
-  const statusTarget = currentInputSource === "jira" ? setJiraStatus : setRequirementsLoadStatus;
-  statusTarget("loading", "Agent 1 running via Cursor Agent (Sonnet 5)… (~1–2 min)");
-  el("event-message").textContent = "Agent 1 (Requirement Analyst) is analyzing the ticket via Cursor Agent · Sonnet 5…";
-  el("status-orchestrator").textContent = "awaiting Agent 1";
-  if (el("status-analyst")) el("status-analyst").textContent = "running…";
-
-  const refOf = (a) => ({ contentUrl: a.contentUrl, filename: a.filename, mimeType: a.mimeType });
-  const imageAttachments = (story.attachments || []).filter((a) => a.isImage && a.contentUrl).map(refOf);
-  const documentAttachments = (story.attachments || []).filter((a) => a.isPdf && a.contentUrl).map(refOf);
-  const res = await fetch("/api/agents/analyst", {
+async function postOrchestrator(path, payload) {
+  const res = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ticketText, imageAttachments, documentAttachments, ticketId: story.id, title: story.title }),
+    body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.success === false) {
-    throw new Error(data.error || data.message || `Agent 1 failed (HTTP ${res.status})`);
-  }
-
-  const scratchpad = data.scratchpad;
-  const parsed = data.parsed || data;
-  story.live_analyst_output = {
-    ...parsed,
-    scratchpad: typeof scratchpad === "string" ? scratchpad : (scratchpad?.rendered || scratchpad),
-    runner: "cursor_agent_cli",
-    model: "claude-sonnet-5 (high)",
-    success: true,
-  };
-  if (el("status-analyst")) el("status-analyst").textContent = "done";
-  return story.live_analyst_output;
-}
-
-/**
- * Live Writer runs right after a live Agent 1 (same runner), unless turned off
- * with `?writer=local` or localStorage.setItem("qa-live-writer","0").
- */
-function isLiveWriterEnabled() {
-  try {
-    const q = new URL(location.href).searchParams.get("writer");
-    if (q === "live") return true;
-    if (q === "local") return false;
-    return localStorage.getItem("qa-live-writer") !== "0";
-  } catch {
-    return true;
-  }
-}
-
-async function runLiveWriter(story) {
-  const analyst = story?.live_analyst_output;
-  if (!analyst?.ready_for_test_design || !(analyst.testable_conditions || []).length) return null;
-  if (el("status-writer")) el("status-writer").textContent = "running…";
-  el("event-message").textContent = "Writer is drafting test cases from the Analyst's grounded conditions…";
-  const res = await fetch("/api/agents/writer", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ analyst, ticketText: ticketTextForAnalyst(story) }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.success === false) throw new Error(data.error || `Writer failed (HTTP ${res.status})`);
-  story.live_writer_output = data;
-  if (el("status-writer")) el("status-writer").textContent = "done";
+  if (!res.ok) throw new Error(data.error || `Orchestrator request failed (HTTP ${res.status})`);
   return data;
 }
 
 /**
+ * Hand the story to the orchestrator. It runs the Analyst, judges the output,
+ * passes accepted output to the Writer, judges that, and stops at the next
+ * human decision. The UI only displays what the orchestrator decided.
+ */
+async function runAgent1(story) {
+  const ticketText = ticketTextForAnalyst(story);
+  if (!ticketText.trim()) throw new Error("No ticket text for the orchestrator");
+  if (location.protocol === "file:") {
+    throw new Error("Live agents need the local server (npm start) — file:// cannot reach the orchestrator");
+  }
+
+  const statusTarget = currentInputSource === "jira" ? setJiraStatus : setRequirementsLoadStatus;
+  statusTarget("loading", "Orchestrator running the Analyst and Writer… (~1–3 min)");
+  el("event-message").textContent = "Orchestrator assigned the Analyst; it will judge the output before handing it to the Writer…";
+  el("status-orchestrator").textContent = "running live agents";
+  if (el("status-analyst")) el("status-analyst").textContent = "running…";
+
+  const refOf = (a) => ({ contentUrl: a.contentUrl, filename: a.filename, mimeType: a.mimeType });
+  const run = await postOrchestrator("/api/orchestrator/run", {
+    ticketText,
+    imageAttachments: (story.attachments || []).filter((a) => a.isImage && a.contentUrl).map(refOf),
+    documentAttachments: (story.attachments || []).filter((a) => a.isPdf && a.contentUrl).map(refOf),
+    ticketId: story.id,
+    title: story.title,
+  });
+  applyOrchestratorRun(story, run);
+  if (!story.live_analyst_output) {
+    throw new Error(`Orchestrator stopped at ${run.stage}: ${[].concat(run.awaiting?.detail || []).join("; ")}`);
+  }
+  return story.live_analyst_output;
+}
+
+/** Copy the orchestrator's accepted outputs and decisions onto the story. */
+function applyOrchestratorRun(story, run) {
+  story.orchestrator_run = { run_id: run.run_id, stage: run.stage, awaiting: run.awaiting, decisions: run.decisions };
+  const accepted = (agent) => run.decisions.some((d) => d.agent === agent && d.verdict === "accept");
+  if (run.outputs?.analyst && (accepted("analyst") || run.stage === "HELD_FOR_PO" || run.stage === "AWAITING_HUMAN")) {
+    story.live_analyst_output = { ...run.outputs.analyst, runner: "live", success: true };
+  }
+  if (run.outputs?.writer && accepted("writer")) story.live_writer_output = run.outputs.writer;
+  const authored = Object.entries(run.outputs?.author || {});
+  const verified = authored.find(([id]) => run.decisions.some((d) => d.agent === `author:${id}` && d.verdict === "accept"));
+  if (verified) story.live_author_output = verified[1];
+  else if (authored.length) story.live_author_output = authored.at(-1)[1];
+  if (el("status-analyst")) el("status-analyst").textContent = story.live_analyst_output ? "done" : "held";
+  if (el("status-writer") && story.live_writer_output) el("status-writer").textContent = "done";
+  el("status-orchestrator").textContent = run.stage.toLowerCase().replace(/_/g, " ");
+}
+
+/**
  * Ensure Agent 1 analysis is available. Default path is the local
- * deterministic analyst (no network, instant). When live Agent 1 is enabled,
- * call the Cursor Agent CLI and gracefully fall back to local on any failure.
+ * deterministic analyst (no network, instant). When live agents are enabled,
+ * the orchestrator runs them and falls back to local on any failure.
  */
 async function ensureAgent1(story, runOptions) {
   if (!story) return story;
@@ -1067,19 +1057,10 @@ async function ensureAgent1(story, runOptions) {
   try {
     await runAgent1(story);
   } catch (err) {
-    console.warn("Live Agent 1 failed; falling back to local analyst:", err?.message || err);
+    console.warn("Live orchestrator run failed; falling back to local agents:", err?.message || err);
     if (el("status-analyst")) el("status-analyst").textContent = "local";
     const statusTarget = currentInputSource === "jira" ? setJiraStatus : setRequirementsLoadStatus;
-    statusTarget("ok", "live Agent 1 unavailable — using local analyst");
-    return story;
-  }
-  if (isLiveWriterEnabled() && !story.live_writer_output) {
-    try {
-      await runLiveWriter(story);
-    } catch (err) {
-      console.warn("Live Writer failed; falling back to the template Writer:", err?.message || err);
-      if (el("status-writer")) el("status-writer").textContent = "local";
-    }
+    statusTarget("ok", `live run unavailable — using local agents (${err?.message || err})`);
   }
   return story;
 }
@@ -2374,16 +2355,16 @@ function renderAuthorOutput(data) {
 
 function renderLiveAuthorControls(data) {
   const approved = (data.outlines || []).filter((o) => o.status === "approved");
-  const options = approved.map((o) => `<option value="${escapeHtml(o.id)}">${escapeHtml(o.id)} — ${escapeHtml(o.title || "")}</option>`).join("");
+  const runId = currentStory?.orchestrator_run?.run_id;
   return `<div class="live-author" style="margin:.5rem 0;padding:.6rem;border:1px solid var(--border);border-radius:8px">
-    <div style="font-size:.78rem;font-weight:600;margin-bottom:.35rem">Live Author · Plan → Act → Reflect (Playwright)</div>
-    <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;font-size:.74rem">
-      <select id="live-author-outline">${options}</select>
+    <div style="font-size:.78rem;font-weight:600;margin-bottom:.35rem">Hand back to the orchestrator · live Author (Playwright)</div>
+    ${runId ? `<div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;font-size:.74rem">
       <input id="live-author-user" placeholder="test username (optional)" autocomplete="off" style="width:11rem">
       <input id="live-author-pass" type="password" placeholder="test password (optional)" autocomplete="new-password" style="width:11rem">
-      <button type="button" class="btn" id="btn-live-author">Run live Author</button>
+      <button type="button" class="btn" id="btn-live-author">Send ${approved.length} approved outline(s) to the orchestrator</button>
     </div>
-    <div class="muted" style="font-size:.7rem;margin-top:.3rem">Target: ${escapeHtml(humanWebpageInput?.url || "—")}. Credentials go to the local server only; the model sees placeholders.</div>
+    <div class="muted" style="font-size:.7rem;margin-top:.3rem">The orchestrator authors each approved outline against ${escapeHtml(humanWebpageInput?.url || "—")}, judges every session, and only passes verified ones on. Credentials go to the local server only.</div>`
+    : `<div class="muted" style="font-size:.72rem">Live authoring needs a live orchestrator run — reload the story with <code>?agent1=live</code>.</div>`}
     <div id="live-author-status" style="font-size:.74rem;margin-top:.3rem"></div>
   </div>`;
 }
@@ -2401,28 +2382,22 @@ function bindLiveAuthorButton(root) {
   if (!btn) return;
   btn.addEventListener("click", async () => {
     const status = root.querySelector("#live-author-status");
-    const outlineId = root.querySelector("#live-author-outline")?.value;
-    const outline = storyOutputs?.writer?.test_outlines?.find((o) => o.id === outlineId);
-    if (!outline || !humanWebpageInput?.url) return;
+    const runId = currentStory?.orchestrator_run?.run_id;
+    if (!runId || !humanWebpageInput?.url) return;
+    const approvals = Object.fromEntries((storyOutputs?.writer?.test_outlines || []).map((o) => [o.id, o.status]));
     btn.disabled = true;
-    if (status) status.textContent = "Running in a headless browser… (this can take a minute)";
+    if (status) status.textContent = "Orchestrator is authoring and judging each approved outline… (this can take a few minutes)";
     try {
-      const res = await fetch("/api/agents/author", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          outline,
-          url: humanWebpageInput.url,
-          storyId: currentStory?.id,
-          credentials: { username: root.querySelector("#live-author-user")?.value || "", password: root.querySelector("#live-author-pass")?.value || "" },
-        }),
+      const run = await postOrchestrator("/api/orchestrator/resume", {
+        run_id: runId,
+        approvals,
+        url: humanWebpageInput.url,
+        credentials: { username: root.querySelector("#live-author-user")?.value || "", password: root.querySelector("#live-author-pass")?.value || "" },
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Author failed (HTTP ${res.status})`);
-      currentStory.live_author_output = data;
+      applyOrchestratorRun(currentStory, run);
       applyLiveAuthorResult();
     } catch (err) {
-      if (status) status.textContent = `Live Author failed: ${err.message}`;
+      if (status) status.textContent = `Orchestrator could not author: ${err.message}`;
       btn.disabled = false;
     }
   });

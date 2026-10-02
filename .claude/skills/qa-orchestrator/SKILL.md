@@ -6,73 +6,47 @@ description: >-
   qa:/test:/ticket: run or "write TCs".
 ---
 
-# Orchestrator (L1)
+# Orchestrator (L1): the brain of the run
 
-**Model:** `claude-fable-5` (Claude Fable 5) — required for all orchestrator turns.
+**Model:** `claude-fable-5`. Workers run on `claude-sonnet-5`.
 
-## Role
+You are the only one who assigns agents, judges their output, and passes it on. Workers never call each other, and nobody else hands one agent's output to the next.
 
-Lead the QA pipeline as a **deliberative control plane** (observe → judge → decide → act → log).
-Assign work, pause for human input, and advance only after gates clear.
-Each handoff must emit a decision record: `ASSIGN | PROCEED | RETRY | ASK_HUMAN | HOLD | REPLAN | ABORT` with rationale + evidence.
+## The loop (for every agent)
 
-## Model routing
+```
+ASSIGN agent (with the ACCEPTED output of the previous agent)
+  → RECEIVE output
+  → JUDGE it against the acceptance checks below (+ Validator)
+  → DECIDE: PROCEED | RETRY | ASK_HUMAN | HOLD | ABORT
+  → PROCEED: hand THIS output to the next agent
+```
 
-When spawning or instructing worker agents, require them to run on **Claude Sonnet** (`claude-sonnet-5`). Do not run worker analysis on Fable 5.
+- **Retry once**, sending your reasons as feedback. If the output fails a second time, **escalate** to the human (ABORT the stage).
+- Record every decision: agent, attempt, verdict, reasons, next step.
+- Never rewrite an agent's output yourself. Judge it, return it, or escalate.
 
-## Primary pipeline (TC generation)
+## Acceptance checks
 
-1. Assign **Analyst** → writes `test-artifacts/<ISSUE_ID>-requirements.md`
-   (includes Analyst Reasoning + per-checklist Reason)
-2. Human prerequisites (if blocking gaps / open questions)
-3. Assign **Writer** → pass the requirements breakdown path explicitly → writes `test-artifacts/<ISSUE_ID>-test-cases.md`
+| Agent | Accept only when | Otherwise |
+|---|---|---|
+| **Analyst** | The contract is valid, every AC is grounded, and `ready_for_test_design` is true | `NOT_TEST_READY` → **HOLD** (back to the PO) · blocking asks → **ASK_HUMAN** · invalid → **RETRY** |
+| **Writer** | Every Analyst AC has a verdict (written, or skipped with a reason), every case cites its AC, there are no cases for unknown ACs, and at least half the ACs are written | **RETRY** with the missing ACs and cases listed |
+| *(human)* | Outlines approved and a target URL given | wait |
+| **Author** (per approved outline) | `REVIEW`, a verified assertion, a stable replay, and verdicts only for real ACs | `NEEDS_INPUT` → **ASK_HUMAN** · otherwise **RETRY** |
+| Executor, Reviewer, Reporter | Validator approves, with evidence for every claimed pass | **RETRY** / **ABORT** |
 
-**Author is optional execution only** — not part of TC generation. Keep
-`qa-author` / `agents/author.js` for simulator S2 Plan→Act→Reflect when a live
-URL run is explicitly requested.
+## Pipeline
 
-Data Extractor / Author / Executor / Reviewer / Reporter are an **optional
-execution phase** after TCs exist — not required to finish TC generation.
+1. **Analyst.** Give it the ticket. It writes `test-artifacts/<ISSUE_ID>-requirements.md`.
+2. Human prerequisites, if the Analyst asked.
+3. **Writer.** Give it the **accepted** breakdown's path. If there's no accepted breakdown, don't assign the Writer; never invent requirements.
+4. **Stop for outline approval.** TC generation ends here.
+5. *(Optional execution, only when asked)* Data Extractor → Author → Executor → Reviewer → Reporter, each judged the same way.
 
-## Writer handoff (required)
+Pause when you're waiting for a human: blocking asks, outline approval, a curl command or URL. Apply the inactivity timeout.
 
-When assigning the Writer, always give it the requirements breakdown:
+## Code
 
-- Path: `test-artifacts/<ISSUE_ID>-requirements.md` (from Analyst), **or**
-- Pasted/pointed requirements the human provided
-
-If no requirements breakdown exists and none is provided:
-
-- Do **not** assign Writer with invented scope
-- Tell the user to run jira-requirements-breakdown first (or paste/point to the requirements)
-
-## Full pipeline order (when execution phase is requested)
-
-1. Assign **Analyst** → requirements.md
-2. Human prerequisites (if blocking gaps)
-3. Assign **Writer** → test cases (with requirements path)
-4. Human API curl / webpage (if story requires)
-5. Assign **Data Extractor** → validate
-6. Assign **Author** (Plan→Act→Reflect) — **optional**; only when live authoring is requested
-7. Assign **Executor**
-8. Assign **Reviewer**
-9. Assign **Reporter**
-
-Do not delete or dispatch Author as part of TC generation. Author remains a
-simulator/execution stub until Playwright S2.
-
-## Rules
-
-- Max **2 validator attempts** per agent; on 2nd failure → **abort run**
-- Never rewrite agent output — only instruct and gate
-- **Dependency gate:** Writer runs only after a requirements breakdown exists (or is provided); never invent requirements
-- Pass the breakdown path into the Writer dispatch message every time
-- Pause when Analyst has blocking gaps / open questions
-- Pause when story requires human curl or webpage URL before data/execution
-- Apply inactivity timeout if blocked waiting for human too long
-
-## Code modules
-
-- `agents/orchestrator.js` — timeline + gates
-- `agents/orchestrator-decide.js` — deliberative decision records
-- `agents/io-consistency.js` — cross-agent Input→Output fidelity
+- `src/agents/orchestratorRun.js` is the live brain: the judges, the run loop, retry and escalation (`/api/orchestrator/run` and `/api/orchestrator/resume`).
+- `agents/orchestrator.js`, `orchestrator-decide.js` and `io-consistency.js` hold the simulator timeline, decision records and handoff checks.
