@@ -61,15 +61,26 @@ export function checkQuoteGrounded(quote, evidenceText) {
   return { ok: true, reason: "" };
 }
 
+/** Is this finding sourced from an attachment the model was shown as an image/PDF? */
+export function isImageSourced(finding) {
+  return /^attachment:/i.test(String(finding?.source_field || ""));
+}
+
 /**
  * Drop findings whose `evidence_quote` cannot be verified against the story.
  * Nothing unsupported is ever passed downstream as verified.
+ *
+ * An image has no text to match, so when `imageEvidence` is true (the runner
+ * actually sent attachments) an `attachment:`-sourced finding is kept without
+ * the verbatim check but tagged `evidence_kind: "image"` + `provisional: true`
+ * — the assembler then requires human confirmation before it can drive design.
  * @param {Array<object>} findings
  * @param {string} evidenceText
  * @param {string} [quoteKey="evidence_quote"]
+ * @param {{ imageEvidence?: boolean }} [opts]
  * @returns {{ kept: object[], dropped: object[], failures: string[] }}
  */
-export function groundFindings(findings, evidenceText, quoteKey = "evidence_quote") {
+export function groundFindings(findings, evidenceText, quoteKey = "evidence_quote", opts = {}) {
   const kept = [];
   const dropped = [];
   const failures = [];
@@ -78,6 +89,8 @@ export function groundFindings(findings, evidenceText, quoteKey = "evidence_quot
     const { ok, reason } = checkQuoteGrounded(finding?.[quoteKey], evidenceText);
     if (ok) {
       kept.push(finding);
+    } else if (opts.imageEvidence && isImageSourced(finding) && String(finding?.[quoteKey] || "").trim()) {
+      kept.push({ ...finding, evidence_kind: "image", provisional: true });
     } else {
       dropped.push(finding);
       failures.push(`findings[${i}]: ${reason}`);

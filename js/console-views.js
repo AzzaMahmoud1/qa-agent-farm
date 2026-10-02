@@ -23,16 +23,17 @@
 
   // ---- static farm content ------------------------------------------------
   var SKILLS = [
+    { n: "testability_analysis", d: "First-pass gate: ISTQB CTAL-TA score scored in code; US-3/T-2 knockouts. NOT_TEST_READY holds the story.", t: ["core", "gate"], ic: "ti-checklist", c: "var(--accent)" },
     { n: "requirements_analysis", d: "Extract acceptance criteria, each tied to a verbatim quote. Abstains when evidence is thin.", t: ["core", "grounded"], ic: "ti-search", c: "var(--accent)" },
     { n: "risk_analysis", d: "Likelihood × impact → the P0–P3 priority carried onto every test case. Never blocks.", t: ["advisory"], ic: "ti-shield", c: "var(--warn)" },
     { n: "test_gap_analysis", d: "Boundary, negative, state-transition & decision-table lenses → the coverage gaps to fill.", t: ["advisory"], ic: "ti-chart-dots", c: "var(--info, #2e90fa)" },
     { n: "source_analysis", d: "Change-impact from a diff — only runs when a changeset is present.", t: ["advisory", "conditional"], ic: "ti-git-compare", c: "var(--purple)" },
-    { n: "root_cause_analysis", d: "5-Whys + Ishikawa for a failure investigation. Advisory, human-reviewed.", t: ["advisory", "conditional"], ic: "ti-flask", c: "var(--coral)" }
+    { n: "root_cause_analysis", d: "5-Whys + Ishikawa for a failure investigation (review phase). Advisory, human-reviewed.", t: ["advisory", "conditional"], ic: "ti-flask", c: "var(--coral)" }
   ];
   var AGENTS = [
     { id: "orchestrator", n: "Orchestrator", m: "Fable 5", d: "Only entry point. Dispatches workers, holds the human-input gate, executes analyst actions.", ic: "ti-target", lvl: "L1" },
     { id: "validator", n: "Output Validator", m: "Sonnet", d: "Second-opinion gate — every worker output is approved before the next agent runs.", ic: "ti-checkup-list", lvl: "L2" },
-    { id: "analyst", n: "Requirement Analyst", m: "Sonnet", d: "Runs the 5 analysis skills as grounded isolated passes → acceptance criteria.", ic: "ti-search", lvl: "L3" },
+    { id: "analyst", n: "Requirement Analyst", m: "Sonnet", d: "Runs the analysis skills (testability gate first) as grounded isolated passes → acceptance criteria.", ic: "ti-search", lvl: "L3" },
     { id: "writer", n: "Test Case Writer", m: "Sonnet", d: "Turns grounded ACs into Given / When / Then test cases with per-case risk.", ic: "ti-edit", lvl: "L3" },
     { id: "test_data_extractor", n: "Test Data Extractor", m: "Sonnet", d: "Builds valid / invalid / boundary datasets and oracles per test case.", ic: "ti-flask", lvl: "L3" },
     { id: "author", n: "Test Author", m: "Sonnet", d: "Plan → Act → Reflect executable steps from approved outlines (optional).", ic: "ti-tool", lvl: "L3" },

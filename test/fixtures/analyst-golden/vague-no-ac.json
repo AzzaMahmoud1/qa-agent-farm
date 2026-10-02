@@ -1,0 +1,102 @@
+{
+  "note": "No measurable AC: knockout forces NOT_TEST_READY even though the total is Fair; extraction skipped.",
+  "story": "Key: PERF-7\nDescription: The dashboard should load fast and be user-friendly for all users.",
+  "responses": {
+    "testability_analysis": {
+      "status": "success",
+      "criteria": [
+        {
+          "id": "US-1",
+          "result": "met"
+        },
+        {
+          "id": "US-2",
+          "result": "met"
+        },
+        {
+          "id": "US-3",
+          "result": "not_met"
+        },
+        {
+          "id": "US-4",
+          "result": "not_met"
+        },
+        {
+          "id": "US-5",
+          "result": "met"
+        },
+        {
+          "id": "T-1",
+          "result": "not_met"
+        },
+        {
+          "id": "T-2",
+          "result": "not_met"
+        },
+        {
+          "id": "T-3",
+          "result": "met"
+        },
+        {
+          "id": "T-4",
+          "result": "met"
+        },
+        {
+          "id": "T-5",
+          "result": "met"
+        },
+        {
+          "id": "R-1",
+          "result": "met"
+        },
+        {
+          "id": "R-2",
+          "result": "not_met"
+        },
+        {
+          "id": "R-3",
+          "result": "not_met"
+        },
+        {
+          "id": "R-4",
+          "result": "met"
+        },
+        {
+          "id": "R-5",
+          "result": "met"
+        }
+      ],
+      "defects": [
+        {
+          "severity": "critical",
+          "location": "description",
+          "issue": "No measurable acceptance criteria",
+          "suggested_improvement": "State a load-time target, e.g. within 2 seconds",
+          "evidence_quote": "should load fast and be user-friendly",
+          "source_field": "description"
+        }
+      ],
+      "red_flags": [
+        {
+          "issue": "Untestable state",
+          "evidence_quote": "should load fast",
+          "source_field": "description"
+        }
+      ],
+      "overall_confidence": 0.85,
+      "requires_human_review": true
+    }
+  },
+  "expect": {
+    "verdict": "NOT_TEST_READY",
+    "ready_for_test_design": false,
+    "conditions": 0,
+    "actions": [
+      "HOLD"
+    ],
+    "knockouts": [
+      "US-3",
+      "T-2"
+    ]
+  }
+}

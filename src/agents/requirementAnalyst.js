@@ -1,15 +1,16 @@
 /**
  * Agent 1 — Requirement Analyst (pluggable runner).
  *
- * The Analyst reads a story (JIRA or pasted requirements) and applies the five
- * analysis skills in `skills/` — requirements, risk, test-gap, source,
- * root-cause — each as its OWN isolated LLM pass (one narrow job at a time, so
- * the model cannot bleed one concern into another; this is what suppresses
- * hallucination). Each pass is grounded against the story text (verbatim-quote
- * check, see grounding.js), and the grounded outputs are assembled
+ * The Analyst reads a story (JIRA or pasted requirements) and applies the
+ * analysis skills in `.claude/skills/qa-analyst/analysis/` — testability (the
+ * gate), requirements, risk, test-gap, source, root-cause — each as its OWN
+ * isolated LLM pass (one narrow job at a time, so the model cannot bleed one
+ * concern into another; this is what suppresses hallucination). Each pass is
+ * grounded against the story text (verbatim-quote check, see grounding.js),
+ * checked against its skill's rules (skillChecks.js), and assembled
  * deterministically into the pipeline contract the simulator + orchestrator
- * consume. The five skill files are the single source of truth, shared with
- * the Claude Code `qa-analyst` subagent.
+ * consume. The skill files are the single source of truth, shared with the
+ * Claude Code `qa-analyst` subagent.
  *
  * Two runners, selected by ANALYST_RUNNER (default: cursor_agent_cli):
  * - cursor_agent_cli: `cursor-agent -p ... --model claude-sonnet-5[effort=…]`.
@@ -28,6 +29,8 @@ import { checkAnalystPromptContract } from "../../agents/analyst-contract.js";
 import { resolveActiveProvider } from "../../lib/llm-settings.js";
 import { loadSkill, ANALYST_SKILLS } from "./skillLoader.js";
 import { groundFindings, normalize } from "./grounding.js";
+import { scoreTestability, applySkillRules } from "./skillChecks.js";
+import { buildNcaSecurityGaps } from "../../lib/nca-controls.js";
 
 const MAX_BUFFER = 20_000_000;
 // Cursor Sonnet 5 with per-attempt effort (overridable via env).
@@ -708,25 +711,48 @@ function attemptRecord(attempt, skill, call) {
   };
 }
 
-/** Parse + ground one skill pass into a normalized shape. Throws on unparseable output. */
-function normalizeSkillPass(name, call, ticketText) {
+/**
+ * Parse + ground one skill pass into a normalized shape, then enforce that
+ * skill's rules in code. Throws on unparseable output.
+ * @param {{ imageEvidence?: boolean }} [opts]
+ */
+export function normalizeSkillPass(name, call, ticketText, opts = {}) {
   const parsed = extractSkillJson(call.text);
   const cfg = ANALYST_SKILLS[name] || {};
   const rawFindings = Array.isArray(parsed?.[cfg.findingsKey]) ? parsed[cfg.findingsKey] : [];
-  const { kept, dropped, failures } = groundFindings(rawFindings, ticketText);
-  return {
+  const { kept, dropped, failures } = groundFindings(rawFindings, ticketText, "evidence_quote", opts);
+  const { findings, violations } = applySkillRules(name, kept, parsed || {});
+  const run = {
     skill: name,
     ran: true,
-    status: String(parsed?.status || (kept.length ? "success" : "insufficient_information")),
-    findings: kept,
+    status: String(parsed?.status || (findings.length ? "success" : "insufficient_information")),
+    findings,
     dropped_ungrounded: dropped.length,
     grounding_failures: failures,
+    rule_violations: violations,
     overall_confidence: typeof parsed?.overall_confidence === "number" ? parsed.overall_confidence : null,
-    requires_human_review: parsed?.requires_human_review === true,
+    requires_human_review: parsed?.requires_human_review === true || violations.length > 0,
     missing_information: Array.isArray(parsed?.missing_information) ? parsed.missing_information : [],
     advisory: cfg.advisory ?? true,
     raw: parsed,
   };
+
+  if (name === "requirements_analysis") {
+    // Per-criterion conflicts: keep only those whose quotes are all grounded.
+    run.conflicts = (Array.isArray(parsed?.conflicts) ? parsed.conflicts : []).filter((c) => {
+      const quotes = Array.isArray(c?.quotes) ? c.quotes : [];
+      return quotes.length >= 2 && groundFindings(quotes, ticketText).dropped.length === 0;
+    });
+  }
+
+  if (name === "testability_analysis") {
+    // The model judges each criterion; code does the arithmetic and the gate.
+    const criteria = Array.isArray(parsed?.criteria) ? parsed.criteria : [];
+    run.red_flags = groundFindings(parsed?.red_flags, ticketText).kept;
+    run.score = run.status === "success" && criteria.length ? scoreTestability(criteria) : null;
+    if (run.score?.verdict === "NOT_TEST_READY") run.requires_human_review = true;
+  }
+  return run;
 }
 
 /** An abstained skill run (a pass that failed or was not run). */
@@ -753,7 +779,8 @@ function derivePriority(likelihood, impact) {
     medium: { low: "low", medium: "medium", high: "high" },
     low: { low: "minimal", medium: "low", high: "medium" },
   };
-  return M[String(likelihood).toLowerCase()]?.[String(impact).toLowerCase()] || "medium";
+  // Unknown axis value → no priority. Never invent a default.
+  return M[String(likelihood).toLowerCase()]?.[String(impact).toLowerCase()] || null;
 }
 
 /** Priority word → P0..P3 (the Writer carries this straight onto each test case). */
@@ -762,7 +789,9 @@ function priorityToP(priority) {
     case "critical": return "P0";
     case "high": return "P1";
     case "medium": return "P2";
-    default: return "P3"; // low | minimal
+    case "low":
+    case "minimal": return "P3";
+    default: return null;
   }
 }
 
@@ -778,7 +807,8 @@ function pickRiskFor(ac, riskRun) {
   for (const r of riskRun.findings) {
     const rq = normalize(r.evidence_quote || "");
     if (rq && acQuote && (acQuote.includes(rq) || rq.includes(acQuote))) {
-      return priorityToP(derivePriority(r.likelihood, r.impact));
+      const p = priorityToP(derivePriority(r.likelihood, r.impact));
+      if (p) return p;
     }
   }
   return null;
@@ -808,9 +838,15 @@ function reasonSummary(req) {
  * checkAnalystPromptContract by construction.
  */
 export function assembleAnalystContract(skillRuns, ticketText, meta = {}) {
+  const testability = testabilitySummary(skillRuns.testability_analysis);
+  if (testability?.verdict === "NOT_TEST_READY") {
+    return heldForTestability(skillRuns, testability, meta);
+  }
   const req = skillRuns.requirements_analysis || abstainRun("requirements_analysis");
   const risk = skillRuns.risk_analysis || null;
   const gap = skillRuns.test_gap_analysis || null;
+  const source = skillRuns.source_analysis || null;
+  const rootCause = skillRuns.root_cause_analysis || null;
 
   const acs = Array.isArray(req.findings) ? req.findings : [];
   const testable_conditions = acs.map((ac, i) => {
@@ -823,10 +859,12 @@ export function assembleAnalystContract(skillRuns, ticketText, meta = {}) {
       cite: src,
       source_field: src,
       confidence: typeof ac.confidence === "number" ? ac.confidence : null,
-      visual: /attachment|image|figma|mockup|screenshot|design/i.test(src),
+      visual: ac.evidence_kind === "image" || /attachment|image|figma|mockup|screenshot|design/i.test(src),
+      provisional: ac.provisional === true,
       risk: pickRiskFor(ac, risk),
     };
   });
+  const conflicts = Array.isArray(req.conflicts) ? req.conflicts : [];
 
   const coverage_gaps = (gap?.findings || []).map((g) => ({
     uncovered_element: g.uncovered_element ?? null,
@@ -839,7 +877,9 @@ export function assembleAnalystContract(skillRuns, ticketText, meta = {}) {
   }));
 
   const abstained = req.status !== "success";
-  const confLabel = overallLabel(req.overall_confidence, abstained);
+  let confLabel = overallLabel(req.overall_confidence, abstained);
+  // A Fair (NEEDS_REFINEMENT) test basis never yields high confidence.
+  if (testability?.verdict === "NEEDS_REFINEMENT" && confLabel === "high") confLabel = "medium";
   const hasConds = testable_conditions.length > 0;
   const hasVisual = testable_conditions.some((c) => c.visual);
   const needsReview = abstained || req.requires_human_review || confLabel === "low";
@@ -849,6 +889,9 @@ export function assembleAnalystContract(skillRuns, ticketText, meta = {}) {
   const nonBlockingInfo = [
     ...((risk && risk.missing_information) || []),
     ...((gap && gap.missing_information) || []),
+    ...Object.values(skillRuns).flatMap((r) => r?.rule_violations || []),
+    ...((testability?.verdict === "NEEDS_REFINEMENT" && testability.defects) || [])
+      .map((d) => `Testability defect (${d.severity || "n/a"}) at ${d.location || "story"}: ${d.issue || ""}`),
   ];
 
   const blocking = [];
@@ -872,6 +915,13 @@ export function assembleAnalystContract(skillRuns, ticketText, meta = {}) {
         detail: "Please confirm the acceptance criteria derived from the attached design/mockup image are correct before test design proceeds.",
       });
     }
+    if (conflicts.length) {
+      orchestrator_actions.push({
+        action: "ASK_HUMAN",
+        blocking: false,
+        detail: `Please provide a PO decision on ${conflicts.length} conflicting ticket statement(s) (listed in conflicts); the affected acceptance criteria were withheld from test design until confirmed.`,
+      });
+    }
   } else if (!hasConds || abstained) {
     const items = (missingInfo.length ? missingInfo : ["no grounded acceptance criteria could be extracted from the ticket"]).slice(0, 6);
     // The blocking-prerequisite detail carries the raw missing items (it is not
@@ -892,7 +942,7 @@ export function assembleAnalystContract(skillRuns, ticketText, meta = {}) {
 
   const analyst_reasoning = {
     included: testable_conditions.map((c) => `${c.id}: ${c.ac_text}`),
-    ambiguous_acs: [],
+    ambiguous_acs: conflicts.map((c) => `Conflict — ${c.topic || "unspecified"}: ${(c.quotes || []).map((q) => `"${q.evidence_quote}" (${q.source_field})`).join(" vs ")}`),
     unimplemented_rules: [],
     rejected_as_non_ac: [],
     confidence: confLabel,
@@ -939,24 +989,84 @@ export function assembleAnalystContract(skillRuns, ticketText, meta = {}) {
     ready_for_test_design,
     summary,
     // Extra context (ignored by the validators, surfaced to the UI).
+    testability,
+    conflicts,
+    change_impacts: source?.findings || [],
+    root_causes: rootCause?.findings || [],
     skills_run: ranSkills,
-    grounding_summary: Object.fromEntries(
-      Object.entries(skillRuns).map(([k, v]) => [k, {
-        status: v?.status,
-        findings: (v?.findings || []).length,
-        dropped_ungrounded: v?.dropped_ungrounded || 0,
-      }]),
-    ),
+    grounding_summary: groundingSummary(skillRuns),
+  };
+}
+
+function groundingSummary(skillRuns) {
+  return Object.fromEntries(
+    Object.entries(skillRuns).map(([k, v]) => [k, {
+      status: v?.status,
+      findings: (v?.findings || []).length,
+      dropped_ungrounded: v?.dropped_ungrounded || 0,
+      rule_violations: (v?.rule_violations || []).length,
+    }]),
+  );
+}
+
+/** Code-scored testability result carried into the contract (null when the pass did not run/score). */
+function testabilitySummary(run) {
+  if (!run || !run.score) return null;
+  return {
+    ...run.score,
+    defects: run.findings || [],
+    red_flags: run.red_flags || [],
   };
 }
 
 /**
- * Which analysis skills to run for this story. Requirements, risk, and gap
- * always run; source-analysis only when a diff/changeset is present;
+ * NOT_TEST_READY: the story is bounced to the PO. No extraction happened, so
+ * there are zero conditions; the defects become one blocking prerequisite and
+ * a blocking HOLD (a human confirms the gate, never the model alone).
+ */
+function heldForTestability(skillRuns, testability, meta) {
+  const top = testability.defects.slice(0, 5).map((d) => `${d.location || "story"}: ${d.issue || ""}`);
+  const why = testability.knockouts.length
+    ? `knockout criteria not met (${testability.knockouts.join(", ")})`
+    : `score ${testability.overall_score}/100 (${testability.rating})`;
+  const detail = `Holding: story is NOT_TEST_READY — ${why}. PO/BA decision needed on ${top.length} defect(s) before test design${top.length ? `: ${top.join("; ")}` : ""}.`;
+  const ranSkills = Object.keys(skillRuns).filter((k) => skillRuns[k] && skillRuns[k].ran !== false);
+  return {
+    success: true,
+    runner: "live",
+    runner_used: meta.runner || resolveAnalystRunner(),
+    analyst_reasoning: { included: [], ambiguous_acs: [], unimplemented_rules: [], rejected_as_non_ac: [], confidence: "low" },
+    testable_conditions: [],
+    prerequisites_needed: {
+      blocking: [{ category: "knowledge", blocks: "design", satisfied_by_ticket: false, detail }],
+      non_blocking: [],
+    },
+    coverage_gaps: [],
+    analyst_report: {
+      what_i_did: [`Scored test-readiness first (ISTQB CTAL-TA): ${testability.overall_score}/100, ${testability.verdict}.`],
+      why: ["A Poor test basis is fixed by the PO, not by extracting harder — extraction was skipped."],
+      orchestrator_actions: [{ action: "HOLD", blocking: true, detail }],
+      confidence: { overall: "low", reason: why },
+    },
+    analysis_complete: true,
+    ready_for_test_design: false,
+    summary: `Analyst held: story NOT_TEST_READY (${why}).`,
+    testability,
+    conflicts: [],
+    change_impacts: [],
+    root_causes: [],
+    skills_run: ranSkills,
+    grounding_summary: groundingSummary(skillRuns),
+  };
+}
+
+/**
+ * Which analysis skills to run for this story. Testability (the gate),
+ * requirements, risk, and gap always run; source-analysis only when a diff/changeset is present;
  * root-cause only when a failure investigation is explicitly requested.
  */
 function planSkills(ticketText, opts) {
-  const plan = ["requirements_analysis", "risk_analysis", "test_gap_analysis"];
+  const plan = ["testability_analysis", "requirements_analysis", "risk_analysis", "test_gap_analysis"];
   const hasDiff = opts.diff === true || /diff --git|^\+\+\+ |\n--- |```diff|changeset/im.test(String(ticketText));
   if (hasDiff) plan.push("source_analysis");
   if (opts.rootCause === true) plan.push("root_cause_analysis");
@@ -964,14 +1074,31 @@ function planSkills(ticketText, opts) {
 }
 
 /**
+ * Security failure modes (NCA ECC) to consider for auth/PII/API stories. Fed to
+ * the risk pass as context only — a risk still needs a verbatim story quote.
+ */
+export function securityRiskContext(ticketText) {
+  const nca = buildNcaSecurityGaps({ description: String(ticketText || "") });
+  if (!nca.applicable) return "";
+  return [
+    "## Security failure modes to consider (NCA ECC — context, not evidence)",
+    "This story touches auth/session/API/PII. Consider these; include one only",
+    "when a verbatim story quote anchors it:",
+    ...nca.gaps.map((g) => `- ${g.gap} (${g.nca_controls.join(", ")})`),
+  ].join("\n");
+}
+
+/**
  * Run the Requirement Analyst: applies the analysis skills as separate,
  * grounded, isolated passes, then assembles the pipeline contract.
  *
- * The FIRST (requirements) call is intentionally NOT wrapped — a runner
+ * The FIRST (testability) call is intentionally NOT wrapped — a runner
  * configuration/transport error (missing key, missing binary, missing base
  * URL) propagates, matching the old single-pass contract and the runner tests.
- * Parse failures of the requirements pass get one corrective retry; advisory
- * passes (risk/gap/…) that fail simply abstain and never break the run.
+ * An unparseable testability answer abstains (no gate, human review). A
+ * NOT_TEST_READY verdict skips extraction entirely. Parse failures of the
+ * requirements pass get one corrective retry; advisory passes (risk/gap/…)
+ * that fail simply abstain and never break the run.
  *
  * @param {string} ticketText
  * @param {{ images?, documents?, priorKnowledge?, diff?, rootCause? }} [opts]
@@ -997,30 +1124,34 @@ export async function runRequirementAnalyst(ticketText, opts = {}) {
   const prior = String(opts.priorKnowledge || "");
   const plan = planSkills(ticketText, opts);
   const skillRuns = {};
+  const passOpts = { imageEvidence: sentImages.length + sentDocuments.length > 0 };
+  const runPass = (name, skill, extra = "", attempt = 1) =>
+    callAgentRunner(buildSkillPrompt(skill, ticketText, prior, extra), effortForAttempt(attempt), { attempt }, sentImages, sentDocuments);
 
-  // ── Requirements pass (core). First call uncaught so config errors throw. ──
+  // ── Testability gate (first). Call uncaught so config errors throw. ──
+  const tCall = await runPass("testability_analysis", loadSkill("testability_analysis"));
+  attempts.push(attemptRecord(1, "testability_analysis", tCall));
+  try {
+    skillRuns.testability_analysis = normalizeSkillPass("testability_analysis", tCall, ticketText);
+  } catch (err) {
+    skillRuns.testability_analysis = abstainRun("testability_analysis", err instanceof Error ? err : new Error(String(err)));
+  }
+  if (skillRuns.testability_analysis.score?.verdict === "NOT_TEST_READY") {
+    const parsed = assembleAnalystContract(skillRuns, ticketText, { runner: resolveAnalystRunner() });
+    return { scratchpad: "", parsed, attempts, skill_runs: skillRuns, attachment_analysis: attachmentAnalysis };
+  }
+
+  // ── Requirements pass (core): one corrective retry on unparseable output. ──
   const reqSkill = loadSkill("requirements_analysis");
-  const call1 = await callAgentRunner(
-    buildSkillPrompt(reqSkill, ticketText, prior),
-    effortForAttempt(1),
-    { attempt: 1 },
-    sentImages,
-    sentDocuments,
-  );
+  const call1 = await runPass("requirements_analysis", reqSkill);
   attempts.push(attemptRecord(1, "requirements_analysis", call1));
   try {
-    skillRuns.requirements_analysis = normalizeSkillPass("requirements_analysis", call1, ticketText);
+    skillRuns.requirements_analysis = normalizeSkillPass("requirements_analysis", call1, ticketText, passOpts);
   } catch (parseErr) {
     try {
-      const retryCall = await callAgentRunner(
-        buildSkillPrompt(reqSkill, ticketText, prior, buildRetryExtra(parseErr, call1.text)),
-        effortForAttempt(2),
-        { attempt: 2 },
-        sentImages,
-        sentDocuments,
-      );
+      const retryCall = await runPass("requirements_analysis", reqSkill, buildRetryExtra(parseErr, call1.text), 2);
       attempts.push(attemptRecord(2, "requirements_analysis", retryCall));
-      skillRuns.requirements_analysis = normalizeSkillPass("requirements_analysis", retryCall, ticketText);
+      skillRuns.requirements_analysis = normalizeSkillPass("requirements_analysis", retryCall, ticketText, passOpts);
     } catch (retryErr) {
       const finalErr = retryErr instanceof Error ? retryErr : new Error(String(retryErr));
       return {
@@ -1034,18 +1165,12 @@ export async function runRequirementAnalyst(ticketText, opts = {}) {
   }
 
   // ── Remaining passes (advisory): tolerant — a failure abstains. ──
-  for (const name of plan.slice(1)) {
+  for (const name of plan.slice(2)) {
     try {
-      const skill = loadSkill(name);
-      const call = await callAgentRunner(
-        buildSkillPrompt(skill, ticketText, prior),
-        effortForAttempt(1),
-        { attempt: 1 },
-        sentImages,
-        sentDocuments,
-      );
+      const extra = name === "risk_analysis" ? securityRiskContext(ticketText) : "";
+      const call = await runPass(name, loadSkill(name), extra);
       attempts.push(attemptRecord(1, name, call));
-      skillRuns[name] = normalizeSkillPass(name, call, ticketText);
+      skillRuns[name] = normalizeSkillPass(name, call, ticketText, passOpts);
     } catch (err) {
       skillRuns[name] = abstainRun(name, err instanceof Error ? err : new Error(String(err)));
     }

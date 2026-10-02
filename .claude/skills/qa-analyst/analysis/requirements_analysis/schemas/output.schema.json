@@ -5,11 +5,20 @@
   "description": "Strict output contract for the requirements_analysis skill. Every acceptance criterion must carry a verbatim evidence quote that src/agents/grounding.js verifies against the real source text.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["status", "overall_confidence", "requires_human_review"],
+  "required": [
+    "status",
+    "overall_confidence",
+    "requires_human_review"
+  ],
   "properties": {
     "status": {
-      "description": "success requires >=1 criterion; both abstain statuses require acceptance_criteria to be empty. validation_failed is reserved for the harness and must not be emitted by the model.",
-      "enum": ["success", "insufficient_information", "conflicting_evidence", "validation_failed"]
+      "description": "success requires >=1 criterion; conflicting_evidence only when conflicts leave no usable criterion; both abstain statuses require acceptance_criteria to be empty. validation_failed is reserved for the harness.",
+      "enum": [
+        "success",
+        "insufficient_information",
+        "conflicting_evidence",
+        "validation_failed"
+      ]
     },
     "acceptance_criteria": {
       "type": "array",
@@ -17,7 +26,12 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["statement", "evidence_quote", "source_field", "confidence"],
+        "required": [
+          "statement",
+          "evidence_quote",
+          "source_field",
+          "confidence"
+        ],
         "properties": {
           "statement": {
             "type": "string",
@@ -42,11 +56,54 @@
         }
       }
     },
+    "conflicts": {
+      "type": "array",
+      "default": [],
+      "description": "Per-criterion contradictions the precedence rule could not settle. Each quote is grounding-checked; the affected criterion is withheld pending a PO decision.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "topic",
+          "quotes"
+        ],
+        "properties": {
+          "topic": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quotes": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "evidence_quote",
+                "source_field"
+              ],
+              "properties": {
+                "evidence_quote": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "source_field": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "missing_information": {
       "type": "array",
       "default": [],
       "description": "Required non-empty when status is insufficient_information.",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "overall_confidence": {
       "type": "number",
@@ -54,9 +111,14 @@
       "maximum": 1,
       "description": "Below 0.75, requires_human_review is forced true in code by enforce_confidence_gate."
     },
-    "requires_human_review": { "type": "boolean" },
+    "requires_human_review": {
+      "type": "boolean"
+    },
     "notes": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Optional brief context; never a substitute for evidence."
     }
   }

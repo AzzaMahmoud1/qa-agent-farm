@@ -57,7 +57,7 @@ Claude Code dispatch config — the interactive pipeline. **Not** the simulator 
 |------|---------|
 | `.claude/agents/*.md` | Subagent entrypoints Claude Code can dispatch (`qa-orchestrator`, `qa-analyst`, …) |
 | `.claude/skills/qa-*/SKILL.md` | Per-role rules for those subagents |
-| `.claude/skills/qa-analyst/analysis/*_analysis/SKILL.md` | The five analysis skills the Analyst runs as isolated grounded passes |
+| `.claude/skills/qa-analyst/analysis/*_analysis/SKILL.md` | The analysis skills (testability gate first) the Analyst runs as isolated grounded passes; shared rules in `COMMON.md` |
 | `CLAUDE.md` | Triggers (`qa:` / `test:` / `ticket:`) + "orchestrator-only dispatch" |
 
 **Do not remove.** Without it, Claude Code cannot run the farm as subagents.
@@ -275,7 +275,7 @@ Open http://127.0.0.1:5173/simulator.html
 agents/            # Pipeline agents (orchestrator, analyst, writer, author, …)
 lib/               # Requirements parser, human-input, redaction, executor
 js/                # Browser simulator entry
-.claude/skills/    # Per-agent qa-*/SKILL.md (incl. qa-analyst/analysis/ — the 5 analysis skills)
+.claude/skills/    # Per-agent qa-*/SKILL.md (incl. qa-analyst/analysis/ — the analysis skills + COMMON.md)
 .claude/agents/    # Per-agent subagent entrypoints for Claude Code
 .claude/skills/    # Per-agent qa-*/SKILL.md for Claude Code
 src/prompts/       # Agent 1 (Requirement Analyst) prompt — single source of truth

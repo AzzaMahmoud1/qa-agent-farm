@@ -28,7 +28,7 @@ const STORY = [
   assert.match(skill.instructions, /acceptance criteria/i, "loads the SKILL.md body");
   assert.ok(skill.schema && typeof skill.schema === "object", "loads the output schema when present");
   for (const name of Object.keys(ANALYST_SKILLS)) {
-    assert.doesNotThrow(() => loadSkill(name), `all 5 skills must load: ${name}`);
+    assert.doesNotThrow(() => loadSkill(name), `every analysis skill must load: ${name}`);
   }
 }
 
