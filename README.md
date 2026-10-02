@@ -58,17 +58,51 @@ Claude Code dispatch config — the interactive pipeline. **Not** the simulator 
 | `.claude/agents/*.md` | Subagent entrypoints Claude Code can dispatch (`qa-orchestrator`, `qa-analyst`, …) |
 | `.claude/skills/qa-*/SKILL.md` | Per-role rules for those subagents |
 | `.claude/skills/qa-analyst/analysis/*_analysis/SKILL.md` | The analysis skills (testability gate first) the Analyst runs as isolated grounded passes; shared rules in `COMMON.md` |
+| `.claude/skills/qa-analyst/template.md` | Output layout of `test-artifacts/<ISSUE_ID>-requirements.md` |
+| `.claude/skills/qa-analyst/jira-review.md` | Testing Team review of a Jira story (rubric-based; posts only after human approval) |
 | `CLAUDE.md` | Triggers (`qa:` / `test:` / `ticket:`) + "orchestrator-only dispatch" |
 
 **Do not remove.** Without it, Claude Code cannot run the farm as subagents.
 
-Analyst analysis rules stay in **one place:** the five `.claude/skills/qa-analyst/analysis/*_analysis/SKILL.md` files, applied as grounded isolated passes by `src/agents/requirementAnalyst.js` (the simulator's JS Analyst) and by the `qa-analyst` subagent.
+### Analyst analysis skills
+
+Analysis rules live in **one place** — `.claude/skills/qa-analyst/analysis/` — and are applied as grounded, isolated passes by both the `qa-analyst` subagent and the simulator's JS Analyst (`src/agents/requirementAnalyst.js`). `COMMON.md` holds the rules every pass shares (grounding, status, confidence, untrusted input); the loader prefixes it to each skill, so each `SKILL.md` states only its own job.
+
+| Order | Skill | Runs | Output |
+|---|---|---|---|
+| 1 | `testability_analysis` | always — **the gate** | ISTQB CTAL-TA criteria → score/verdict computed in code |
+| 2 | `requirements_analysis` | always | grounded acceptance criteria + per-criterion conflicts |
+| 3 | `risk_analysis` | always (advisory) | likelihood × impact → `P0–P3` derived in code |
+| 4 | `test_gap_analysis` | always (advisory) | technique × element conditions the checklist must cover |
+| 5 | `source_analysis` | only with a diff | changed surfaces + regression areas |
+| — | `root_cause_analysis` | failure investigation (lives in `qa-reviewer/analysis/`) | 5-Whys chain, evidenced vs hypothesis |
+
+What code enforces, so the model doesn't grade itself:
+
+- **Grounding** (`src/agents/grounding.js`) — every finding's quote must appear verbatim in the story or it is dropped. Image/PDF-derived findings are kept only when attachments were actually sent, and are marked provisional (human-confirmed).
+- **Skill rules** (`src/agents/skillChecks.js`) — testability scoring + gate; risk lists that rate everything high×high, single-technique gap lists, and root-cause chains without evidence are flagged or dropped. Any violation forces human review.
+- **No invented priority** — an unknown likelihood/impact yields no risk, never a default.
+- **Security context** — login/session/API stories get the NCA ECC failure modes (`lib/nca-controls.js`) as prompts for the risk pass; a risk still needs a story quote.
+
+Checklist lines in the breakdown come in three kinds: grounded (quoted from the story), `[Provisional]` (a safe default pending PO), and `[Standing]` (farm rules such as the baseline "UI is designed properly" TC).
 
 > Claude Code is the only host. A former `.cursor/` mirror (+ `.cursorrules`) was removed when the skills were consolidated into one folder; recover it from git history if Cursor support is ever needed again.
 
 ## Hard gates (P0)
 
 **Analyst prompt owns readiness (MAIN GATE in the prompt).** The same contract is a **second gate** in Validator (+ Writer/Author/Reviewer refuse invalid readiness). Orchestrator executes only **validated** actions. Vague ASK / bad PROCEED → Validator reject → retry → escalate to human.
+
+### 0. Testability gate (first pass)
+
+```text
+score = Σ weight × (met 1 | partial 0.5 | not_met 0)      # computed in code
+75–100 → TEST_READY        proceed
+51–74  → NEEDS_REFINEMENT  proceed; defects carried forward; confidence ≤ medium
+0–50   → NOT_TEST_READY    HOLD — extraction skipped, defects returned to PO
+US-3 (testable AC) or T-2 (measurable) not_met → NOT_TEST_READY regardless of score
+```
+
+A blocking verdict always requires human confirmation. Regression: `test/analyst-skill-checks.js`, `test/analyst-golden.js`.
 
 ### 1. Zero-AC kill switch
 
@@ -241,7 +275,10 @@ Open http://127.0.0.1:5173/simulator.html
 | Command | Purpose |
 |---------|---------|
 | `npm start` | Run local server on port 5173 |
-| `npm test` | Requirements, eval fixes, agent1, zero-AC gate, human-input recheck |
+| `npm test` | Full regression suite (requirements, analyst skills + golden set, gates, contracts, …) |
+| `npm run test:analyst-checks` | Analyst skill rules, testability scoring, grounding |
+| `npm run test:analyst-golden` | Golden stories replayed offline through grounding → checks → assembly |
+| `npm run eval:analyst-golden` | Golden stories run against the **live** analyst runner — use after editing a skill |
 | `npm run test:zero-ac` | Zero-AC hard gate only |
 | `npm run test:human-recheck` | Reviewer human-input recheck only |
 | `npm run doctor` | Check Node version, files, and module health |
@@ -277,11 +314,10 @@ lib/               # Requirements parser, human-input, redaction, executor
 js/                # Browser simulator entry
 .claude/skills/    # Per-agent qa-*/SKILL.md (incl. qa-analyst/analysis/ — the analysis skills + COMMON.md)
 .claude/agents/    # Per-agent subagent entrypoints for Claude Code
-.claude/skills/    # Per-agent qa-*/SKILL.md for Claude Code
-src/prompts/       # Agent 1 (Requirement Analyst) prompt — single source of truth
+src/agents/        # JS Analyst: runner, skill loader, grounding, skill checks
 simulator.html     # UI shell
 server.js          # Local dev server + JIRA proxy + execution endpoint
-test/              # Gate + agent regression tests
+test/              # Gate + agent regression tests (golden analyst stories in test/fixtures/analyst-golden/)
 ```
 
 ## Evaluation fixes (v0.2.0)
