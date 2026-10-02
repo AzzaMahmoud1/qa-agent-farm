@@ -66,9 +66,11 @@ export function buildAgentOutputs(story) {
       ticket: `${s} — ${story.title}`,
       source: story.from_jira ? "JIRA live" : story.from_requirements ? "Requirements (pasted)" : "mock",
       stage: "1 — Orchestrator leads the pipeline",
-      orchestration_mode: live ? "agent1_cursor_agent" : "simulated_pipeline",
+      orchestration_mode: live ? "live_orchestrator_run" : "simulated_pipeline",
+      // Live run: every agent output the orchestrator judged, and what it decided.
+      live_run: story.orchestrator_run || null,
       orchestration_note: live
-        ? `Agent 1 live${story.live_writer_output ? " + live Writer" : ""}; Author live only when run against a target URL — otherwise it holds COMPLETE.`
+        ? `Live orchestrator run (${story.orchestrator_run?.stage || "analysis"}): it judged each agent's output and passed only accepted output on.`
         : "Simulated pipeline; Author stub blocks COMPLETE/Executor.",
       model_routing: {
         orchestrator: MODEL_ORCHESTRATOR, workers: MODEL_WORKER,

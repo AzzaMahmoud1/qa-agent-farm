@@ -6,39 +6,37 @@ A multi-agent QA pipeline that turns a Jira story (or pasted requirements) into 
 
 ```mermaid
 flowchart LR
-  subgraph IN[Input]
-    J[Jira ticket] --- P[Pasted story]
-  end
+  S[Jira ticket<br/>or story] --> O
+  O{{"Orchestrator<br/>assign → judge → decide"}}
 
-  subgraph AN[Requirement Analyst]
-    direction TB
-    T{Testability gate<br/>ISTQB score}
-    R[Requirements<br/>grounded ACs]
-    K[Risk P0–P3]
-    G[Test-gap<br/>techniques]
-    T -->|ready| R --> K --> G
-  end
+  O -- "1 assign" --> AN["Analyst<br/>testability gate, grounded ACs"]
+  AN -- output --> O
+  O -- "2 accepted analysis" --> WR["Writer<br/>cited Given/When/Then"]
+  WR -- output --> O
+  O -- "3 approved outlines" --> AU["Author<br/>Playwright, replayed"]
+  AU -- session --> O
+  O -- "4 verified" --> EX["Executor → Reviewer → Reporter"]
 
-  IN --> O[Orchestrator] --> T
-  T -->|NOT_TEST_READY| PO[/Back to PO/]
-  G --> V1{Validator}
-  V1 -->|needs input| H1[/Human answers/]
-  H1 --> RC{Reviewer<br/>recheck} --> W
-  V1 -->|proceed| W[Writer<br/>Given/When/Then]
-  W --> V2{Validator}
-  V2 --> AP[/Human approves outlines/]
-  AP --> D[Data Extractor]
-  D --> A[Author<br/>Playwright<br/>Plan → Act → Reflect]
-  A -->|REVIEW verified + replayed| E[Executor] --> RV[Reviewer] --> RP[Reporter<br/>DOCX + JSON]
-  A -->|not verified| HOLD[/Hold: no COMPLETE/]
+  O -. "NOT_TEST_READY" .-> PO[/Back to the PO/]
+  O -. "questions · outline approval" .-> H[/Human/]
+  H -. "answers · approvals · URL" .-> O
+  O -. "rejected twice" .-> ESC[/Escalate to human/]
 
-  classDef gate fill:#fff4d6,stroke:#c99a06;
+  classDef brain fill:#fff4d6,stroke:#c99a06;
   classDef human fill:#e8f0fe,stroke:#4a6fd1;
-  class T,V1,V2,RC gate;
-  class PO,H1,AP,HOLD human;
+  class O brain;
+  class PO,H,ESC human;
 ```
 
-**Legend:** ◇ = gate (code-enforced) · ▱ = human or hold.
+### The orchestrator is the brain
+
+No agent talks to another. For every agent, the orchestrator follows the same loop:
+
+1. It assigns the agent, giving it the output it accepted from the previous agent.
+2. It judges the result.
+3. It decides: proceed, retry once with its reasons, ask a human, hold, or escalate.
+
+Only accepted output is handed to the next agent, and every decision is recorded on the run (`src/agents/orchestratorRun.js`).
 
 ### Three rules hold everywhere
 
@@ -50,7 +48,7 @@ flowchart LR
 
 | Agent | Does | Live in simulator |
 |---|---|---|
-| Orchestrator | The only entry point. Dispatches agents and carries out validated actions | deterministic |
+| Orchestrator | The brain: assigns every agent, judges its output, and decides whether it moves on | ✅ judges in code |
 | Analyst | Testability gate, then grounded ACs, risk and test-gap passes | ✅ LLM |
 | Validator | Second-opinion gate on every output | deterministic |
 | Writer | One Given/When/Then case per checklist line, with a verbatim citation | ✅ LLM |

@@ -129,7 +129,7 @@ Agent N starts only after agent N−1 has produced structured output **and** the
 
 ### Live Writer
 
-After a live Analyst run, the simulator runs the Writer through the same LLM runner (`src/agents/testWriter.js`, driven by `qa-writer/SKILL.md`). Code checks the model's cases before they're used:
+The orchestrator assigns the Writer only after it has accepted the Analyst's output; the Writer uses the same LLM runner (`src/agents/testWriter.js`, driven by `qa-writer/SKILL.md`). Code checks the model's cases before they're used:
 
 - A case for an AC the Analyst never produced is dropped.
 - A case whose citation isn't verbatim from its AC is dropped.
@@ -137,11 +137,10 @@ After a live Analyst run, the simulator runs the Writer through the same LLM run
 - Provisional ACs give `[Provisional]` cases.
 - Every AC gets an explicit verdict.
 
-Turn it off with `?writer=local`.
 
 ### Live Author (Playwright)
 
-Approve an outline, give the target URL, then choose **Run live Author** in the Author tab. The loop is in `src/agents/liveAuthor.js`:
+Approve outlines, give the target URL, then send them back to the orchestrator from the Author tab. It authors each approved outline and judges every session. The loop is in `src/agents/liveAuthor.js`:
 
 ```text
 PLAN    → the LLM proposes the next action from the task and a page snapshot
@@ -237,9 +236,9 @@ The local server is `server.js`.
 | GET | `/api/jira/health` | Jira connectivity check |
 | GET / POST | `/api/jira/issue` | Fetch a Jira issue by key or URL |
 | GET | `/api/jira/attachment` | Proxy a Jira attachment |
-| POST | `/api/agents/analyst` | Run the live Requirement Analyst |
-| POST | `/api/agents/writer` | Run the live Writer on an Analyst contract |
-| POST | `/api/agents/author` | Run the live Author (Playwright) on one approved outline |
+| POST | `/api/orchestrator/run` | Start a live run: the orchestrator runs the Analyst, judges it, hands accepted output to the Writer, judges that, then waits for outline approval |
+| POST | `/api/orchestrator/resume` | Give the orchestrator outline approvals, a URL and test credentials; it authors and judges each approved outline |
+| GET | `/api/orchestrator/run?id=` | A run's stage, outputs and every decision |
 | GET | `/api/agents/analyst/health` | Runner and auth health |
 | GET / POST | `/api/settings/llm` | Read or save the LLM runner settings |
 | GET / POST | `/api/knowledge` | Read or append to the requirements knowledge base (writes are local-only) |

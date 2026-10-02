@@ -162,14 +162,17 @@ export function assembleLiveWriterOutput(parsed, analyst) {
  * Run the live Writer. One corrective retry on unparseable output.
  * @param {object} analyst — Analyst contract
  * @param {string} ticketText
- * @param {{ call?: (prompt:string, attempt:number) => Promise<{text:string}> }} [opts] — injectable runner (tests)
+ * @param {{ call?: (prompt:string, attempt:number) => Promise<{text:string}>, feedback?: string[] }} [opts] — injectable runner (tests); orchestrator feedback from a rejected attempt
  */
 export async function runLiveWriter(analyst, ticketText, opts = {}) {
   if (!(analyst?.testable_conditions || []).length) {
     return { success: false, error: "Writer needs at least one Analyst testable condition" };
   }
   const call = opts.call || ((prompt, attempt) => callAgentRunner(prompt, effortForAttempt(attempt), { attempt, agent: "writer" }));
-  const first = await call(buildWriterPrompt(analyst, ticketText), 1);
+  const feedback = Array.isArray(opts.feedback) && opts.feedback.length
+    ? `## Orchestrator feedback on your previous attempt\nFix these before answering: ${opts.feedback.join("; ")}`
+    : "";
+  const first = await call(buildWriterPrompt(analyst, ticketText, feedback), 1);
   let parsed;
   try {
     parsed = extractSkillJson(first.text);

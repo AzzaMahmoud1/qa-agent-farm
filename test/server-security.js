@@ -80,6 +80,17 @@ try {
   r = await request("/api/execute", { method: "OPTIONS", headers: { Origin: `http://localhost:${PORT}` } });
   assert.equal(r.status, 204, "preflight from own origin allowed");
 
+  // Agents are reachable only through the orchestrator.
+  for (const path of ["/api/agents/analyst", "/api/agents/writer", "/api/agents/author", "/api/orchestrator/dispatch"]) {
+    r = await request(path, { method: "POST", headers: json, body: "{}" });
+    assert.ok(r.status === 404 || r.status === 405, `${path} is not a direct entry point (got ${r.status})`);
+  }
+  r = await request("/api/orchestrator/resume", { method: "POST", headers: json, body: JSON.stringify({ run_id: "nope" }) });
+  assert.equal(r.status, 404, "resume needs a run the orchestrator started");
+  r = await request("/api/orchestrator/run", { method: "POST", headers: json, body: JSON.stringify({ ticketText: "" }) });
+  assert.equal(r.status, 200);
+  assert.equal(JSON.parse(r.body).stage, "ESCALATED", "empty story never reaches an agent");
+
   // Static files are unaffected by the API guards.
   r = await request("/simulator.html");
   assert.equal(r.status, 200);
