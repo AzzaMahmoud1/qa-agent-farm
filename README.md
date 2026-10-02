@@ -267,7 +267,9 @@ The Author is currently a **scaffold** (`agents/author.js`). It refuses empty AC
 - Webpage URLs stay `pending_browser` until real browser evidence exists.
 - The Executor denies by default: loopback is blocked, redirects are re-checked against the allowlist, and it has a rate limit, local or token auth, and an audit log.
 - Secrets in curl or JSON (`api_key`, `access_token`, `password`, `Authorization`, …) are redacted in the UI, logs and exports.
-- Static files are served from an allowlist, so dotfiles such as `.env` and `.git` are blocked. The Jira proxy uses same-origin CORS.
+- Static files are served from an allowlist, so dotfiles such as `.env` and `.git` are blocked.
+- **CSRF and DNS-rebinding guards on `/api/*`.** POST requests must be `application/json`, which forces a CORS preflight. Any `Origin` must be this server's own; another localhost app doesn't count. Requests with a foreign `Host` header are refused.
+- Jira credentials are sent to the Jira host only, never to a redirect target.
 - When NCA ECC security gaps apply (injection, IDOR, URL manipulation, API exposure, auth bypass), they block release.
 - Story text, comments, attachments and logs are treated as **data, never instructions**, in every analysis pass.
 
@@ -342,6 +344,7 @@ The local server is `server.js`.
 | `npm run test:zero-ac` | Zero-AC kill switch |
 | `npm run test:human-recheck` | Reviewer human-input recheck |
 | `npm run test:dependency-gate` | Upstream validated-output dependency |
+| `npm run test:security` | CSRF, DNS rebinding, origin checks, and executor host classification (runs the real server) |
 | `npm run doctor` | Node version, files and module health |
 | `npm run check:modules` | Checks that every production ES module parses |
 
