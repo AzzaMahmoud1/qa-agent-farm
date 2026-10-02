@@ -174,11 +174,13 @@ export function fetchAttachmentBinary(contentUrl, options = {}) {
   const maxBytes = options.maxBytes || 8 * 1024 * 1024;
   const maxRedirects = options.maxRedirects ?? 5;
 
+  const jiraHost = new URL(base).host;
   const get = (url, redirectsLeft) => new Promise((resolve, reject) => {
-    const req = https.request(url, {
-      method: "GET",
-      headers: { Authorization: `Basic ${auth}` },
-    }, (res) => {
+    if (url.protocol !== "https:") { reject(new Error("Attachment redirect to non-HTTPS URL refused")); return; }
+    // Jira credentials go to the Jira host only — never to a redirect target
+    // (Atlassian media links are pre-signed and need no Basic auth).
+    const headers = url.host === jiraHost ? { Authorization: `Basic ${auth}` } : {};
+    const req = https.request(url, { method: "GET", headers }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume();
         if (redirectsLeft <= 0) { reject(new Error("Too many redirects")); return; }
