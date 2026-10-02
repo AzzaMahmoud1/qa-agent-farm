@@ -57,15 +57,38 @@ function securityHeaders(extra = {}) {
   };
 }
 
+/** host:port values this server answers to. Anything else is DNS rebinding. */
+const ALLOWED_HOSTS = new Set([
+  `127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, `${host}:${port}`,
+].map((h) => h.toLowerCase()));
+
+function isAllowedHostHeader(req) {
+  return ALLOWED_HOSTS.has(String(req.headers.host || "").toLowerCase());
+}
+
+/** Only this server's own origin — not any other app on localhost. */
 function allowedOrigin(req) {
   const origin = req.headers.origin;
   if (!origin) return null;
   try {
     const u = new URL(origin);
-    if (u.hostname === "localhost" || u.hostname === "127.0.0.1") return origin;
-    if (u.origin === `http://${host}:${port}` || u.origin === `http://127.0.0.1:${port}`) return origin;
+    if (u.protocol === "http:" && ALLOWED_HOSTS.has(u.host.toLowerCase())) return origin;
   } catch { /* ignore */ }
   return null;
+}
+
+/**
+ * CSRF guard for state-changing API calls. "Local-only" endpoints check the
+ * socket IP, but a browser on this machine is always loopback — so any web
+ * page the user visits could POST here. Requiring application/json forces a
+ * CORS preflight (which allowedOrigin rejects), and a present Origin must be
+ * our own.
+ */
+function checkCsrf(req) {
+  const type = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+  if (type !== "application/json") return { ok: false, status: 415, error: "Content-Type must be application/json" };
+  if (req.headers.origin && !allowedOrigin(req)) return { ok: false, status: 403, error: "Cross-origin request rejected" };
+  return { ok: true };
 }
 
 function sendJson(res, req, status, body) {
@@ -138,7 +161,7 @@ function clientIp(req) {
 
 function isLocalRequester(req) {
   const ip = clientIp(req);
-  return ip === "127.0.0.1" || ip === "::1" || ip === ":ffff:127.0.0.1";
+  return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
 }
 
 function checkExecuteAuth(req) {
@@ -181,6 +204,20 @@ http
   .createServer(async (req, res) => {
     const url = new URL(req.url, `http://${host}:${port}`);
     const pathname = url.pathname;
+
+    if (pathname.startsWith("/api/")) {
+      if (!isAllowedHostHeader(req)) {
+        sendText(res, 403, "Forbidden host");
+        return;
+      }
+      if (req.method === "POST") {
+        const csrf = checkCsrf(req);
+        if (!csrf.ok) {
+          sendJson(res, req, csrf.status, { error: csrf.error });
+          return;
+        }
+      }
+    }
 
     if (req.method === "OPTIONS" && pathname.startsWith("/api/")) {
       const origin = allowedOrigin(req);

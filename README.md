@@ -1,301 +1,420 @@
 # QA Agent Farm
 
-Browser-based QA planning simulator with a multi-agent pipeline, JIRA live fetch, and requirements paste mode. Agent 1 (Requirement Analyst) runs live via a pluggable runner — the Cursor Agent CLI (default) or a direct Anthropic API call.
+A multi-agent QA pipeline that turns a Jira story (or pasted requirements) into **grounded, traceable test cases**. Each step passes through a validation gate, a human confirms anything the agents can't prove, and runs end in terminal states that never claim a pass without evidence.
 
-Inspired by mabl-style **Plan → Approve → Author (Plan→Act→Reflect)** — without cloning proprietary auto-heal. The farm owns its own durable gates, honest terminal states, and evidence-based execution.
+It runs in two ways:
 
-## Target pipeline
+- **Claude Code pipeline.** Type `qa: <ticket>` and the orchestrator dispatches the Analyst, Writer and other agents as subagents.
+- **Browser simulator.** A local web UI (`simulator.html`) that runs the same pipeline, with a live Requirement Analyst behind a pluggable LLM runner.
+
+The design follows mabl's **Plan → Approve → Author (Plan → Act → Reflect)** workflow, without copying its proprietary auto-heal. The farm has its own gates and grounding.
+
+---
+
+## Contents
+
+- [Quick start](#quick-start)
+- [How a run works](#how-a-run-works)
+- [The agents](#the-agents)
+- [Requirement Analyst](#requirement-analyst)
+- [Hard gates](#hard-gates)
+- [Writer and Author contracts](#writer-and-author-contracts)
+- [Execution and security](#execution-and-security)
+- [Configuration](#configuration)
+- [HTTP API](#http-api)
+- [Testing](#testing)
+- [Project layout](#project-layout)
+- [Roadmap](#roadmap)
+- [Changelog](#changelog)
+
+---
+
+## Quick start
+
+**Requires Node.js 18.18 or later.**
+
+```bash
+cp .env.example .env
+```
+
+Optional: fill in your Jira credentials and an LLM runner in `.env`.
+
+```bash
+npm run doctor
+```
+
+```bash
+npm start
+```
+
+Then open <http://127.0.0.1:5173/simulator.html>. Choose the Analyst's LLM provider at <http://127.0.0.1:5173/settings.html>; that's optional, and the default runner is the Cursor Agent CLI.
+
+**From Claude Code,** open the repo and type:
 
 ```text
-Analyst → (human gate) → Writer(outlines) → (approve) → Data Extractor → Author → Executor → Reviewer → Reporter
-                                                              │
-                                                              └─ always runs; source = human curl/URL or story context
+qa: PROJ-123
 ```
+
+`CLAUDE.md` routes the message to `qa-orchestrator`, which runs the pipeline. Worker agents only run when the orchestrator dispatches them, so if you invoke one directly it declines.
+
+Other triggers: `test:`, `ticket:`, "write tests for…", "review this ticket".
+
+---
+
+## How a run works
 
 ```mermaid
 flowchart TD
-  start[Ticket or paste] --> orch[Orchestrator]
-  orch --> analyst[Analyst LIVE via prompt]
+  start[Jira ticket or pasted story] --> orch[Orchestrator]
+  orch --> gate[Analyst: testability gate]
+  gate -->|NOT_TEST_READY| po[HOLD: defects back to PO]
+  gate -->|ready / needs refinement| analyst[Analyst: grounded extraction]
   analyst --> valA[Validator MAIN GATE]
-  valA -->|fail| retryA[Retry Analyst or abort]
+  valA -->|fail| retryA[Retry Analyst or escalate]
   valA -->|pass| actions{Analyst orchestrator_actions}
-  actions -->|blocking ASK_HUMAN| human[Human typed answers]
-  human --> recheck[Reviewer recheck vs asks]
+  actions -->|blocking ASK_HUMAN| human[Human answers]
+  human --> recheck[Reviewer rechecks answers vs asks]
   recheck -->|rejected| human
   recheck -->|accepted| writer
-  actions -->|PROCEED| writer[Writer outlines]
-  writer --> approve[Human Approve outlines]
+  actions -->|PROCEED| writer[Writer: test outlines + GWT]
+  writer --> approve[Human approves outlines]
   approve --> data[Data Extractor]
-  data --> author[Author Plan Act Reflect]
-  author -->|status REVIEW| exec[Executor]
-  author -->|stub PLAN_READY or BUILDING| hold[Pipeline hold no COMPLETE]
-  exec --> rev[Reviewer coverage]
+  data --> author[Author: Plan → Act → Reflect]
+  author -->|REVIEW| exec[Executor]
+  author -->|PLAN_READY / BUILDING| hold[Hold: no COMPLETE]
+  exec --> rev[Reviewer: coverage + evidence]
   rev --> rep[Reporter]
   rep --> done[COMPLETE]
 ```
 
-| Agent | Role |
-|-------|------|
-| **Orchestrator** | Only entry point; assigns workers; **executes Analyst actions** (does not invent readiness) |
-| **Analyst** | **Readiness main gate** — ACs, gaps, prereqs, `orchestrator_actions` via prompt |
-| **Writer** | Emits `test_outlines` (primary) + GWT docs; human Approve/Reject before Author |
-| **Data Extractor** | Always runs; builds datasets / oracles from human input or story context |
-| **Author** | Builds executable steps from **approved** outlines (Playwright stub — cannot COMPLETE yet) |
-| **Executor** | Transport / evidence observation (honest HTTP / pending browser) |
-| **Reviewer** | Coverage + evidence review; also **rechecks human input vs Analyst asks** |
-| **Reporter** | SEHA-style summary from real artifacts |
+**Primary path:** Analyst produces a requirements breakdown, then the Writer produces test cases.
 
-`Writer` stops treating offline Given/When/Then as the primary unblock for Author. Outlines + human approval do. Legacy GWT may remain as documentation only.
+**Optional execution phase:** Data Extractor → Author → Executor → Reviewer → Reporter.
 
-Trigger a run with `qa:`, `test:`, `ticket:`, or “write tests for” / “review this ticket”. Worker subagents run **only** when the orchestrator dispatches them.
+No agent starts until the agent before it has returned structured output **and** the Validator has approved it.
 
-## `.claude/` folder (keep it)
+---
 
-Claude Code dispatch config — the interactive pipeline. **Not** the simulator runtime; code changes live under `agents/`, `src/`, `js/`.
+## The agents
 
-| Path | Purpose |
-|------|---------|
-| `.claude/agents/*.md` | Subagent entrypoints Claude Code can dispatch (`qa-orchestrator`, `qa-analyst`, …) |
-| `.claude/skills/qa-*/SKILL.md` | Per-role rules for those subagents |
-| `.claude/skills/qa-analyst/analysis/*_analysis/SKILL.md` | The analysis skills (testability gate first) the Analyst runs as isolated grounded passes; shared rules in `COMMON.md` |
-| `CLAUDE.md` | Triggers (`qa:` / `test:` / `ticket:`) + "orchestrator-only dispatch" |
+| Agent | Level | Role | Rules |
+|---|---|---|---|
+| **Orchestrator** | L1 | Only entry point. Dispatches workers and carries out the Analyst's validated actions; it never decides readiness itself | `qa-orchestrator` |
+| **Validator** | L2 | Second-opinion gate on every worker output | `qa-validator` |
+| **Requirement Analyst** | L2 | Testability gate, then the grounded requirements breakdown and atomic checklist | `qa-analyst` |
+| **Writer** | L3 | Test outlines (primary) plus Given/When/Then cases, mapped one-to-one to the checklist | `qa-writer` |
+| **Data Extractor** | L3 | Valid, invalid and boundary datasets and a test oracle per case | `qa-data-extractor` |
+| **Author** | L3 | Executable steps from *approved* outlines (Plan → Act → Reflect) | `qa-author` |
+| **Executor** | L3 | Runs the plan and records honest evidence | `qa-executor` |
+| **Reviewer** | L4 | Scores coverage, checks human input against the Analyst's asks, investigates root causes | `qa-reviewer` |
+| **Reporter** | L5 | SEHA-style test summary report (DOCX + JSON) | `qa-reporter` |
 
-**Do not remove.** Without it, Claude Code cannot run the farm as subagents.
+Each agent's entry point is `.claude/agents/<name>.md` and its rules are in `.claude/skills/<name>/SKILL.md`. Don't delete `.claude/`, because Claude Code needs it to run the farm.
 
-Analyst analysis rules stay in **one place:** the five `.claude/skills/qa-analyst/analysis/*_analysis/SKILL.md` files, applied as grounded isolated passes by `src/agents/requirementAnalyst.js` (the simulator's JS Analyst) and by the `qa-analyst` subagent.
+### Model routing
 
-> Claude Code is the only host. A former `.cursor/` mirror (+ `.cursorrules`) was removed when the skills were consolidated into one folder; recover it from git history if Cursor support is ever needed again.
+| Role | Simulator / Cursor (`agents/registry.js`) | Claude Code (`.claude/agents/*.md`) |
+|---|---|---|
+| Orchestrator | `claude-fable-5` | `claude-fable-5` |
+| Validator + workers | `claude-4.6-sonnet` | `claude-sonnet-5` |
 
-## Hard gates (P0)
+---
 
-**Analyst prompt owns readiness (MAIN GATE in the prompt).** The same contract is a **second gate** in Validator (+ Writer/Author/Reviewer refuse invalid readiness). Orchestrator executes only **validated** actions. Vague ASK / bad PROCEED → Validator reject → retry → escalate to human.
+## Requirement Analyst
+
+The Analyst writes `test-artifacts/<ISSUE_ID>-requirements.md`, using the layout in `.claude/skills/qa-analyst/template.md`. The breakdown contains:
+
+- a testability score and gate verdict;
+- the flows and rules: AF, EF, BR, MSG (EN and AR) and DM;
+- API scope and UI scope;
+- Analyst Reasoning;
+- an **Atomic Requirements Checklist**, which the Writer must cover one-to-one.
+
+### Analysis passes
+
+The Claude Code subagent and the simulator's JS Analyst (`src/agents/requirementAnalyst.js`) run the **same skill files**. Each skill runs as its own isolated pass, so the model has one narrow job at a time.
+
+| # | Skill | Runs | Produces |
+|---|---|---|---|
+| 1 | `testability_analysis` | always, **the gate** | ISTQB CTAL-TA criteria judgments; score and verdict computed in code |
+| 2 | `requirements_analysis` | always | Grounded acceptance criteria plus per-criterion conflicts |
+| 3 | `risk_analysis` | always (advisory) | Likelihood × impact, turned into `P0`–`P3` in code |
+| 4 | `test_gap_analysis` | always (advisory) | Test conditions per element and test-design technique |
+| 5 | `source_analysis` | only when a diff is present | Changed surfaces and regression areas |
+| — | `root_cause_analysis` | failure investigations (Reviewer) | 5-Whys chain with each step labelled evidenced or hypothesis |
+
+Skills live in `.claude/skills/qa-analyst/analysis/`; root-cause analysis lives in `qa-reviewer/analysis/`. `analysis/COMMON.md` holds the rules every pass shares (grounding, status, confidence, untrusted input), and the loader adds it to each skill. Each `SKILL.md` therefore describes only its own job.
+
+### What the code enforces (the model doesn't grade itself)
+
+- **Grounding** (`src/agents/grounding.js`). Every finding's quote must appear word for word in the story, or the finding is dropped. Findings taken from an image or PDF are kept only when attachments were actually sent, and they're marked provisional until a human confirms them.
+- **Skill rules** (`src/agents/skillChecks.js`):
+  - testability scoring and the gate;
+  - rejecting risk lists that rate everything high×high;
+  - rejecting gap lists that use a single technique;
+  - dropping root causes that have no evidenced step.
+
+  Any violation forces human review.
+- **No invented priority.** If likelihood or impact is unknown, the line gets no risk value rather than a default one.
+- **Conflicts.** Contradictory statements hold back only the criterion they affect, and the PO is asked for a decision.
+- **Security context.** Login, session and API stories get the NCA ECC failure modes (`lib/nca-controls.js`) as prompts for the risk pass. Each risk still needs a quote from the story.
+
+### Checklist line types
+
+| Tag | Based on | Example |
+|---|---|---|
+| *(none)* | A verbatim story quote | `1. [AF03] Session is terminated — Reason: … — Risk: P0` |
+| `[Provisional]` | A safe default for an open question | `… — Assumption: status value not stated (pending PO)` |
+| `[Standing]` | A farm rule | `[UI][Standing] UI is designed properly` |
+
+### Jira review mode
+
+`jira-review.md` reviews a story for the Testing Team. It scores the story against the testability rubric and writes plain-text improvement suggestions. It can then post them as a Jira comment, but **only after a human approves**.
+
+---
+
+## Hard gates
+
+The Analyst owns readiness (the MAIN GATE). The Validator re-checks the same contract, and the Writer, Author and Reviewer refuse output that isn't ready. The Orchestrator only carries out **validated** actions.
+
+### 0. Testability gate (first pass)
+
+```text
+score = Σ weight × (met 1 | partial 0.5 | not_met 0)        # computed in code
+75–100 → TEST_READY         proceed
+51–74  → NEEDS_REFINEMENT   proceed; defects carried forward; confidence ≤ medium
+0–50   → NOT_TEST_READY     HOLD: extraction skipped, defects returned to the PO
+US-3 (testable AC) or T-2 (measurable) not_met → NOT_TEST_READY, whatever the score
+```
+
+A blocking verdict always needs human confirmation.
 
 ### 1. Zero-AC kill switch
 
 ```text
 IF validated testable_conditions.length === 0:
   pipeline_state = NEEDS_INPUT
-  ask human for testable acceptance criteria / clarified intent
+  ask the human for testable acceptance criteria
   FORBID: placeholder TC-01, Writer, Author, run_end(success)
 ```
 
-Regression: `test/zero-ac-gate.js`.
+### 2. Prerequisites can't bypass empty ACs
 
-### 2. Prerequisites cannot bypass empty ACs
-
-`submitPrerequisites()` may only unlock Writer when:
-
-```text
-testable_conditions.length > 0
-AND missing_blocking_prereqs.length === 0
-AND Reviewer human-input recheck = accepted
-```
+The Writer unlocks only when there's at least one testable condition, no blocking prerequisites are missing, **and** the Reviewer's recheck of the human input has passed.
 
 ### 3. Human-input recheck (Reviewer)
 
-After the human submits prerequisites:
-
-1. Reviewer maps each answer to Analyst blocking asks / `ASK_HUMAN`
-2. **Blames** mismatches (empty, placeholder, wrong shape: URL / curl / credentials)
-3. Verdict:
-   - `accepted` → unlock Writer / Author path
-   - `rejected` → stay on human gate until corrected
-
-Regression: `test/human-input-recheck.js`.
+The Reviewer matches each human answer to the Analyst's blocking asks. It flags empty, placeholder or wrongly shaped answers (URL, curl, credentials) and returns `accepted`, which unlocks the Writer, or `rejected`, which keeps the run at the human gate.
 
 ### 4. Upstream validated-output dependency
 
-```text
-Agent N may start ONLY IF Agent N-1 has:
-  1) structured output in storyOutputs, AND
-  2) Validator approve (orchestrator_gate)
-```
-
-Writer+ phases are not pre-built while human gates are open; they append after unlock. Blocked Author → pipeline hold (no Executor).
-
-Regression: `test/dependency-gate.js`.
+Agent N starts only after agent N−1 has produced structured output **and** the Validator has approved it. A blocked Author puts the pipeline on hold and the Executor doesn't run.
 
 ### 5. Honest terminal states
 
 | State | Meaning |
-|-------|---------|
-| `NEEDS_INPUT` | Missing ACs / credentials / URL / blocked step |
+|---|---|
+| `NEEDS_INPUT` | Missing ACs, credentials or URL, or a blocked step |
 | `PLAN_READY` | Outline awaiting human approval |
 | `BUILDING` | Author session running |
-| `REVIEW` | Executable test built + verified |
-| `FAILED` | Author exhausted retries / invalid requirements |
-| `COMPLETE` | Only after REVIEW + Reporter |
+| `REVIEW` | Executable test built and verified |
+| `FAILED` | Author ran out of retries, or the requirements are invalid |
+| `COMPLETE` | Only after REVIEW and the Reporter |
 
-`run_end` success only if `status === COMPLETE`. Timeline exhaustion alone is **not** success.
+`run_end` reports success only when the state is `COMPLETE`. Running out of time on the timeline is **not** success.
 
-## Author agent (chosen: dedicated `qa-author`)
+---
 
-**Decision:** Option **B** — new `qa-author` between Writer and Reviewer (cleaner role split than upgrading Executor).
+## Writer and Author contracts
 
-### Input
-
-```text
-approved outline + env URL + credentials + (optional) curl/API contract
-```
-
-### Loop per task/step
-
-```text
-PLAN    → next action from outline + last screenshot/DOM
-ACT     → Playwright click/type/navigate (or API call)
-REFLECT → assert validation; capture screenshot/console/network
-if fail → undo/retry once with alternate locator/strategy
-if still fail → NEEDS_INPUT (never invent pass)
-replay prefix steps before advancing (stability check)
-```
-
-Author is **scaffolded** (`agents/author.js`, `.claude/skills/qa-author/`) — refuses empty ACs / unapproved outlines; Playwright MVP is Sprint S2.
-
-## Writer outline contract (S1)
-
-Primary Writer artifact:
+### Writer outlines
 
 ```json
 {
-  "test_outlines": [
-    {
-      "id": "TO-01",
-      "title": "…",
-      "mapped_acs": ["AC-1"],
-      "intent": "…",
-      "preconditions": [],
-      "tasks": [{ "id": "T1", "action": "…", "validation": "…" }],
-      "status": "draft"
-    }
-  ],
+  "test_outlines": [{
+    "id": "TO-01", "title": "…", "mapped_acs": ["AC-1"], "intent": "…",
+    "preconditions": [], "tasks": [{ "id": "T1", "action": "…", "validation": "…" }],
+    "status": "draft"
+  }],
   "coverage_matrix": { "AC-1": ["TO-01"] }
 }
 ```
 
-Rules:
+- One outline per distinct intent (happy path, negative, exception).
+- Every AC appears in `coverage_matrix`, or is marked `not_testable` with a reason.
+- A human approves, edits or rejects each outline. Only `approved` outlines reach the Author.
+- Given/When/Then cases stay as documentation; the outlines are what unblock the Author.
 
-- One outline per distinct intent (happy / negative / exception)
-- Every AC ID in `coverage_matrix` or explicitly `not_testable` with reason
-- Human gate: Approve / Edit / Reject — only `approved` outlines enter Author
+### Author loop
 
-## Delivery status
+The Author's input is an approved outline, the environment URL and credentials, and optionally a curl command or API contract.
 
-| Sprint | Deliverable | Status |
-|--------|-------------|--------|
-| **S0** | Zero-AC gate + no placeholder TC + no success without ACs | Done |
-| **S0+** | Reviewer human-input recheck vs Analyst (blame + accept/reject) | Done |
-| **S0+** | `qa-author` scaffold in pipeline | Done (stub) |
-| **S0+** | Upstream validated-output dependency gate | Done |
-| **S1** | Writer emits `test_outlines` + approval UI | Done |
-| **S1+** | Stub/LIVE runner badges + honest Author COMPLETE block messaging | Done |
-| **S2** | Author MVP (Playwright) for 1 happy-path outline | Planned |
-| **S3** | Persist run state + rehydrate simulator | Planned |
-| **S4** | Failure classification + recovery proposals | Planned |
-
-### Explicit non-goals (for now)
-
-- Don’t clone mabl visual auto-heal
-- Don’t require cloud MCP
-- Don’t delete GWT entirely — demote it to documentation
-- Don’t let Author “fix” product code
-
-## Model routing
-
-| Role | Cursor model ID | Claude Code model ID |
-|------|------------------|-----------------------|
-| Orchestrator | `claude-fable-5` (Claude Fable 5) | `claude-fable-5` (Claude Fable 5) |
-| Validator + all worker agents | `claude-4.6-sonnet` (Claude Sonnet) | `claude-sonnet-5` (Claude Sonnet) |
-
-Configured in `agents/registry.js` (`AGENT_MODEL_ROUTING`), `.claude/agents/*.md`, and `.claude/agents/*.md`.
-
-## Requirements
-
-- **Node.js >= 18.18** with `"type": "module"` in `package.json`
-- Browser classic scripts (`lib/prerequisites.js`) stay CJS-compatible; Node loads `lib/prerequisites.cjs` via `createRequire`
-- Optional: JIRA credentials in `.env` for live ticket fetch
-- Agent 1 runner (`ANALYST_RUNNER`, default `cursor_agent_cli`):
-  - `cursor_agent_cli` — enable **Claude Fable 5** and **Claude Sonnet** in Cursor Models settings, `cursor-agent login`
-  - `anthropic_api` — set `ANTHROPIC_API_KEY` (console.anthropic.com); no Cursor install needed
-
-## Honest execution semantics (v0.3)
-
-- Pipeline agent/validator loop is a **simulated** orchestrator (`orchestration_mode: simulated_pipeline`)
-- `/api/execute` performs a **transport-only** HTTP call — HTTP 2xx is `transport_observed`, **not** a per-AC pass
-- Webpage URLs are `pending_browser` until real browser evidence exists
-- Secrets in curl/JSON (`api_key`, `access_token`, `password`, …) are redacted in UI/logs/exports
-- NCA/ECC security gaps (injection, IDOR, URL manipulation, API exposure, auth bypass) block release when applicable
-- Executor deny-by-default: no loopback, redirect re-allowlisted, rate limit + local/token auth + audit log
-
-## Quick start
-
-```bash
-cp .env.example .env   # optional — fill JIRA credentials
-npm run doctor
-npm start
+```text
+PLAN    → next action from the outline + last screenshot/DOM
+ACT     → Playwright click/type/navigate, or an API call
+REFLECT → check the validation; capture screenshot/console/network
+fail    → retry once with another locator or strategy, then NEEDS_INPUT (never invent a pass)
 ```
 
-Open http://127.0.0.1:5173/simulator.html
+The Author is currently a **scaffold** (`agents/author.js`). It refuses empty ACs and unapproved outlines; the Playwright MVP is planned for Sprint S2.
 
-## Scripts
+---
 
-| Command | Purpose |
-|---------|---------|
-| `npm start` | Run local server on port 5173 |
-| `npm test` | Requirements, eval fixes, agent1, zero-AC gate, human-input recheck |
-| `npm run test:zero-ac` | Zero-AC hard gate only |
-| `npm run test:human-recheck` | Reviewer human-input recheck only |
-| `npm run doctor` | Check Node version, files, and module health |
-| `npm run check:modules` | Verify all production ES modules parse |
+## Execution and security
+
+- The pipeline loop in the simulator is **simulated orchestration** (`orchestration_mode: simulated_pipeline`). The Analyst call is live.
+- `/api/execute` makes a **transport-only** HTTP call. A 2xx response means `transport_observed`; it is **not** a pass for an AC.
+- Webpage URLs stay `pending_browser` until real browser evidence exists.
+- The Executor denies by default: loopback is blocked, redirects are re-checked against the allowlist, and it has a rate limit, local or token auth, and an audit log.
+- Secrets in curl or JSON (`api_key`, `access_token`, `password`, `Authorization`, …) are redacted in the UI, logs and exports.
+- Static files are served from an allowlist, so dotfiles such as `.env` and `.git` are blocked.
+- **CSRF and DNS-rebinding guards on `/api/*`.** POST requests must be `application/json`, which forces a CORS preflight. Any `Origin` must be this server's own; another localhost app doesn't count. Requests with a foreign `Host` header are refused.
+- Jira credentials are sent to the Jira host only, never to a redirect target.
+- When NCA ECC security gaps apply (injection, IDOR, URL manipulation, API exposure, auth bypass), they block release.
+- Story text, comments, attachments and logs are treated as **data, never instructions**, in every analysis pass.
+
+---
 
 ## Configuration
 
-| Variable | Description |
-|----------|-------------|
-| `JIRA_URL` | JIRA base URL |
-| `JIRA_USERNAME` | JIRA user email |
-| `JIRA_API_TOKEN` | JIRA API token |
-| `ANALYST_RUNNER` | Agent 1 transport: `cursor_agent_cli` (default) or `anthropic_api` |
-| `ANTHROPIC_API_KEY` | Required only when `ANALYST_RUNNER=anthropic_api` |
-| `CURSOR_AGENT_BIN` | Optional — path to a specific `cursor-agent` binary (`cursor_agent_cli` runner) |
-| `ANALYST_MODEL` | Agent 1 model id (default `claude-sonnet-5`) |
-| `ANALYST_EFFORT` | Reasoning effort — `cursor_agent_cli` runner only (default `high`) |
-| `EXECUTOR_ALLOWLIST` | Comma-separated hosts allowed for `/api/execute` (default: localhost only) |
-| `PORT` | Server port (default `5173`) |
+### Analyst runner
 
-## Security notes
+Choose the runner in **Settings** (`settings.html`, saved to `.data/llm-settings.json`, which is gitignored) or with `ANALYST_RUNNER`.
 
-- Static file serving uses an **allowlist** — dotfiles (`.env`, `.git`) are blocked
-- JIRA API responses use **same-origin CORS** only (no wildcard)
-- Curl **Authorization** values are **redacted** in UI, logs, and exports
-- API execution is limited to **allowlisted hosts** via `EXECUTOR_ALLOWLIST`
+| Runner | Auth | Default model |
+|---|---|---|
+| `cursor_agent_cli` *(default)* | `cursor-agent login` | `claude-sonnet-5` |
+| `anthropic_api` | `ANTHROPIC_API_KEY` | `claude-sonnet-5` |
+| `openai_api` | `OPENAI_API_KEY` | `gpt-5` |
+| `openrouter_api` | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-5` |
+| `custom_openai_compatible` | `CUSTOM_LLM_API_KEY` + `CUSTOM_LLM_BASE_URL` | `CUSTOM_LLM_MODEL` |
+
+Only `anthropic_api` sends images and PDFs to the model. With the text-only runners, the run reports attachments as not analysed.
+
+### Environment variables
+
+| Variable | Purpose |
+|---|---|
+| `JIRA_URL`, `JIRA_USERNAME`, `JIRA_API_TOKEN` | Fetching live Jira tickets |
+| `ANALYST_RUNNER` | Analyst runner (see the table above) |
+| `ANALYST_MODEL` | Model ID for `cursor_agent_cli` and `anthropic_api` (default `claude-sonnet-5`) |
+| `ANALYST_EFFORT`, `ANALYST_RETRY_EFFORT` | Reasoning effort for the first attempt and the retry (`cursor_agent_cli` only; default `high`) |
+| `ANALYST_MAX_TOKENS` | Max output tokens (`anthropic_api`) |
+| `CURSOR_AGENT_BIN` | Path to a specific `cursor-agent` binary |
+| `OPENAI_MODEL`, `OPENROUTER_MODEL`, `CUSTOM_LLM_MODEL` | Model overrides per provider |
+| `EXECUTOR_ALLOWLIST` | Comma-separated hosts that `/api/execute` may call |
+| `EXECUTOR_ALLOW_LOOPBACK` | Set to `1` to allow localhost targets |
+| `EXECUTE_API_TOKEN`, `EXECUTE_RATE_LIMIT`, `EXECUTE_RATE_WINDOW_MS`, `EXECUTE_TIMEOUT_MS` | Auth and limits for the execution endpoint |
+| `REQUIREMENTS_KB_PATH` | Knowledge-base file (default `.farm/requirements-kb.json`) |
+| `FARM_STATE_PATH` | Location of the persisted run state |
+| `HOST`, `PORT`, `MAX_BODY_BYTES`, `JIRA_TIMEOUT_MS` | Server tuning (defaults `127.0.0.1`, `5173`) |
+
+`.env.example` has a commented template.
+
+---
+
+## HTTP API
+
+The local server is `server.js`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/jira/health` | Jira connectivity check |
+| GET / POST | `/api/jira/issue` | Fetch a Jira issue by key or URL |
+| GET | `/api/jira/attachment` | Proxy a Jira attachment |
+| POST | `/api/agents/analyst` | Run the live Requirement Analyst |
+| GET | `/api/agents/analyst/health` | Runner and auth health |
+| GET / POST | `/api/settings/llm` | Read or save the LLM runner settings |
+| GET / POST | `/api/knowledge` | Read or append to the requirements knowledge base (writes are local-only) |
+| GET | `/api/knowledge/search` | Search the knowledge base |
+| POST | `/api/execute` | Transport-only HTTP execution (allowlisted) |
+| GET | `/api/execute/audit` | Execution audit log |
+
+---
+
+## Testing
+
+| Command | What it runs |
+|---|---|
+| `npm test` | The full offline regression suite: requirements, Analyst skills and golden set, gates, contracts, state |
+| `npm run test:analyst-checks` | Analyst skill rules, testability scoring, grounding |
+| `npm run test:analyst-golden` | Golden stories replayed offline through grounding, checks and assembly |
+| `npm run eval:analyst-golden` | The golden stories run against the **live** runner; use this after editing a skill |
+| `npm run test:analyst-runner` | Runner selection and response parsing |
+| `npm run test:zero-ac` | Zero-AC kill switch |
+| `npm run test:human-recheck` | Reviewer human-input recheck |
+| `npm run test:dependency-gate` | Upstream validated-output dependency |
+| `npm run test:security` | CSRF, DNS rebinding, origin checks, and executor host classification (runs the real server) |
+| `npm run doctor` | Node version, files and module health |
+| `npm run check:modules` | Checks that every production ES module parses |
+
+**Golden set.** Each file in `test/fixtures/analyst-golden/` contains a story, the raw model output for each skill, and the expected contract (verdict, readiness, condition count, actions, risks). To guard a new behaviour, add a file there. The offline run checks the code paths, and the live run checks the skill prompts.
+
+---
 
 ## Project layout
 
+```text
+.claude/
+  agents/               Subagent entry points (qa-orchestrator, qa-analyst, …)
+  skills/qa-*/          Rules for each agent
+  skills/qa-analyst/
+    SKILL.md            Analyst rules (passes, extraction, checklist line types)
+    template.md         Layout of requirements.md
+    story-gap-analysis.md, jira-review.md
+    analysis/           COMMON.md + one folder per analysis skill
+  skills/qa-reviewer/analysis/root_cause_analysis/
+agents/                 Pipeline agents (orchestrator, analyst, writer, validator, …)
+src/agents/             Live JS Analyst: runner, skill loader, grounding, skill checks
+lib/                    Requirements parser, human input, redaction, executor, NCA controls, settings
+js/                     Browser simulator
+scripts/                doctor, module checks, one-off Analyst smoke run
+templates/              DOCX report template
+test/                   Regression tests + fixtures (analyst-golden/)
+test-artifacts/         Generated requirements.md / test-cases.md
+simulator.html          Simulator UI
+settings.html           LLM runner settings
+server.js               Local server: Jira proxy, Analyst, execution endpoint
+CLAUDE.md               Claude Code triggers + orchestrator-only dispatch
 ```
-agents/            # Pipeline agents (orchestrator, analyst, writer, author, …)
-lib/               # Requirements parser, human-input, redaction, executor
-js/                # Browser simulator entry
-.claude/skills/    # Per-agent qa-*/SKILL.md (incl. qa-analyst/analysis/ — the analysis skills + COMMON.md)
-.claude/agents/    # Per-agent subagent entrypoints for Claude Code
-.claude/skills/    # Per-agent qa-*/SKILL.md for Claude Code
-src/prompts/       # Agent 1 (Requirement Analyst) prompt — single source of truth
-simulator.html     # UI shell
-server.js          # Local dev server + JIRA proxy + execution endpoint
-test/              # Gate + agent regression tests
-```
 
-## Evaluation fixes (v0.2.0)
+---
 
-Addresses enterprise evaluation findings:
+## Roadmap
 
-- **EVAL-001** — Module parse errors fixed; CI module checks added
-- **EVAL-002** — Executor records HTTP evidence via `/api/execute`
-- **EVAL-003** — Improved AC classification (auth rules, time limits, data tables)
-- **EVAL-004** — Both API and UI surfaces routed when detected
-- **EVAL-005** — Curl parser supports `--request` / `--header`; secrets redacted
-- **EVAL-006** — Server hardening (allowlist, CORS, limits, security headers)
-- **EVAL-007** — Fallback metrics are null until measured
+| Sprint | Deliverable | Status |
+|---|---|---|
+| S0 | Zero-AC gate; no placeholder TCs; no success without ACs | Done |
+| S0+ | Reviewer recheck of human input; `qa-author` scaffold; dependency gate | Done |
+| S1 | Writer `test_outlines` + approval UI; stub/live runner badges | Done |
+| S1+ | Analyst testability gate; code-enforced skill rules; golden set | Done |
+| S2 | Author MVP (Playwright) for one happy-path outline | Planned |
+| S3 | Persist run state and rehydrate the simulator | Planned |
+| S4 | Failure classification and recovery proposals | Planned |
+
+**Not planned for now:** copying mabl's visual auto-heal, requiring a cloud MCP, removing GWT entirely (it stays as documentation), or letting the Author "fix" product code.
+
+---
+
+## Changelog
+
+**v0.3: Analyst skills hardening**
+- The testability gate is wired into the simulator, scored in code, with knockout criteria.
+- Validators the skills promised now exist in code. Change-analysis findings now reach the output. No more invented priorities.
+- Conflicts are reported per criterion. Test-gap analysis is reframed. NCA security context is added to the risk pass.
+- The skills shrank from about 10.3k to 4k words thanks to a shared `COMMON.md` and a separate template. The Jira review files are merged into one.
+
+**v0.2.0: enterprise evaluation fixes**
+- EVAL-001: fixed module parse errors; added CI module checks.
+- EVAL-002: the Executor records HTTP evidence through `/api/execute`.
+- EVAL-003: better AC classification (auth rules, time limits, data tables).
+- EVAL-004: both API and UI surfaces are routed when detected.
+- EVAL-005: the curl parser supports `--request` / `--header`; secrets are redacted.
+- EVAL-006: server hardening (allowlist, CORS, limits, security headers).
+- EVAL-007: fallback metrics stay null until measured.
+
+---
 
 ## License
 
-Private / unlicensed — internal use.
+Private / unlicensed, for internal use.
