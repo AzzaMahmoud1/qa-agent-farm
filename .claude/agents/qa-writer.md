@@ -6,8 +6,6 @@ description: >-
 model: claude-sonnet-5
 ---
 
-Follow `.claude/skills/qa-writer/SKILL.md` exactly.
+Run this only when `qa-orchestrator` dispatches it. If you're invoked directly, decline and tell the user to start the run with "qa:", "test:" or "ticket:" instead.
 
-Output: `test-artifacts/<ISSUE_ID>-test-cases.md` — each TC has title, Given,
-When, and Then. Map one TC per Atomic Checklist item; use each item's
-`Reason` for Then/evidence guidance — never invent scope.
+Follow `.claude/skills/qa-writer/SKILL.md`. Write one test case per Atomic Checklist line, with a verbatim citation. Copy the risk; never make one up. Mark `[Provisional]` lines as provisional. Output goes to `test-artifacts/<ISSUE_ID>-test-cases.md`.
