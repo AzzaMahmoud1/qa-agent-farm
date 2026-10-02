@@ -371,6 +371,71 @@ http
       return;
     }
 
+    if (pathname === "/api/agents/writer" && req.method === "POST") {
+      if (!isLocalRequester(req)) {
+        sendJson(res, req, 403, { error: "Writer API is local-only" });
+        return;
+      }
+      try {
+        const body = await readBody(req);
+        if (!Array.isArray(body.analyst?.testable_conditions) || !body.analyst.testable_conditions.length) {
+          sendJson(res, req, 400, { error: "analyst.testable_conditions is required" });
+          return;
+        }
+        const { runLiveWriter } = await import("./src/agents/testWriter.js");
+        const result = await runLiveWriter(body.analyst, String(body.ticketText || ""));
+        sendJson(res, req, result.success === false ? 422 : 200, result);
+      } catch (err) {
+        const status = err.message?.includes("exceeds") || err.message?.includes("Invalid JSON") ? 400 : 500;
+        sendJson(res, req, status, { error: err.message });
+      }
+      return;
+    }
+
+    if (pathname === "/api/agents/author" && req.method === "POST") {
+      if (!isLocalRequester(req)) {
+        sendJson(res, req, 403, { error: "Author API is local-only" });
+        return;
+      }
+      try {
+        const body = await readBody(req);
+        const outline = body.outline;
+        if (!outline?.id || outline.status !== "approved" || !Array.isArray(outline.tasks) || !outline.tasks.length) {
+          sendJson(res, req, 400, { error: "An approved outline with tasks is required" });
+          return;
+        }
+        let target;
+        try { target = new URL(String(body.url || "")); } catch { target = null; }
+        if (!target || !/^https?:$/.test(target.protocol)) {
+          sendJson(res, req, 400, { error: "A target http(s) URL is required" });
+          return;
+        }
+        const { runAuthorSession, makeLlmPlanner } = await import("./src/agents/liveAuthor.js");
+        const { createPlaywrightDriver } = await import("./src/agents/playwrightDriver.js");
+        const { callAgentRunner, extractSkillJson, effortForAttempt } = await import("./src/agents/requirementAnalyst.js");
+        const skillText = fs.readFileSync(path.join(root, ".claude/skills/qa-author/SKILL.md"), "utf8").replace(/^---[\s\S]*?---\s*/, "");
+        let driver;
+        try {
+          driver = await createPlaywrightDriver();
+        } catch (err) {
+          sendJson(res, req, 200, { success: false, blocked: true, runner: "live", status: "NEEDS_INPUT", outline_id: outline.id, blocked_reason: err.message, summary: err.message, steps: [], requirement_verdicts: {} });
+          return;
+        }
+        const planner = makeLlmPlanner({
+          skillText,
+          call: (prompt) => callAgentRunner(prompt, effortForAttempt(1), { agent: "author" }),
+          extractJson: extractSkillJson,
+        });
+        const secrets = { username: String(body.credentials?.username || ""), password: String(body.credentials?.password || "") };
+        const result = await runAuthorSession({ outline, url: target.href, secrets, driver, planner, sessionId: `auth-${String(body.storyId || "story")}-${Date.now().toString(36)}` });
+        sendJson(res, req, 200, result);
+      } catch (err) {
+        const status = err.message?.includes("exceeds") || err.message?.includes("Invalid JSON") ? 400 : 500;
+        sendJson(res, req, status, { error: err.message });
+      }
+      return;
+    }
+
     if (pathname === "/api/agents/analyst/health" && req.method === "GET") {
       const { resolveActiveProvider } = await import("./lib/llm-settings.js");
       let provider;

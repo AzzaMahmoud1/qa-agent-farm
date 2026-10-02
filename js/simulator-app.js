@@ -26,6 +26,7 @@ import { redactParsedCurl, redactString } from "../lib/redaction.js";
 import { parseRequirementsDescription, issueToStory } from "../lib/story.js";
 import { buildRequirementsFromStory, getLiveRequirements } from "../lib/requirements.js";
 import { mergeHumanAskFields } from "../lib/human-ask-merge.js";
+import { saveRun, loadRun, clearRun, applyOutlineStatuses } from "./run-persistence.js";
 import {
   resolveExpectedShape,
   evaluateProvidedValue,
@@ -1023,6 +1024,38 @@ async function runAgent1(story) {
 }
 
 /**
+ * Live Writer runs right after a live Agent 1 (same runner), unless turned off
+ * with `?writer=local` or localStorage.setItem("qa-live-writer","0").
+ */
+function isLiveWriterEnabled() {
+  try {
+    const q = new URL(location.href).searchParams.get("writer");
+    if (q === "live") return true;
+    if (q === "local") return false;
+    return localStorage.getItem("qa-live-writer") !== "0";
+  } catch {
+    return true;
+  }
+}
+
+async function runLiveWriter(story) {
+  const analyst = story?.live_analyst_output;
+  if (!analyst?.ready_for_test_design || !(analyst.testable_conditions || []).length) return null;
+  if (el("status-writer")) el("status-writer").textContent = "running…";
+  el("event-message").textContent = "Writer is drafting test cases from the Analyst's grounded conditions…";
+  const res = await fetch("/api/agents/writer", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ analyst, ticketText: ticketTextForAnalyst(story) }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.success === false) throw new Error(data.error || `Writer failed (HTTP ${res.status})`);
+  story.live_writer_output = data;
+  if (el("status-writer")) el("status-writer").textContent = "done";
+  return data;
+}
+
+/**
  * Ensure Agent 1 analysis is available. Default path is the local
  * deterministic analyst (no network, instant). When live Agent 1 is enabled,
  * call the Cursor Agent CLI and gracefully fall back to local on any failure.
@@ -1038,6 +1071,15 @@ async function ensureAgent1(story, runOptions) {
     if (el("status-analyst")) el("status-analyst").textContent = "local";
     const statusTarget = currentInputSource === "jira" ? setJiraStatus : setRequirementsLoadStatus;
     statusTarget("ok", "live Agent 1 unavailable — using local analyst");
+    return story;
+  }
+  if (isLiveWriterEnabled() && !story.live_writer_output) {
+    try {
+      await runLiveWriter(story);
+    } catch (err) {
+      console.warn("Live Writer failed; falling back to the template Writer:", err?.message || err);
+      if (el("status-writer")) el("status-writer").textContent = "local";
+    }
   }
   return story;
 }
@@ -1122,6 +1164,75 @@ function loadStory(story, runOptions) {
   renderPipelineBar(null, new Set());
   document.title = "QA Agent Farm · " + story.id;
   if (jiraConfigured) setJiraStatus("ok", "JIRA connected");
+  saveRunSnapshot();
+}
+
+// ── Run persistence: survive a reload without re-running live agents ─────────
+let resumingRun = false;
+
+function saveRunSnapshot() {
+  if (resumingRun || !currentStory) return;
+  try {
+    saveRun(localStorage, {
+      story: currentStory,
+      runOptions: currentRunOptions,
+      inputSource: currentInputSource,
+      idx,
+      writerOutlines: storyOutputs?.writer?.test_outlines,
+      humanApiInput,
+      humanWebpageInput,
+    });
+  } catch { /* storage unavailable */ }
+}
+
+/**
+ * Restore a saved run: the story (with its live Analyst / Writer / Author
+ * results), outline approvals and the target URL, then replay to the saved
+ * step. Replay stops at any human gate — secrets are never stored, so the
+ * human re-confirms them there.
+ */
+function resumeRun(snap) {
+  resumingRun = true;
+  try {
+    setInputSource(snap.input_source || "jira");
+    loadStory(snap.story, snap.run_options || {});
+    applyOutlineStatuses(storyOutputs?.writer, snap.outline_statuses);
+    if (snap.human_web?.url) {
+      const web = parseWebpageInput(snap.human_web.url, snap.human_web.title || "");
+      if (web?.ok) humanWebpageInput = web;
+      if (el("human-web-url")) el("human-web-url").value = snap.human_web.url;
+      if (el("human-web-title")) el("human-web-title").value = snap.human_web.title || "";
+    }
+    const savedStep = Number.isInteger(snap.step_index) ? snap.step_index : -1;
+    const target = Math.min(savedStep, EVENTS.length - 1);
+    while (idx < target) {
+      const before = idx;
+      next();
+      if (idx === before) break; // stopped at a human gate
+    }
+  } finally {
+    resumingRun = false;
+  }
+  saveRunSnapshot();
+  const stoppedEarly = idx < (Number.isInteger(snap.step_index) ? snap.step_index : -1);
+  el("event-message").textContent = stoppedEarly
+    ? `Resumed ${snap.story.id} — stopped at a human gate (step ${idx + 1}); re-confirm the input to continue.`
+    : `Resumed ${snap.story.id} at step ${idx + 1} — live agent results restored without re-running them.`;
+}
+
+function offerResumeRun() {
+  const snap = (() => { try { return loadRun(localStorage); } catch { return null; } })();
+  const host = el("story-meta");
+  if (!snap || !host) return;
+  const when = new Date(snap.saved_at).toLocaleString();
+  const wrap = document.createElement("span");
+  wrap.id = "resume-run";
+  wrap.style.cssText = "margin-left:.6rem;display:inline-flex;gap:.35rem;align-items:center";
+  wrap.innerHTML = `<button type="button" class="btn" id="btn-resume-run" title="Saved ${escapeHtml(when)}"><i class="ti ti-history"></i> Resume ${escapeHtml(snap.story.id)} (step ${Number(snap.step_index) + 1})</button>
+    <button type="button" class="btn" id="btn-discard-run" title="Forget the saved run" aria-label="Discard saved run"><i class="ti ti-x"></i></button>`;
+  host.after(wrap);
+  wrap.querySelector("#btn-resume-run").addEventListener("click", () => { wrap.remove(); resumeRun(snap); });
+  wrap.querySelector("#btn-discard-run").addEventListener("click", () => { clearRun(localStorage); wrap.remove(); });
 }
 
 
@@ -1586,6 +1697,7 @@ function renderActiveOutputTab() {
     ${status === "done" && activeOutputTab !== "reporter" ? `<details style="margin-top:.75rem"><summary style="cursor:pointer;font-size:.72rem;color:var(--muted)">Raw JSON</summary><pre class="output-json" style="margin-top:.5rem">${escapeHtml(JSON.stringify(data, null, 2))}</pre></details>` : ""}`;
 
   bindOutlineApprovalButtons(body);
+  bindLiveAuthorButton(body);
 }
 
 
@@ -2229,6 +2341,7 @@ function setOutlineStatus(outlineId, status) {
   const n = outlines.filter((x) => x.status === "approved").length;
   storyOutputs.writer.summary = `${n}/${outlines.length} outline(s) approved`;
   publishAgentOutputForHuman("writer", storyOutputs.writer, "done");
+  saveRunSnapshot();
   const authorOut = buildAuthorOutput(
     currentStory, storyOutputs.writer, storyOutputs.analyst,
     humanWebpageInput?.ok ? humanWebpageInput : null,
@@ -2246,8 +2359,9 @@ function renderAuthorOutput(data) {
     ? "#b91c1c" : data.status === "REVIEW" ? "var(--success)" : "var(--text)";
   const warn = (msg) => kv("Note", `<span style="font-weight:600;color:#a16207">${msg}</span>`, "#fcd34d");
   return [
-    data.blocked && (data.status === "BUILDING" || /S2|Playwright/i.test(data.blocked_reason || ""))
-      ? warn("Author is a STUB — Executor / COMPLETE blocked until Playwright S2.") : "",
+    data.status === "BUILDING" && (data.outlines || []).some((o) => o.status === "approved")
+      ? renderLiveAuthorControls(data) : "",
+    data.runner === "live" && data.steps?.length ? renderAuthorSteps(data) : "",
     kv("Author session",
       `<span style="color:${tone};font-weight:600">${escapeHtml(data.status || "—")}${data.session_id ? ` · ${escapeHtml(data.session_id)}` : ""}</span>`,
       data.blocked ? "#fca5a5" : null),
@@ -2256,6 +2370,85 @@ function renderAuthorOutput(data) {
     data.status === "PLAN_READY" && data.outlines?.length
       ? warn("Approve outlines (Writer tab or below).") + renderTestOutlines(data.outlines) : "",
   ].join("");
+}
+
+function renderLiveAuthorControls(data) {
+  const approved = (data.outlines || []).filter((o) => o.status === "approved");
+  const options = approved.map((o) => `<option value="${escapeHtml(o.id)}">${escapeHtml(o.id)} — ${escapeHtml(o.title || "")}</option>`).join("");
+  return `<div class="live-author" style="margin:.5rem 0;padding:.6rem;border:1px solid var(--border);border-radius:8px">
+    <div style="font-size:.78rem;font-weight:600;margin-bottom:.35rem">Live Author · Plan → Act → Reflect (Playwright)</div>
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;font-size:.74rem">
+      <select id="live-author-outline">${options}</select>
+      <input id="live-author-user" placeholder="test username (optional)" autocomplete="off" style="width:11rem">
+      <input id="live-author-pass" type="password" placeholder="test password (optional)" autocomplete="new-password" style="width:11rem">
+      <button type="button" class="btn" id="btn-live-author">Run live Author</button>
+    </div>
+    <div class="muted" style="font-size:.7rem;margin-top:.3rem">Target: ${escapeHtml(humanWebpageInput?.url || "—")}. Credentials go to the local server only; the model sees placeholders.</div>
+    <div id="live-author-status" style="font-size:.74rem;margin-top:.3rem"></div>
+  </div>`;
+}
+
+function renderAuthorSteps(data) {
+  const rows = data.steps.map((st) => `<li style="font-size:.72rem;margin:.2rem 0">
+    <strong style="color:${st.ok ? "var(--success)" : "#b91c1c"}">${st.ok ? "PASS" : "FAIL"}</strong>
+    ${escapeHtml(st.task_id || "")} · ${escapeHtml(st.kind)} ${escapeHtml(JSON.stringify(st.action || st.assertion || {}))}
+    ${st.error ? `<br><span class="muted">${escapeHtml(st.error)}</span>` : ""}</li>`).join("");
+  return kv("Steps", `<ol style="margin:0;padding-left:1.1rem">${rows}</ol>${data.replay_ok ? `<div style="font-size:.72rem;color:var(--success)">Replay from a fresh page: stable</div>` : ""}`);
+}
+
+function bindLiveAuthorButton(root) {
+  const btn = root?.querySelector("#btn-live-author");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    const status = root.querySelector("#live-author-status");
+    const outlineId = root.querySelector("#live-author-outline")?.value;
+    const outline = storyOutputs?.writer?.test_outlines?.find((o) => o.id === outlineId);
+    if (!outline || !humanWebpageInput?.url) return;
+    btn.disabled = true;
+    if (status) status.textContent = "Running in a headless browser… (this can take a minute)";
+    try {
+      const res = await fetch("/api/agents/author", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          outline,
+          url: humanWebpageInput.url,
+          storyId: currentStory?.id,
+          credentials: { username: root.querySelector("#live-author-user")?.value || "", password: root.querySelector("#live-author-pass")?.value || "" },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Author failed (HTTP ${res.status})`);
+      currentStory.live_author_output = data;
+      applyLiveAuthorResult();
+    } catch (err) {
+      if (status) status.textContent = `Live Author failed: ${err.message}`;
+      btn.disabled = false;
+    }
+  });
+}
+
+/**
+ * Re-run the pipeline from data extraction with the live Author result: a
+ * REVIEW now unlocks the Executor; anything else keeps the honest hold.
+ */
+function applyLiveAuthorResult() {
+  const authorOut = buildAuthorOutput(currentStory, storyOutputs.writer, storyOutputs.analyst, humanWebpageInput?.ok ? humanWebpageInput : null);
+  storyOutputs.author = authorOut;
+  publishAgentOutputForHuman("author", authorOut, "done");
+  const start = EVENTS.findIndex((e) => e?.kind === "phase_start" && e.phase === "test_data_extraction");
+  if (start > 0) {
+    const more = buildEventsAfterHumanApiInput(currentStory, storyOutputs?.analyst, storyOutputs?.writer);
+    const from = more.findIndex((e) => e?.kind === "phase_start" && e.phase === "test_data_extraction");
+    EVENTS = EVENTS.slice(0, start).concat(from >= 0 ? more.slice(from) : more);
+    if (idx >= start) idx = start - 1;
+    el("step-total").textContent = EVENTS.length;
+  }
+  if (el("event-message")) el("event-message").textContent = authorOut.summary || "Live Author finished.";
+  saveRunSnapshot();
+  activeOutputTab = "author";
+  renderOutputTabs();
+  renderActiveOutputTab();
 }
 
 function renderReviewerOutput(data) {
@@ -2648,6 +2841,7 @@ function showEmptyTicketState() {
 function showEvent(i) {
   if (i < 0 || i >= EVENTS.length) return;
   idx = i;
+  queueMicrotask(saveRunSnapshot);
   const e = enrichEventForDisplay(EVENTS[i]);
   el("step-idx").textContent = i + 1;
   el("event-title").textContent = kindLabel(e.kind) + (e.role ? " · " + e.role : "");
@@ -2898,6 +3092,7 @@ function showEvent(i) {
         }
       } catch { /* ignore */ }
       showEmptyTicketState();
+      offerResumeRun();
       el("event-message").textContent = "Paste your requirements description on the left, then click Load & run pipeline.";
       return;
     }
@@ -2906,6 +3101,7 @@ function showEvent(i) {
       await loadStoryByKey(initial, true, currentRunOptions);
     } else {
       showEmptyTicketState();
+      offerResumeRun();
     }
   } catch (err) {
     console.error("Simulator init failed:", err);
