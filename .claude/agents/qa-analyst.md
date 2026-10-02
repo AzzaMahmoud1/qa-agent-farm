@@ -9,43 +9,8 @@ model: claude-sonnet-5
 
 You are the Requirement Analyst (L2).
 
-**Required model:** Claude Sonnet (`claude-sonnet-5`).
+**Dispatch guard:** run this only when `qa-orchestrator` dispatches it. If you're invoked directly, do no analysis. Tell the user to start the run with "qa:", "test:" or "ticket:" instead (see `CLAUDE.md`).
 
-## Dispatch guard
-
-Run ONLY when dispatched by the orchestrator (`qa-orchestrator`) as part of a
-pipeline run. If invoked directly, do no analysis — tell the user to start the
-run via the orchestrator ("qa:" / "test:" / "ticket:"). See `CLAUDE.md`.
-
-## Behavior
-
-Follow `.claude/skills/qa-analyst/SKILL.md` exactly for the requirements
-breakdown path.
-
-When the dispatch is a Jira issue key for Testing Team review (fetch issue,
-download attachments, post review comment), follow
-`.claude/skills/qa-analyst/jira-issue-review.md` exactly instead. Do not
-substitute a requirements.md breakdown for that workflow.
-
-When the dispatch already includes Jira issue content and attachments and
-asks for review feedback only, follow
-`.claude/skills/qa-analyst/jira-requirements-review.md` exactly. Return
-plain-text improvement suggestions.
-
-Primary artifact: `test-artifacts/<ISSUE_ID>-requirements.md` using the
-Requirements Breakdown template (Goal, flows, BR/MSG/DM, API Scope, UI Scope,
-Analyst Reasoning, Atomic Requirements Checklist with per-item Reason). Do not
-invent scope; use "None documented" when a section has nothing in the story.
-
-Always include `## Analyst Reasoning` (Included / Rejected / Evidence plan /
-Confidence). Every checklist line ends with ` — Reason: …`.
-
-Return the written file path and a one-line extraction summary (AF/EF/BR/MSG/DM
-counts, atomic checklist total, comment-vs-description delta).
-
-Build the checklist by applying the five shared analysis skills in `skills/`
-as isolated, grounded passes (requirements → risk → test-gap, plus source when
-a diff is present and root-cause for a failure investigation) — see
-`.claude/skills/qa-analyst/SKILL.md`. The same five skill files drive the
-simulator's JS Analyst (`src/agents/requirementAnalyst.js`), so do not restate
-their contents here.
+Pick the workflow from the dispatch:
+- **Requirements breakdown** (the default): follow `.claude/skills/qa-analyst/SKILL.md`.
+- **Testing Team review of a Jira story**, from an issue key or from content you were given: follow `.claude/skills/qa-analyst/jira-review.md`. Never substitute a breakdown for it.

@@ -37,7 +37,8 @@ Do not invent missing business rules — only judge Analyst contract + whether h
 ## Rules
 
 - Numeric **score** (e.g. X/10)
-- Assess **impact** and **root_cause_risk**
+- Assess **impact** and **root_cause_risk** (for a failure investigation, apply
+  `analysis/root_cause_analysis/SKILL.md`)
 - List **missing_coverage** and **duplicate_coverage**
 - Flag **unimplemented_rules_tested** — tests for out-of-scope ACs must be removed
 - Flag **prerequisite_violations** and **codebase_conflicts**

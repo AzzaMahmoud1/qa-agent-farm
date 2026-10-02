@@ -1,0 +1,103 @@
+{
+  "note": "Model invents an AC (email to admin) that is not in the story: grounding drops it; only real ACs survive.",
+  "story": "Key: AUTH-101 | Epic: AUTH-1 Account security | Priority: High\nDescription: As a customer I want my account locked after repeated failed logins so that nobody can guess my password.\nAC1: After 5 failed login attempts the account must be locked for 15 minutes.\nAC2: The login screen displays MSG01 \"Your account is locked\" when the account is locked.\nAC3: A successful login resets the failed attempt counter to 0.",
+  "responses": {
+    "testability_analysis": {
+      "status": "success",
+      "criteria": [
+        {
+          "id": "US-1",
+          "result": "met"
+        },
+        {
+          "id": "US-2",
+          "result": "met"
+        },
+        {
+          "id": "US-3",
+          "result": "met"
+        },
+        {
+          "id": "US-4",
+          "result": "met"
+        },
+        {
+          "id": "US-5",
+          "result": "met"
+        },
+        {
+          "id": "T-1",
+          "result": "met"
+        },
+        {
+          "id": "T-2",
+          "result": "met"
+        },
+        {
+          "id": "T-3",
+          "result": "met"
+        },
+        {
+          "id": "T-4",
+          "result": "met"
+        },
+        {
+          "id": "T-5",
+          "result": "met"
+        },
+        {
+          "id": "R-1",
+          "result": "met"
+        },
+        {
+          "id": "R-2",
+          "result": "not_met"
+        },
+        {
+          "id": "R-3",
+          "result": "met"
+        },
+        {
+          "id": "R-4",
+          "result": "met"
+        },
+        {
+          "id": "R-5",
+          "result": "met"
+        }
+      ],
+      "defects": [],
+      "red_flags": [],
+      "overall_confidence": 0.85,
+      "requires_human_review": false
+    },
+    "requirements_analysis": {
+      "status": "success",
+      "acceptance_criteria": [
+        {
+          "statement": "Admin is emailed on lockout",
+          "evidence_quote": "an email is sent to the administrator",
+          "source_field": "description",
+          "confidence": 0.7
+        },
+        {
+          "statement": "Successful login resets the counter",
+          "evidence_quote": "A successful login resets the failed attempt counter to 0",
+          "source_field": "description",
+          "confidence": 0.93
+        }
+      ],
+      "overall_confidence": 0.9,
+      "requires_human_review": false
+    }
+  },
+  "expect": {
+    "verdict": "TEST_READY",
+    "ready_for_test_design": true,
+    "conditions": 1,
+    "actions": [
+      "PROCEED"
+    ],
+    "dropped_ungrounded": 1
+  }
+}

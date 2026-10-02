@@ -1,0 +1,113 @@
+{
+  "note": "Description and comment disagree on duration: that AC withheld, the rest proceeds with a PO decision requested.",
+  "story": "Key: AUTH-101 | Epic: AUTH-1 Account security | Priority: High\nDescription: As a customer I want my account locked after repeated failed logins so that nobody can guess my password.\nAC1: After 5 failed login attempts the account must be locked for 15 minutes.\nAC2: The login screen displays MSG01 \"Your account is locked\" when the account is locked.\nAC3: A successful login resets the failed attempt counter to 0.\nComment (QA lead): I think the lock should last 30 minutes, not 15.",
+  "responses": {
+    "testability_analysis": {
+      "status": "success",
+      "criteria": [
+        {
+          "id": "US-1",
+          "result": "met"
+        },
+        {
+          "id": "US-2",
+          "result": "met"
+        },
+        {
+          "id": "US-3",
+          "result": "met"
+        },
+        {
+          "id": "US-4",
+          "result": "met"
+        },
+        {
+          "id": "US-5",
+          "result": "met"
+        },
+        {
+          "id": "T-1",
+          "result": "met"
+        },
+        {
+          "id": "T-2",
+          "result": "met"
+        },
+        {
+          "id": "T-3",
+          "result": "met"
+        },
+        {
+          "id": "T-4",
+          "result": "partial"
+        },
+        {
+          "id": "T-5",
+          "result": "met"
+        },
+        {
+          "id": "R-1",
+          "result": "met"
+        },
+        {
+          "id": "R-2",
+          "result": "not_met"
+        },
+        {
+          "id": "R-3",
+          "result": "met"
+        },
+        {
+          "id": "R-4",
+          "result": "met"
+        },
+        {
+          "id": "R-5",
+          "result": "met"
+        }
+      ],
+      "defects": [],
+      "red_flags": [],
+      "overall_confidence": 0.8,
+      "requires_human_review": false
+    },
+    "requirements_analysis": {
+      "status": "success",
+      "acceptance_criteria": [
+        {
+          "statement": "MSG01 shown when locked",
+          "evidence_quote": "displays MSG01 \"Your account is locked\"",
+          "source_field": "description",
+          "confidence": 0.92
+        }
+      ],
+      "conflicts": [
+        {
+          "topic": "lock duration",
+          "quotes": [
+            {
+              "evidence_quote": "must be locked for 15 minutes",
+              "source_field": "description"
+            },
+            {
+              "evidence_quote": "the lock should last 30 minutes",
+              "source_field": "comments[0]"
+            }
+          ]
+        }
+      ],
+      "overall_confidence": 0.88,
+      "requires_human_review": false
+    }
+  },
+  "expect": {
+    "verdict": "TEST_READY",
+    "ready_for_test_design": true,
+    "conditions": 1,
+    "actions": [
+      "PROCEED",
+      "ASK_HUMAN"
+    ],
+    "conflicts": 1
+  }
+}

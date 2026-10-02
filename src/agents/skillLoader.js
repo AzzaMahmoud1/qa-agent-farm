@@ -1,12 +1,12 @@
 /**
- * Skill loader — reads `skills/<name>/SKILL.md` (+ optional
- * `schemas/output.schema.json`) from disk.
+ * Skill loader — reads `<dir>/<name>/SKILL.md` (+ optional
+ * `schemas/output.schema.json`) from disk, prefixed with the shared
+ * `COMMON.md` rules (grounding, status, confidence, untrusted input) so each
+ * skill file only states what is specific to it.
  *
- * The Analyst orchestrator runs each of
- * the five analysis skills as its OWN isolated pass, loading that skill's
- * SKILL.md as the prompt — one narrow job at a time, which is what suppresses
- * hallucination. The five skill files are the single source of truth, shared
- * with the Claude Code `qa-analyst` subagent.
+ * The Analyst runs each analysis skill as its OWN isolated pass — one narrow
+ * job at a time, which is what suppresses hallucination. The skill files are
+ * the single source of truth, shared with the Claude Code `qa-analyst` subagent.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -15,15 +15,25 @@ import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const SKILLS_DIR = join(REPO_ROOT, ".claude/skills/qa-analyst/analysis");
+const REVIEWER_SKILLS_DIR = join(REPO_ROOT, ".claude/skills/qa-reviewer/analysis");
+const COMMON_MD = join(SKILLS_DIR, "COMMON.md");
 
-/** The five analysis skills, in the order the Analyst applies them. */
+/** The analysis skills, in the order the Analyst applies them. */
 export const ANALYST_SKILLS = Object.freeze({
+  testability_analysis: { always: true, advisory: false, findingsKey: "defects" },
   requirements_analysis: { always: true, advisory: false, findingsKey: "acceptance_criteria" },
   risk_analysis: { always: true, advisory: true, findingsKey: "risks" },
   test_gap_analysis: { always: true, advisory: true, findingsKey: "gaps" },
-  source_analysis: { always: false, advisory: true, findingsKey: "impacts" },
-  root_cause_analysis: { always: false, advisory: true, findingsKey: "root_causes" },
+  source_analysis: { always: false, advisory: true, findingsKey: "changed_surfaces" },
+  // Failure investigation belongs to the review phase; still loadable here.
+  root_cause_analysis: { always: false, advisory: true, findingsKey: "root_causes", dir: REVIEWER_SKILLS_DIR },
 });
+
+let commonCache = null;
+function commonRules() {
+  if (commonCache === null) commonCache = existsSync(COMMON_MD) ? readFileSync(COMMON_MD, "utf8").trim() : "";
+  return commonCache;
+}
 
 /**
  * Split a SKILL.md file into its YAML frontmatter block and its body. We do
@@ -50,7 +60,7 @@ function readFrontmatterKey(frontmatter, key) {
  * @returns {{ name: string, description: string, instructions: string, path: string, schema: object|null }}
  */
 export function loadSkill(name) {
-  const skillDir = join(SKILLS_DIR, name);
+  const skillDir = join(ANALYST_SKILLS[name]?.dir || SKILLS_DIR, name);
   const skillMd = join(skillDir, "SKILL.md");
   if (!existsSync(skillMd)) {
     throw new Error(`No SKILL.md found for skill '${name}' at ${skillMd}`);
@@ -68,7 +78,7 @@ export function loadSkill(name) {
   return {
     name: readFrontmatterKey(frontmatter, "name") || name,
     description: readFrontmatterKey(frontmatter, "description"),
-    instructions: body,
+    instructions: commonRules() ? `${commonRules()}\n\n---\n\n${body}` : body,
     path: skillMd,
     schema,
   };
