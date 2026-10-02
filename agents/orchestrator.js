@@ -1269,7 +1269,11 @@ export function buildDownstreamPhases(story, analystParsed, runOptions = {}) {
 
   const requiresApi = farmCtx.storyRequiresApi(story);
   const requiresWeb = farmCtx.storyRequiresWebpage(story);
-  const writerReturns = buildWriterOutput(story, analystWithActions);
+  // Reuse the caller's Writer output when given: it carries the human's
+  // outline approvals, which a fresh build would reset to draft.
+  const writerReturns = runOptions.writerOutput?.test_outlines
+    ? runOptions.writerOutput
+    : buildWriterOutput(story, analystWithActions);
   const writerCases = writerReturns.test_cases || [];
   const outlineCount = (writerReturns.test_outlines || []).length;
   const prelimWriter = writerCases.length
@@ -1573,7 +1577,7 @@ export function buildEventsAfterHumanApiInput(story, analystParsed, writerOutput
     gateDecision: "proceed to test_execution",
   })));
   // Executor+ only when Author approvable — reuse tail via a minimal continue
-  const rest = buildDownstreamPhases(story, parsed, runOptions);
+  const rest = buildDownstreamPhases(story, parsed, { ...runOptions, writerOutput: writerFull });
   // buildDownstreamPhases always starts at Writer; strip through Author gate and keep Executor+
   const execIdx = rest.findIndex((e) => e.kind === "phase_start" && e.phase === "test_execution");
   if (execIdx >= 0) events.push(...rest.slice(execIdx));

@@ -68,7 +68,7 @@ export function buildAgentOutputs(story) {
       stage: "1 — Orchestrator leads the pipeline",
       orchestration_mode: live ? "agent1_cursor_agent" : "simulated_pipeline",
       orchestration_note: live
-        ? "Agent 1 live via Cursor CLI; downstream stubs — Author blocks COMPLETE until S2."
+        ? `Agent 1 live${story.live_writer_output ? " + live Writer" : ""}; Author live only when run against a target URL — otherwise it holds COMPLETE.`
         : "Simulated pipeline; Author stub blocks COMPLETE/Executor.",
       model_routing: {
         orchestrator: MODEL_ORCHESTRATOR, workers: MODEL_WORKER,
@@ -76,7 +76,7 @@ export function buildAgentOutputs(story) {
         by_role: { ...AGENT_MODEL_ROUTING, analyst: live ? "claude-sonnet-5 (high)" : MODEL_WORKER },
       },
       pipeline_plan: [
-        "① Analyst → ② human gate → ③ Writer outlines (approve) → ④ Data → ⑤ Author(S2) → Executor → Reviewer → Reporter",
+        "① Analyst → ② human gate → ③ Writer outlines (approve) → ④ Data → ⑤ Author (live Playwright) → Executor → Reviewer → Reporter",
       ],
       agents_in_pipeline: AGENT_ROLES.map((r) => ({ role: r, model: getModelForAgent(r) })),
       acceptance_criteria_count: story.acceptance_criteria,

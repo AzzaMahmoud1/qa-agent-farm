@@ -1,0 +1,4 @@
+{
+  "min_pass_rate": 0.75,
+  "note": "Minimum share of golden stories the live analyst must pass. Raise it as the skills improve; scripts/golden-trend.js also fails on any story that passed last run and fails now."
+}

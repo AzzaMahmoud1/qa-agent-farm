@@ -72,6 +72,9 @@ function acSources(story, analystOutput) {
         reason: c.reason || "",
         source: c.source || "",
         tcId: c.tcId,
+        // Carried from the Analyst — the Writer never re-rates risk.
+        risk: /^P[0-3]$/.test(String(c.risk || "")) ? c.risk : null,
+        provisional: c.provisional === true,
       };
     });
   }
@@ -90,6 +93,8 @@ function acSources(story, analystOutput) {
     reason: "",
     source: "",
     tcId: ids[i],
+    risk: null,
+    provisional: false,
   }));
 }
 
@@ -143,7 +148,11 @@ export function buildGivenClause(roles, acText) {
   return `${article} ${role} is ${contextHintFromAc(acText)}`;
 }
 
-export function inferPriority(summary, type) {
+const RISK_TO_PRIORITY = { P0: "High", P1: "High", P2: "Medium", P3: "Low" };
+
+/** Display priority: from the Analyst risk when present, else a heuristic label. */
+export function inferPriority(summary, type, risk = null) {
+  if (RISK_TO_PRIORITY[risk]) return RISK_TO_PRIORITY[risk];
   const text = String(summary || "").toLowerCase();
   if (/\blanguage|arabic|english|localization|accessibility|viewport|ui is designed properly|future release\b/.test(text)) {
     return "Low";
@@ -221,7 +230,7 @@ export function buildWriterOutlines(story, analystOutput) {
     const skip = unimplemented.has(c.ac_text) || unimplemented.has(c.id);
     return {
       id: `TO-${String(i + 1).padStart(2, "0")}`,
-      title: verifyThatTitle(c.ac_text),
+      title: verifyThatTitle(c.ac_text) + (c.provisional ? " [Provisional]" : ""),
       ac_text: c.ac_text,
       mapped_acs: [c.id],
       evidence_citation: c.ac_text,
@@ -249,7 +258,7 @@ export function buildWriterTestCases(story, analystOutput) {
   );
   return acSources(story, analystOutput).map((c, i) => {
     const type = inferTcType(c.text, i);
-    const title = verifyThatTitle(c.ac_text);
+    const title = verifyThatTitle(c.ac_text) + (c.provisional ? " [Provisional]" : "");
     const given = buildGivenClause(c.roles, c.ac_text);
     const when = buildWhenClause(c);
     const { then, needs_detail } = buildThenClause(type, c.pass_evidence, c.fail_evidence);
@@ -263,7 +272,9 @@ export function buildWriterTestCases(story, analystOutput) {
       /** Exact Analyst AC / gap text this case cites — never paraphrase-only. */
       evidence_citation: c.ac_text,
       type,
-      priority: inferPriority(title, type),
+      traceability: c.provisional ? "Provisional" : "Confirmed",
+      risk: c.risk,
+      priority: inferPriority(title, type, c.risk),
       given,
       when,
       then,
@@ -372,12 +383,32 @@ function writerIntegrityCheck(analystOutput, output) {
   return missing;
 }
 
+/**
+ * A precomputed live Writer result (src/agents/testWriter.js) is used only if
+ * it was written against exactly this Analyst's conditions — otherwise the
+ * stub Writer runs, so a stale live result never covers the wrong ACs.
+ */
+function usableLiveWriterOutput(story, analystOutput) {
+  const live = story?.live_writer_output;
+  if (!live || live.runner !== "live" || !Array.isArray(live.test_cases) || !live.test_cases.length) return null;
+  const ids = (analystOutput?.testable_conditions || []).map((c) => c.id).sort().join("|");
+  const liveIds = Object.keys(live.ac_verdicts || {}).sort().join("|");
+  return ids && ids === liveIds ? live : null;
+}
+
 export function buildWriterOutput(story, analystOutput, opts = {}) {
   if (!hasStructuredOutput("analyst", analystOutput)) {
     return {
       ...dependencyBlockedOutput("writer", "BLOCKED — Writer waiting on Analyst structured output"),
       runner: "stub", test_cases: [], test_outlines: [], coverage_matrix: {}, ac_verdicts: {},
     };
+  }
+
+  const live = usableLiveWriterOutput(story, analystOutput);
+  if (live) {
+    // Fresh copy: outline approvals mutate status in place.
+    const copy = JSON.parse(JSON.stringify(live));
+    return { ...copy, attempts: [{ attempt: 1, runner: "live" }] };
   }
 
   const buildOnce = () => {

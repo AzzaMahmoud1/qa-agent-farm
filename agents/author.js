@@ -5,7 +5,7 @@ export const AGENT_ID = "author";
 export const SKILL_PATH = ".claude/skills/qa-author/SKILL.md";
 export const SKILL_FOLDER = ".claude/skills/qa-author";
 
-const NOTE = "COMPLETE / Executor blocked until Author REVIEW (Playwright S2).";
+const NOTE = "COMPLETE / Executor blocked until Author REVIEW — run the live Author (Playwright) on an approved outline.";
 
 function out(status, reason, summary, extras = {}) {
   return {
@@ -19,7 +19,7 @@ const verdicts = (acs, evidence) => Object.fromEntries(
   (acs || []).map((c) => [c.id, { verdict: "blocked", evidence }]),
 );
 
-/** Stub Author — never fabricates REVIEW/pass until Playwright S2. */
+/** Author gate — REVIEW only from a verified live session; never fabricated. */
 export function buildAuthorOutput(story, writerOutput, analystOutput, webpage) {
   if (!hasStructuredOutput("analyst", analystOutput)) {
     return { ...dependencyBlockedOutput("author", "BLOCKED — Author waiting on Analyst structured output"),
@@ -57,8 +57,19 @@ export function buildAuthorOutput(story, writerOutput, analystOutput, webpage) {
       { outlines: use, requirement_verdicts: verdicts(conditions, "Missing target URL") });
   }
 
+  const live = story?.live_author_output;
+  if (live?.runner === "live" && approved.some((o) => o.id === live.outline_id)) {
+    // Live Plan→Act→Reflect result for an approved outline (src/agents/liveAuthor.js).
+    // Keep only verdicts for real Analyst ACs.
+    const ids = new Set(conditions.map((c) => c.id));
+    const requirement_verdicts = Object.fromEntries(
+      Object.entries(live.requirement_verdicts || {}).filter(([id]) => ids.has(id)),
+    );
+    return { ...live, outlines: use, requirement_verdicts, pipeline_note: live.status === "REVIEW" ? null : NOTE };
+  }
+
   const session_id = `auth-${story.id}-${Date.now().toString(36)}`;
-  return out("BUILDING", "Author Playwright loop not implemented yet (S2). Session reserved; no fabricated pass.",
-    `Author session ${session_id} staged for ${conditions.length} AC(s) — live Plan→Act→Reflect coming in S2.`,
-    { session_id, outlines: use, requirement_verdicts: verdicts(conditions, "Author runtime pending S2") });
+  return out("BUILDING", "Ready for live authoring — run the live Author (Playwright) on an approved outline. No pass is fabricated meanwhile.",
+    `Author session ${session_id} staged for ${conditions.length} AC(s) — run the live Author to Plan→Act→Reflect in a browser.`,
+    { session_id, outlines: use, requirement_verdicts: verdicts(conditions, "Live authoring not run yet") });
 }
