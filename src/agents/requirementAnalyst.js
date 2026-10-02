@@ -855,6 +855,9 @@ export function assembleAnalystContract(skillRuns, ticketText, meta = {}) {
     return {
       id: `AC${i + 1}`,
       ac_text: String(ac.statement || quote),
+      // Fields the simulator Validator requires (lib/prerequisites.js).
+      testable_statement: String(ac.statement || quote),
+      source: src,
       evidence_quote: quote,
       cite: src,
       source_field: src,
@@ -869,6 +872,7 @@ export function assembleAnalystContract(skillRuns, ticketText, meta = {}) {
   const coverage_gaps = (gap?.findings || []).map((g) => ({
     uncovered_element: g.uncovered_element ?? null,
     technique: g.technique ?? null,
+    category: g.technique || "coverage",
     gap: g.gap ?? null,
     severity: g.severity ?? null,
     suggested_test: g.suggested_test ?? null,
@@ -941,6 +945,7 @@ export function assembleAnalystContract(skillRuns, ticketText, meta = {}) {
   }
 
   const analyst_reasoning = {
+    ticket_read: ticketRead(ticketText),
     included: testable_conditions.map((c) => `${c.id}: ${c.ac_text}`),
     ambiguous_acs: conflicts.map((c) => `Conflict — ${c.topic || "unspecified"}: ${(c.quotes || []).map((q) => `"${q.evidence_quote}" (${q.source_field})`).join(" vs ")}`),
     unimplemented_rules: [],
@@ -998,6 +1003,12 @@ export function assembleAnalystContract(skillRuns, ticketText, meta = {}) {
   };
 }
 
+/** One-line summary of what was read (Validator requires analyst_reasoning.ticket_read). */
+function ticketRead(ticketText) {
+  const first = String(ticketText || "").split("\n").map((l) => l.trim()).find(Boolean) || "";
+  return first ? `Story covers: ${first.slice(0, 160)}` : "Requirements analysis of the supplied ticket";
+}
+
 function groundingSummary(skillRuns) {
   return Object.fromEntries(
     Object.entries(skillRuns).map(([k, v]) => [k, {
@@ -1035,7 +1046,7 @@ function heldForTestability(skillRuns, testability, meta) {
     success: true,
     runner: "live",
     runner_used: meta.runner || resolveAnalystRunner(),
-    analyst_reasoning: { included: [], ambiguous_acs: [], unimplemented_rules: [], rejected_as_non_ac: [], confidence: "low" },
+    analyst_reasoning: { ticket_read: "Story held at the testability gate", included: [], ambiguous_acs: [], unimplemented_rules: [], rejected_as_non_ac: [], confidence: "low" },
     testable_conditions: [],
     prerequisites_needed: {
       blocking: [{ category: "knowledge", blocks: "design", satisfied_by_ticket: false, detail }],
@@ -1201,4 +1212,4 @@ export async function runRequirementAnalyst(ticketText, opts = {}) {
   };
 }
 
-export { ANALYST_MODEL, extractFinalJson };
+export { ANALYST_MODEL, extractFinalJson, callAgentRunner };
