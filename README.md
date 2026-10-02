@@ -5,7 +5,7 @@ A multi-agent QA pipeline that turns a Jira story (or pasted requirements) into 
 It runs in two ways:
 
 - **Claude Code pipeline.** Type `qa: <ticket>` and the orchestrator dispatches the Analyst, Writer and other agents as subagents.
-- **Browser simulator.** A local web UI (`simulator.html`) that runs the same pipeline, with a live Requirement Analyst behind a pluggable LLM runner.
+- **Browser simulator.** A local web UI (`simulator.html`) that runs the same pipeline. The Analyst and Writer can run live behind a pluggable LLM runner, and the Author can run live in a real browser (Playwright). Runs are saved locally and can be resumed after a reload.
 
 The design follows mabl's **Plan → Approve → Author (Plan → Act → Reflect)** workflow, without copying its proprietary auto-heal. The farm has its own gates and grounding.
 
@@ -102,9 +102,9 @@ No agent starts until the agent before it has returned structured output **and**
 | **Orchestrator** | L1 | Only entry point. Dispatches workers and carries out the Analyst's validated actions; it never decides readiness itself | `qa-orchestrator` |
 | **Validator** | L2 | Second-opinion gate on every worker output | `qa-validator` |
 | **Requirement Analyst** | L2 | Testability gate, then the grounded requirements breakdown and atomic checklist | `qa-analyst` |
-| **Writer** | L3 | Test outlines (primary) plus Given/When/Then cases, mapped one-to-one to the checklist | `qa-writer` |
+| **Writer** | L3 | Test outlines (primary) plus Given/When/Then cases, mapped one-to-one to the checklist. Live in the simulator after a live Analyst | `qa-writer` |
 | **Data Extractor** | L3 | Valid, invalid and boundary datasets and a test oracle per case | `qa-data-extractor` |
-| **Author** | L3 | Executable steps from *approved* outlines (Plan → Act → Reflect) | `qa-author` |
+| **Author** | L3 | Executable steps from *approved* outlines (Plan → Act → Reflect), run live with Playwright | `qa-author` |
 | **Executor** | L3 | Runs the plan and records honest evidence | `qa-executor` |
 | **Reviewer** | L4 | Scores coverage, checks human input against the Analyst's asks, investigates root causes | `qa-reviewer` |
 | **Reporter** | L5 | SEHA-style test summary report (DOCX + JSON) | `qa-reporter` |
@@ -245,24 +245,57 @@ Agent N starts only after agent N−1 has produced structured output **and** the
 - A human approves, edits or rejects each outline. Only `approved` outlines reach the Author.
 - Given/When/Then cases stay as documentation; the outlines are what unblock the Author.
 
-### Author loop
+### Live Writer
 
-The Author's input is an approved outline, the environment URL and credentials, and optionally a curl command or API contract.
+After a live Analyst run, the simulator runs the Writer through the same LLM runner (`src/agents/testWriter.js`, driven by `qa-writer/SKILL.md`). Code checks the model's cases before they're used:
+
+- A case for an AC the Analyst never produced is dropped.
+- A case whose citation isn't verbatim from its AC is dropped.
+- Risk is copied from the Analyst; the model can't re-rate it.
+- Provisional ACs give `[Provisional]` cases.
+- Every AC gets an explicit verdict.
+
+Turn it off with `?writer=local`.
+
+### Live Author (Playwright)
+
+Approve an outline, give the target URL, then choose **Run live Author** in the Author tab. The loop is in `src/agents/liveAuthor.js`:
 
 ```text
-PLAN    → next action from the outline + last screenshot/DOM
-ACT     → Playwright click/type/navigate, or an API call
-REFLECT → check the validation; capture screenshot/console/network
-fail    → retry once with another locator or strategy, then NEEDS_INPUT (never invent a pass)
+PLAN    → the LLM proposes the next action from the task and a page snapshot
+ACT     → Playwright clicks / fills / presses; on failure, the planner tries an alternate
+REFLECT → the LLM names an assertion; CODE checks it against the page (the model's "done" is not a pass)
+REPLAY  → every verified step is replayed from a fresh page; only a stable replay reaches REVIEW
 ```
 
-The Author is currently a **scaffold** (`agents/author.js`). It refuses empty ACs and unapproved outlines; the Playwright MVP is planned for Sprint S2.
+- The browser stays on the target origin.
+- Credentials reach the browser only. The planner sees `{{username}}` / `{{password}}`.
+- A REVIEW result rebuilds the pipeline from data extraction, which unlocks Executor → Reviewer → Reporter.
+
+Playwright is optional:
+
+```bash
+npm i -D playwright && npx playwright install chromium
+```
+
+Without it, the Author reports `NEEDS_INPUT` with that instruction.
+
+### Resuming a run
+
+The simulator saves each run to `localStorage` (`js/run-persistence.js`). The saved run includes:
+
+- the story, with its live Analyst, Writer and Author results;
+- outline approvals;
+- the target URL;
+- the current step.
+
+After a reload, **Resume** restores the run without calling the models again. API secrets, credentials and screenshots are never saved. Replay stops at the first human gate so you can re-confirm them.
 
 ---
 
 ## Execution and security
 
-- The pipeline loop in the simulator is **simulated orchestration** (`orchestration_mode: simulated_pipeline`). The Analyst call is live.
+- The orchestrator loop in the simulator is deterministic code. The Analyst, Writer and Author calls are live when enabled; the Data Extractor, Executor, Reviewer and Reporter are deterministic.
 - `/api/execute` makes a **transport-only** HTTP call. A 2xx response means `transport_observed`; it is **not** a pass for an AC.
 - Webpage URLs stay `pending_browser` until real browser evidence exists.
 - The Executor denies by default: loopback is blocked, redirects are re-checked against the allowlist, and it has a rate limit, local or token auth, and an audit log.
@@ -323,6 +356,8 @@ The local server is `server.js`.
 | GET / POST | `/api/jira/issue` | Fetch a Jira issue by key or URL |
 | GET | `/api/jira/attachment` | Proxy a Jira attachment |
 | POST | `/api/agents/analyst` | Run the live Requirement Analyst |
+| POST | `/api/agents/writer` | Run the live Writer on an Analyst contract |
+| POST | `/api/agents/author` | Run the live Author (Playwright) on one approved outline |
 | GET | `/api/agents/analyst/health` | Runner and auth health |
 | GET / POST | `/api/settings/llm` | Read or save the LLM runner settings |
 | GET / POST | `/api/knowledge` | Read or append to the requirements knowledge base (writes are local-only) |
@@ -344,11 +379,23 @@ The local server is `server.js`.
 | `npm run test:zero-ac` | Zero-AC kill switch |
 | `npm run test:human-recheck` | Reviewer human-input recheck |
 | `npm run test:dependency-gate` | Upstream validated-output dependency |
+| `npm run test:e2e` | End-to-end golden run: story → Analyst → Validator → Writer → approval → Author → Executor → Reviewer → Reporter, through the real orchestrator |
+| `npm run test:live-writer` / `test:live-author` | Live Writer validation and the Author's Plan → Act → Reflect loop (injected LLM and browser) |
+| `npm run eval:golden-trend` | Live golden run, appended to `.farm/golden-history.jsonl`, with a trend table and regression check |
 | `npm run test:security` | CSRF, DNS rebinding, origin checks, and executor host classification (runs the real server) |
 | `npm run doctor` | Node version, files and module health |
 | `npm run check:modules` | Checks that every production ES module parses |
 
-**Golden set.** Each file in `test/fixtures/analyst-golden/` contains a story, the raw model output for each skill, and the expected contract (verdict, readiness, condition count, actions, risks). To guard a new behaviour, add a file there. The offline run checks the code paths, and the live run checks the skill prompts.
+**Golden set.** Each file in `test/fixtures/analyst-golden/` contains:
+
+- a story;
+- the raw model output for each skill (plus an optional `writer_response`);
+- the expected contract (verdict, readiness, condition count, actions, risks);
+- an optional `e2e` block for the full pipeline run.
+
+To guard a new behaviour, add a file there.
+
+**Trend tracking.** `.github/workflows/golden-eval.yml` runs the golden stories against a real model every Monday, or on demand; it needs the `ANTHROPIC_API_KEY` secret. It checks Writer coverage too. Results are kept in a cached history, with a trend table in the job summary. The run fails when the pass rate drops below `baseline.json`, or when a story that passed last time now fails.
 
 ---
 
@@ -365,9 +412,10 @@ The local server is `server.js`.
     analysis/           COMMON.md + one folder per analysis skill
   skills/qa-reviewer/analysis/root_cause_analysis/
 agents/                 Pipeline agents (orchestrator, analyst, writer, validator, …)
-src/agents/             Live JS Analyst: runner, skill loader, grounding, skill checks
+src/agents/             Live agents: Analyst (runner, skill loader, grounding, skill checks),
+                        Writer (testWriter.js), Author (liveAuthor.js + playwrightDriver.js)
 lib/                    Requirements parser, human input, redaction, executor, NCA controls, settings
-js/                     Browser simulator
+js/                     Browser simulator (+ run-persistence.js)
 scripts/                doctor, module checks, one-off Analyst smoke run
 templates/              DOCX report template
 test/                   Regression tests + fixtures (analyst-golden/)
@@ -388,8 +436,9 @@ CLAUDE.md               Claude Code triggers + orchestrator-only dispatch
 | S0+ | Reviewer recheck of human input; `qa-author` scaffold; dependency gate | Done |
 | S1 | Writer `test_outlines` + approval UI; stub/live runner badges | Done |
 | S1+ | Analyst testability gate; code-enforced skill rules; golden set | Done |
-| S2 | Author MVP (Playwright) for one happy-path outline | Planned |
-| S3 | Persist run state and rehydrate the simulator | Planned |
+| S2 | Live Author (Playwright Plan → Act → Reflect with replay) and live Writer | Done |
+| S3 | Persist run state and resume the simulator | Done |
+| S3+ | End-to-end golden run; scheduled live golden eval with trend + regression check | Done |
 | S4 | Failure classification and recovery proposals | Planned |
 
 **Not planned for now:** copying mabl's visual auto-heal, requiring a cloud MCP, removing GWT entirely (it stays as documentation), or letting the Author "fix" product code.
@@ -397,6 +446,15 @@ CLAUDE.md               Claude Code triggers + orchestrator-only dispatch
 ---
 
 ## Changelog
+
+**v0.4: live Writer and Author, resumable runs, end-to-end golden**
+- The live Writer validates citations in code and copies risk from the Analyst. The Writer skill now handles `[Provisional]` and `[Standing]` lines; the candidate file is merged and deleted.
+- The live Author runs a Playwright Plan → Act → Reflect loop. Assertions are checked in code, every session is replayed for stability, and secrets are kept away from the model.
+- Simulator runs can be saved and resumed.
+- New end-to-end golden test. It found two bugs, now fixed:
+  - the live Analyst contract was missing fields the Validator requires, so it was always braked;
+  - downstream rebuilds dropped outline approvals.
+- Scheduled live golden eval with a trend and regression gate.
 
 **v0.3: Analyst skills hardening**
 - The testability gate is wired into the simulator, scored in code, with knockout criteria.

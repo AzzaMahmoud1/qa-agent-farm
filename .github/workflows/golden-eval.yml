@@ -1,0 +1,59 @@
+name: Golden eval (live)
+
+# Runs the golden stories against a real model on a schedule, so a model or
+# skill change that degrades quality shows up as a falling trend.
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  golden:
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Skip without an API key
+        if: env.ANTHROPIC_API_KEY == ''
+        run: echo "::warning::ANTHROPIC_API_KEY secret not set — live golden eval skipped"
+      - name: Restore trend history
+        if: env.ANTHROPIC_API_KEY != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: .farm/golden-history.jsonl
+          key: golden-history-${{ github.run_id }}
+          restore-keys: golden-history-
+      - name: Run golden stories live
+        if: env.ANTHROPIC_API_KEY != ''
+        continue-on-error: true
+        env:
+          ANALYST_RUNNER: anthropic_api
+          ANALYST_GOLDEN_LIVE: "1"
+          GOLDEN_REPORT: golden-report.json
+        run: npm run sync:cjs && node test/analyst-golden.js
+      - name: Trend + regression check
+        if: env.ANTHROPIC_API_KEY != ''
+        run: node scripts/golden-trend.js golden-report.json --markdown golden-trend.md && cat golden-trend.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish trend summary on failure
+        if: failure() && env.ANTHROPIC_API_KEY != ''
+        run: test -f golden-trend.md && cat golden-trend.md >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Save trend history
+        if: always() && env.ANTHROPIC_API_KEY != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .farm/golden-history.jsonl
+          key: golden-history-${{ github.run_id }}
+      - uses: actions/upload-artifact@v4
+        if: always() && env.ANTHROPIC_API_KEY != ''
+        with:
+          name: golden-eval-${{ github.run_id }}
+          path: |
+            golden-report.json
+            golden-trend.md

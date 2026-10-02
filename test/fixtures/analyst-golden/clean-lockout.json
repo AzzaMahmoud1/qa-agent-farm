@@ -168,5 +168,50 @@
       null
     ],
     "coverage_gaps": 2
+  },
+  "writer_response": {
+    "test_cases": [
+      {
+        "ac_ref": "AC1",
+        "title": "Verify that the account locks after 5 failed logins",
+        "type": "edge_case",
+        "technique": "BVA",
+        "given": "A customer account with 4 failed login attempts",
+        "when": "The customer submits a wrong password a 5th time",
+        "then": "The account is locked for 15 minutes",
+        "evidence_citation": "After 5 failed login attempts the account must be locked"
+      },
+      {
+        "ac_ref": "AC2",
+        "title": "Verify that MSG01 is shown when the account is locked",
+        "type": "happy_path",
+        "technique": "LANG",
+        "given": "A locked customer account",
+        "when": "The customer opens the login screen",
+        "then": "MSG01 \"Your account is locked\" is displayed",
+        "evidence_citation": "displays MSG01 \"Your account is locked\""
+      },
+      {
+        "ac_ref": "AC3",
+        "title": "Verify that a successful login resets the counter",
+        "type": "happy_path",
+        "technique": "ST",
+        "given": "An account with 3 failed attempts",
+        "when": "The customer logs in successfully",
+        "then": "The failed attempt counter is 0",
+        "evidence_citation": "A successful login resets the failed attempt counter to 0"
+      }
+    ],
+    "skipped": []
+  },
+  "e2e": {
+    "author_outline": "TO-02",
+    "expect_author": "REVIEW",
+    "expect_events": [
+      "agent_assign:test_executor",
+      "agent_assign:reviewer",
+      "agent_assign:reporter",
+      "run_end"
+    ]
   }
 }
